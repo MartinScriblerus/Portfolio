@@ -5,6 +5,10 @@
   height: 100vh;
   background-color: black;
   overflow: hidden;
+  left: 0;
+  top: 0;
+  margin: 0;
+  padding: 0;
 }
 
 /* Audio control button */
@@ -37,4 +41,28 @@
 
 .audio-button:disabled:hover {
   background-color: #6b7280;
+}
+
+#babylonCanvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  z-index: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+}
+
+#hydraCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  z-index: 99999;
+  pointer-events: none;
 }

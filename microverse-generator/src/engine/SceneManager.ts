@@ -6,9 +6,6 @@ export class SceneManager {
   private microverses: BABYLON.AbstractMesh[] = [];
   private isInitialized = false;
 
-  constructor() {
-  }
-
   init(canvas: HTMLCanvasElement): void {
     if (this.isInitialized) {
       console.warn("SceneManager already initialized");
