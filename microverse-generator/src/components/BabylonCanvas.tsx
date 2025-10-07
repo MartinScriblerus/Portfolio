@@ -25,6 +25,7 @@ export default function BabylonHydraCanvas() {
       const hydra = new Hydra({ canvas: hydraCanvas, detectAudio: false });
 
       const { osc, noise, shape } = hydra.synth;
+      console.log("test shape? ", shape);
       osc(10, 0.1, 1.2)
         .color(1, 0.5, 0.7)
         .rotate(() => Math.sin(Date.now() / 1000) * 0.5)
