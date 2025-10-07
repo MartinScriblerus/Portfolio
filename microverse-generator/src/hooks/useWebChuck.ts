@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
+import type { Filename } from "webchuck";
 
+const wasmFiles: Filename[] = ["/webchuck.wasm"];
 declare global {
   interface Window {
     Chuck: {
@@ -47,47 +49,14 @@ export default function useWebChuck() {
     };
   }, [isWebChuckLoaded]);
 
-  const initChuck = useCallback(async () => {
-    if (!isWebChuckLoaded) {
-      console.error("WebChucK not loaded yet! Please wait for it to load.");
-      return null;
-    }
-
-    if (chuck) {
-      console.log("WebChucK already initialized");
-      return chuck;
-    }
-
-    setIsLoading(true);
-
-    try {
-      // Initialize Chuck with local WASM file from public/webchuck/
-      const newChuck = await window.Chuck.init(["/webchuck/webchuck.wasm"]);
-
-      // Resume AudioContext if needed (user gesture required)
-      if (newChuck.audioContext.state === "suspended") {
-        await newChuck.audioContext.resume();
-      }
-
-      // Temporary test tone
-      await newChuck.runCode(`
-        SinOsc s => dac;
-        while(true) {
-          Math.random2f(300,800) => s.freq;
-          0.3::second => now;
-        }
-      `);
-
-      setChuck(newChuck);
-      console.log("WebChucK initialized successfully");
-      return newChuck;
-    } catch (error) {
-      console.error("Failed to initialize WebChucK:", error);
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [chuck, isWebChuckLoaded]);
+const initChuck = useCallback(async () => {
+  if (typeof window === "undefined") return;
+  const { Chuck } = await import("webchuck");
+  const chuck: any = await Chuck.init(wasmFiles);
+  if (chuck.audioContext.state === "suspended") await chuck.audioContext.resume();
+  setChuck(chuck);
+  return chuck;
+}, []);
 
   return {
     chuck,
