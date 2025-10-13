@@ -42,7 +42,7 @@ export default function BabylonHydraCanvas() {
         pulse: number;
     };
 
-    const chuckRef = useRef<any>(null);
+    // const chuckRef = useRef<any>(null);
 
     class CubeManager {
         private static _instance: CubeManager | null = null;
