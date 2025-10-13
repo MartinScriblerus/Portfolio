@@ -17,6 +17,10 @@ export function useRafLoop(callback?: (time: number, delta: number) => void) {
 
     frame.current = requestAnimationFrame(tick);
 
+    if (frame.current !== null) {
+        console.log('RAF loop started with frame ID:', frame.current);
+    }
+
     return () => {
       if (frame.current != null) cancelAnimationFrame(frame.current);
     };
