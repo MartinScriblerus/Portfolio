@@ -1,7 +1,11 @@
 // app/page.tsx
 import React from 'react';
-import App from '../src/App';
+import BabylonCanvas from '../src/components/BabylonCanvas';
+import ChuckSetup from '../src/components/ChuckSetup';
 
 export default function Page() {
-  return <App />;
+  return <>
+    <BabylonCanvas />
+    <ChuckSetup />
+  </>;
 }
