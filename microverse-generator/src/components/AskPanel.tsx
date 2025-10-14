@@ -2,7 +2,7 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { matchDocuments, type MatchRow, supabase } from '../rag/querySupabase';
+import { matchDocuments, type MatchRow, getSupabaseClient } from '../rag/querySupabase';
 
 // Lazy import transformers at runtime to avoid SSR issues
 const loadEmbedder = async () => {
@@ -76,7 +76,8 @@ export default function AskPanel() {
       }
       if (!data || data.length === 0) {
         // fallback 2: exact search RPC (sequential scan)
-        const { data: exact, error: exErr } = await (supabase as any).rpc('match_documents_exact', {
+        const supabase2 = getSupabaseClient();
+        const { data: exact, error: exErr } = await (supabase2 as any).rpc('match_documents_exact', {
           query_embedding: vec,
           match_count: 5,
         });
@@ -88,7 +89,8 @@ export default function AskPanel() {
       }
       if (!data || data.length === 0) {
         // fallback 3: fetch some docs directly to validate RLS/connection
-        const { data: direct, error: derr } = await supabase.from('documents').select('id, work, author, content').limit(3);
+  const supabase = getSupabaseClient();
+  const { data: direct, error: derr } = await supabase.from('documents').select('id, work, author, content').limit(3);
         if (derr) throw derr;
         // cast into MatchRow-ish objects without similarity
         data = (direct ?? []).map((d: any) => ({ ...d, similarity: 0 })) as MatchRow[];
