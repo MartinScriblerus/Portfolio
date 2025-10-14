@@ -1,0 +1,7 @@
+{
+  // Show gitignored files like /content in Explorer so you can edit them
+  "files.exclude": {
+    "**/.git": false
+  },
+  "explorer.excludeGitIgnore": false
+}
