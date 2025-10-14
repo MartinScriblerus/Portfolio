@@ -6,6 +6,7 @@ import { tryGetAudio } from '../utils/utils';
 import { useVisStore } from '../store/useVisStore';
 import { BLUE_CHANNEL, GREEN_CHANNEL, RED_CHANNEL } from '../constants';
 import Title from './Title';
+import { useAgentStore } from '../agent/useAgentStore';
 import { DECAY_PER_SEC, ENERGY_THRESHOLD, ENTROPY_COOLDOWN_MS, INCREMENT, NEIGHBOR_FACTOR } from './constants';
 
 
@@ -442,6 +443,7 @@ export default function BabylonHydraCanvas() {
             const registerUserClick = () => {
                 // publish to store; visuals unaffected since pixelation is purely time-based now
                 try { useVisStore.getState().registerUserClick(); } catch {}
+                try { useAgentStore.getState().incrementClicks(); } catch {}
                 // User gesture: attempt to start video if not playing
                 try { if (hydraVideoEl && hydraVideoEl.paused) hydraVideoEl.play().catch(()=>{}); } catch {}
                 // User gesture: resume WebChucK audio if needed
@@ -550,6 +552,7 @@ export default function BabylonHydraCanvas() {
                     ?? ((globalThis as any).s0?.video?.currentTime)
                     ?? ((globalThis as any).s0?.vid?.currentTime)
                     ?? (videoStartMs != null ? (performance.now() - videoStartMs)/1000 : 0);
+                try { useAgentStore.getState().setTelemetry({ vtime, past23: vtime >= 23, cameraRadius: camera.radius, energy: avg.energy }); } catch {}
                 if (!past23 && vtime >= 23) {
                     past23 = true;
                     // Rebuild to switch Hydra graph to camera-only branch
@@ -667,7 +670,7 @@ export default function BabylonHydraCanvas() {
 
     return (
         <>
-            <Title text={titleText} />
+            {/* <Title text={titleText} /> */}
             <canvas
                 ref={canvasRef}
                 id="babylonCanvas"

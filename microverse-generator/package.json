@@ -5,6 +5,7 @@
   "dependencies": {
     "@babylonjs/core": "^8.30.4",
     "@babylonjs/loaders": "^8.30.4",
+    "@supabase/supabase-js": "^2.75.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
@@ -13,7 +14,9 @@
     "@types/node": "^16.18.126",
     "@types/react": "^19.2.1",
     "@types/react-dom": "^19.2.0",
+    "@xenova/transformers": "^2.17.2",
     "babylonjs": "^8.30.4",
+    "dotenv": "^17.2.3",
     "hydra-synth": "^1.4.0",
     "next": "^15.5.4",
     "patch-package": "^8.0.1",
@@ -29,7 +32,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "ingest:philo": "node scripts/ingest-philo.js"
   },
   "eslintConfig": {
     "extends": [
