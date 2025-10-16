@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
 import * as BABYLON from '@babylonjs/core';
 import { tryGetAudio } from '../utils/utils';
 import { useVisStore } from '../store/useVisStore';
@@ -19,6 +20,7 @@ export default function BabylonHydraCanvas() {
     const [hud, setHud] = useState({ r:0, g:0, b:0, energy:0, impact:0, pulse:0 });
     const [bpm, setBpm] = useState<number>(120);
     const [clicksTotal, setClicksTotal] = useState<number>(0);
+    const metrics = useGuideMetricsStore(s => s.metrics);
 
     function makeLetterOverlay(scene: BABYLON.Scene, text: string, color: string) {
         const size = 256;
@@ -104,6 +106,12 @@ export default function BabylonHydraCanvas() {
     }
 
     useEffect(() => {
+        if (!metrics) return;
+        const { echo, tension, drift, cache } = metrics;
+        console.log(`[guide] echo=${echo.toFixed(2)} tension=${tension.toFixed(2)} drift=${drift.toFixed(2)}${cache ? ` cache=${cache}` : ''}`);
+    }, [metrics]);
+
+    useEffect(() => {
         if (!canvasRef.current) return;
         (async () => {
             const isIntro = true;
@@ -132,7 +140,7 @@ export default function BabylonHydraCanvas() {
             // Pixel overlay controller: heavy from the start, clears at 22s
             const PX_HEAVY = 220;
             let hydraVideoEl: HTMLVideoElement | null = null;
-            let past23 = false;
+            let past25 = false;
             let videoStartMs: number | null = null; // fallback when currentTime is unavailable
             // Exponential moving average for smoothing Hydra inputs
             const smoothAvg = { r:0, g:0, b:0, energy:0 };
@@ -145,10 +153,13 @@ export default function BabylonHydraCanvas() {
                 smoothAvg.b += (currentAvg.b - smoothAvg.b) * SMOOTH_ALPHA;
                 smoothAvg.energy += (currentAvg.energy - smoothAvg.energy) * SMOOTH_ALPHA;
             }
-            // Pull ops/strength from Zustand store (single source of truth)
-            type OpCfg = { on: boolean; strength: number };
+            // Pull ops/strength and color bias from Zustand store (single source of truth)
+            // Allow extra descriptor fields for nested ops (e.g., inner, amount, params)
+            type OpCfg = { on: boolean; strength: number; [key: string]: any };
             let ops: Record<string, OpCfg> = useVisStore.getState().ops as any;
             const strengthScale = () => useVisStore.getState().strengthScale();
+            let targetBias = useVisStore.getState().targetColorBias;
+            let colorBiasWeight = useVisStore.getState().colorBiasWeight;
 
             // Subscribe to ops/strongMode changes and rebuild pipeline on updates (no visual change if defaults match)
             const unsubscribeVis = useVisStore.subscribe((state, prev) => {
@@ -156,12 +167,111 @@ export default function BabylonHydraCanvas() {
                     ops = state.ops as any;
                     buildHydraPipeline(hydraState.pattern);
                 }
+                if (state.targetColorBias !== (prev as any)?.targetColorBias) {
+                    targetBias = state.targetColorBias;
+                    buildHydraPipeline(hydraState.pattern);
+                }
+                if (state.colorBiasWeight !== (prev as any)?.colorBiasWeight) {
+                    colorBiasWeight = state.colorBiasWeight;
+                    buildHydraPipeline(hydraState.pattern);
+                }
             });
+
+            // ------------------------------
+            // Descriptor helpers for nested/stacked ops
+            // ------------------------------
+            type DynParam = number | { dyn: 'sin' | 'energy' | 'audioAmp'; freq?: number; amp?: number; offset?: number };
+            type NodeOp = { op: string; args?: DynParam[] };
+            type SourceSpec = { type: 'src' | 'osc' | 'noise' | 'shape' | 'gradient'; args?: DynParam[]; chain?: NodeOp[]; out?: 'o0'|'o1'|'o2'|'s0' };
+
+            function evalParam(p: DynParam, tSec: number): number {
+                if (typeof p === 'number') return p;
+                if (!p || typeof p !== 'object') return 0;
+                const amp = p.amp ?? 1;
+                const offset = p.offset ?? 0;
+                switch (p.dyn) {
+                    case 'sin': {
+                        const freq = p.freq ?? 0.2; // Hz
+                        const phase = 2 * Math.PI * freq * tSec;
+                        return offset + amp * Math.sin(phase);
+                    }
+                    case 'energy': {
+                        return offset + amp * smoothAvg.energy;
+                    }
+                    case 'audioAmp': {
+                        const a = (window as any).__audioAmp ?? 0;
+                        return offset + amp * a;
+                    }
+                    default: return 0;
+                }
+            }
+
+            function buildArgs(args: DynParam[] | undefined, tSec: number): number[] {
+                if (!args || !args.length) return [];
+                return args.map(a => evalParam(a, tSec));
+            }
+
+            function applyChainOps(base: any, chainOps: NodeOp[] | undefined, tSec: number): any {
+                if (!chainOps || !chainOps.length) return base;
+                let ch = base;
+                for (const step of chainOps) {
+                    const op = step.op as string;
+                    const args = buildArgs(step.args, tSec) as any[];
+                    try {
+                        if (typeof (ch as any)[op] === 'function') {
+                            ch = (ch as any)[op](...args);
+                        }
+                    } catch (e) {
+                        console.warn('[Hydra inner chain] op failed', op, e);
+                    }
+                }
+                return ch;
+            }
+
+            function buildSource(spec: SourceSpec | undefined, tSec: number): any | null {
+                if (!spec) return null;
+                const gAny: any = globalThis as any;
+                try {
+                    switch (spec.type) {
+                        case 'src': {
+                            // support feedback (o0) and camera (s0)
+                            const target = spec.out === 's0' ? gAny.s0 : (spec.out === 'o1' ? gAny.o1 : (spec.out === 'o2' ? gAny.o2 : gAny.o0));
+                            const base = typeof gAny.src === 'function' ? gAny.src(target) : null;
+                            return applyChainOps(base, spec.chain, tSec);
+                        }
+                        case 'osc': {
+                            const args = buildArgs(spec.args, tSec);
+                            const base = typeof gAny.osc === 'function' ? gAny.osc(...args) : null;
+                            return applyChainOps(base, spec.chain, tSec);
+                        }
+                        case 'noise': {
+                            const args = buildArgs(spec.args, tSec);
+                            const base = typeof gAny.noise === 'function' ? gAny.noise(...args) : null;
+                            return applyChainOps(base, spec.chain, tSec);
+                        }
+                        case 'shape': {
+                            const args = buildArgs(spec.args, tSec);
+                            const base = typeof gAny.shape === 'function' ? gAny.shape(...args) : null;
+                            return applyChainOps(base, spec.chain, tSec);
+                        }
+                        case 'gradient': {
+                            const args = buildArgs(spec.args, tSec);
+                            const base = typeof gAny.gradient === 'function' ? gAny.gradient(...args) : null;
+                            return applyChainOps(base, spec.chain, tSec);
+                        }
+                        default: return null;
+                    }
+                } catch (e) {
+                    console.warn('[Hydra buildSource] failed', spec, e);
+                    return null;
+                }
+            }
 
             // Composer that applies enabled ops in a chosen order, with neutral fallbacks when off
             function applyOps(chain: any, order: Array<keyof typeof ops>) {
                 const amt = strengthScale();
                 const n = noise(() => 0.6 + smoothAvg.energy*0.8 + hydraState.impact*0.6);
+                const tSec = performance.now() / 1000;
                 for (const key of order) {
                     const cfg = ops[key as string];
                     if (!cfg) continue;
@@ -199,8 +309,127 @@ export default function BabylonHydraCanvas() {
                             case 'scale': chain = chain.scale(() => cfg.on ? (1 + s*0.75) : 1); break;
                             case 'scrollX': chain = chain.scrollX(() => cfg.on ? (s*0.5) : 0, () => s*0.1); break;
                             case 'scrollY': chain = chain.scrollY(() => cfg.on ? (s*0.5) : 0, () => s*0.1); break;
-                            case 'modulate': if (cfg.on) chain = chain.modulate(n, () => s); break;
-                            case 'modulateHue': if (cfg.on) chain = chain.modulateHue(n, () => s); break;
+                            case 'modulate': {
+                                if (cfg.on) {
+                                    const preferInner = cfg.useInner !== false; // default true
+                                    const inner = preferInner && cfg.inner ? buildSource(cfg.inner as any, tSec) : null;
+                                    chain = chain.modulate(inner ?? n, () => s);
+                                }
+                                break;
+                            }
+                            case 'modulateHue': {
+                                if (cfg.on) {
+                                    const preferInner = cfg.useInner !== false;
+                                    const inner = preferInner && cfg.inner ? buildSource(cfg.inner as any, tSec) : null;
+                                    chain = chain.modulateHue(inner ?? n, () => s);
+                                }
+                                break;
+                            }
+                            case 'luma': {
+                                if (cfg.on) {
+                                    const thresh = Math.max(0, Math.min(1, 0.5 + (s - 0.5)));
+                                    chain = chain.luma(() => thresh);
+                                }
+                                break;
+                            }
+                            case 'modulateScale': {
+                                if (cfg.on) {
+                                    const preferInner = cfg.useInner !== false;
+                                    const inner = preferInner && cfg.inner ? buildSource(cfg.inner as any, tSec) : null;
+                                    chain = chain.modulateScale(inner ?? n, () => s);
+                                }
+                                break;
+                            }
+                            case 'modulateRepeatX': {
+                                if (cfg.on) {
+                                    const preferInner = cfg.useInner !== false;
+                                    const inner = preferInner && cfg.inner ? buildSource(cfg.inner as any, tSec) : null;
+                                    const reps = Math.max(1, Math.min(40, Math.floor(1 + s*20)));
+                                    const off = Math.max(0, Math.min(1, s*0.6));
+                                    chain = chain.modulateRepeatX(inner ?? n, () => reps, () => off);
+                                }
+                                break;
+                            }
+                            case 'modulateRepeatY': {
+                                if (cfg.on) {
+                                    const preferInner = cfg.useInner !== false;
+                                    const inner = preferInner && cfg.inner ? buildSource(cfg.inner as any, tSec) : null;
+                                    const reps = Math.max(1, Math.min(40, Math.floor(1 + s*20)));
+                                    const off = Math.max(0, Math.min(1, s*0.6));
+                                    chain = chain.modulateRepeatY(inner ?? n, () => reps, () => off);
+                                }
+                                break;
+                            }
+                            case 'modulateRotate': {
+                                if (cfg.on) {
+                                    const preferInner = cfg.useInner !== false;
+                                    const inner = preferInner && cfg.inner ? buildSource(cfg.inner as any, tSec) : null;
+                                    chain = chain.modulateRotate(inner ?? n, () => Math.max(0.01, s));
+                                }
+                                break;
+                            }
+                            case 'modulateKaleid': {
+                                if (cfg.on) {
+                                    const preferInner = cfg.useInner !== false;
+                                    const inner = preferInner && cfg.inner ? buildSource(cfg.inner as any, tSec) : null;
+                                    chain = chain.modulateKaleid(inner ?? n, () => Math.max(0.01, s));
+                                }
+                                break;
+                            }
+                            case 'repeat': {
+                                if (cfg.on) {
+                                    const x = cfg.params?.x != null ? (typeof cfg.params.x === 'number' ? cfg.params.x : evalParam(cfg.params.x, tSec)) : Math.max(1, Math.floor(1 + s*6));
+                                    const y = cfg.params?.y != null ? (typeof cfg.params.y === 'number' ? cfg.params.y : evalParam(cfg.params.y, tSec)) : Math.max(1, Math.floor(1 + s*6));
+                                    chain = chain.repeat(() => x, () => y);
+                                }
+                                break;
+                            }
+                            // Feedback and compositing with inner source
+                            case 'blend': {
+                                if (cfg.on) {
+                                    const inner = buildSource(cfg.inner as SourceSpec, tSec);
+                                    const amount = typeof cfg.amount === 'number' ? cfg.amount : Math.min(1, s);
+                                    if (inner) chain = chain.blend(inner, () => amount);
+                                }
+                                break;
+                            }
+                            case 'add': {
+                                if (cfg.on) {
+                                    const inner = buildSource(cfg.inner as SourceSpec, tSec);
+                                    const amount = typeof cfg.amount === 'number' ? cfg.amount : Math.min(1, s);
+                                    if (inner) chain = chain.add(inner, () => amount);
+                                }
+                                break;
+                            }
+                            case 'mult': {
+                                if (cfg.on) {
+                                    const inner = buildSource(cfg.inner as SourceSpec, tSec);
+                                    const amount = typeof cfg.amount === 'number' ? cfg.amount : Math.min(1, s);
+                                    if (inner) chain = chain.mult(inner, () => amount);
+                                }
+                                break;
+                            }
+                            case 'mask': {
+                                if (cfg.on) {
+                                    const inner = buildSource(cfg.inner as SourceSpec, tSec);
+                                    if (inner) chain = chain.mask(inner);
+                                }
+                                break;
+                            }
+                            case 'tapO1': {
+                                if (cfg.on) {
+                                    const gAny: any = globalThis as any;
+                                    if (gAny.o1) chain = chain.out(gAny.o1);
+                                }
+                                break;
+                            }
+                            case 'tapO2': {
+                                if (cfg.on) {
+                                    const gAny: any = globalThis as any;
+                                    if (gAny.o2) chain = chain.out(gAny.o2);
+                                }
+                                break;
+                            }
                             default: break;
                         }
                     } catch (e) {
@@ -212,15 +441,18 @@ export default function BabylonHydraCanvas() {
             function buildHydraPipeline(pattern: number) {
                 hydraState.pattern = pattern;
                 const gAny: any = globalThis as any;
+                // color with optional target bias mixing
+                const mix = (a:number, b:number, t:number)=> a*(1-t) + b*t;
+                const biasW = targetBias ? Math.max(0, Math.min(1, colorBiasWeight)) : 0.0;
                 let base = osc(
                         () => 1.0 + smoothAvg.energy*0.5,
                         0.05,
                         0
                     )
                     .color(
-                        () => 0.055 + smoothAvg.r*0.35,
-                        () => 0.055 + smoothAvg.g*0.35,
-                        () => 0.055 + smoothAvg.b*0.35
+                        () => mix(0.055 + smoothAvg.r*0.35, targetBias?.r ?? 0, biasW),
+                        () => mix(0.055 + smoothAvg.g*0.35, targetBias?.g ?? 0, biasW),
+                        () => mix(0.055 + smoothAvg.b*0.35, targetBias?.b ?? 0, biasW)
                     )
                     .rotate(
                         () => hydraState.hRotSpeed % (2*Math.PI) * -hydraState.impact,
@@ -231,7 +463,7 @@ export default function BabylonHydraCanvas() {
                     .repeat(4,4)
                     .modulate(noise(() => 1.0 + smoothAvg.energy*1.0 + hydraState.impact*0.55 + backgroundState.pulse*0.035));
                 // Optional post ops on base
-                base = applyOps(base, ['saturate','contrast','brightness','hue','invert','colorama','posterize','pixelate','kaleid','rotate','scale','scrollX','scrollY','modulate','modulateHue']);
+                base = applyOps(base, ['saturate','contrast','brightness','hue','invert','colorama','posterize','pixelate','kaleid','rotate','scale','scrollX','scrollY','modulate','modulateHue','luma','modulateScale','modulateRotate','modulateKaleid','modulateRepeatX','modulateRepeatY','blend','add','mult','mask']);
                 if (hydraCamReady && typeof gAny.src === 'function' && gAny.s0) {
                     // Guard against Hydra errors so Babylon still renders
                     try {
@@ -245,8 +477,8 @@ export default function BabylonHydraCanvas() {
                             camLuma = camLuma.pixelate(() => PX_HEAVY, () => PX_HEAVY).modulateHue(noise(10), 0.1).invert(0.2).kaleid(6).repeat(16);
                         }
                         // Apply camera ops excluding pixelate to avoid double effect
-                        camLuma = applyOps(camLuma, ['saturate','contrast','brightness','hue','posterize','invert','modulateHue']);
-                        if (vtime >= 22) {
+                        camLuma = applyOps(camLuma, ['saturate','contrast','brightness','hue','posterize','invert','modulateHue','luma']);
+                        if (vtime >= 25) {
                             // After credits, show clear camera feed
                             camLuma.out();
                         } else {
@@ -552,13 +784,13 @@ export default function BabylonHydraCanvas() {
                     ?? ((globalThis as any).s0?.video?.currentTime)
                     ?? ((globalThis as any).s0?.vid?.currentTime)
                     ?? (videoStartMs != null ? (performance.now() - videoStartMs)/1000 : 0);
-                try { useAgentStore.getState().setTelemetry({ vtime, past23: vtime >= 23, cameraRadius: camera.radius, energy: avg.energy }); } catch {}
-                if (!past23 && vtime >= 23) {
-                    past23 = true;
+                try { useAgentStore.getState().setTelemetry({ vtime, past25: vtime >= 25, cameraRadius: camera.radius, energy: avg.energy }); } catch {}
+                if (!past25 && vtime >= 25) {
+                    past25 = true;
                     // Rebuild to switch Hydra graph to camera-only branch
                     buildHydraPipeline(hydraState.pattern);
                 }
-                if (vtime >= 23 && !cubeVideoCleared) {
+                if (vtime >= 25 && !cubeVideoCleared) {
                     // Remove Hydra/dynamicTexture from cube faces so the video does NOT overlay cubes
                     manager.cubes.forEach(meta => {
                         const mm = meta.mesh.material as BABYLON.MultiMaterial;

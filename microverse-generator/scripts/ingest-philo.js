@@ -6,7 +6,7 @@
   2) Add content as markdown/txt files under ./content (optional)
     - Optional frontmatter (YAML) with fields: work, author, year, era, topic (array)
     - Body is the text; it will be chunked ~300–500 words per row
-  3) Run: npm run ingest:philo [--dry-run]
+   3) Run: npm run ingest:philo [--dry-run] [--limit N] [--batch-size N]
 
   Notes:
   - Uses @xenova/transformers to compute 384-dim embeddings (all-MiniLM-L6-v2)
@@ -123,6 +123,23 @@ function getDocs() {
 }
 
 async function main() {
+  const docs = getDocs();
+  const argv = process.argv.slice(2);
+  const dryRun = argv.includes('--dry-run');
+  const limitIdx = argv.indexOf('--limit');
+  const limit = limitIdx !== -1 ? parseInt(argv[limitIdx + 1], 10) : null;
+  const batchIdx = argv.indexOf('--batch-size');
+  const batchSize = batchIdx !== -1 ? Math.max(1, parseInt(argv[batchIdx + 1], 10)) : 200;
+
+  const sourceDocs = Number.isFinite(limit) && limit > 0 ? docs.slice(0, limit) : docs;
+
+  // Fast path: in dry-run, skip embedding/model load and Supabase setup entirely.
+  if (dryRun) {
+    console.log(`[DRY RUN] Would insert ${sourceDocs.length} rows. Batch size: ${batchSize}.`);
+    return;
+  }
+
+  // Only require env and initialize clients when actually inserting
   const url = process.env.SUPABASE_URL;
   // Prefer SUPABASE_SERVICE_ROLE_KEY, but accept SUPABASE_ROLE_KEY as a fallback
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ROLE_KEY;
@@ -132,23 +149,25 @@ async function main() {
   }
   const supabase = createClient(url, serviceKey);
   const embed = await getEmbedder();
-  const docs = getDocs();
-  const dryRun = process.argv.includes('--dry-run');
+
   const rows = [];
-  for (const d of docs) {
+  for (const d of sourceDocs) {
     const embedding = await embed(d.content);
     rows.push({ ...d, embedding });
   }
-  if (dryRun) {
-    console.log(`[DRY RUN] Would insert ${rows.length} rows from ${docs.length} docs.`);
-    return;
+  // Insert in batches to avoid large payloads and rate limits
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const { error } = await supabase.from('documents').insert(batch);
+    if (error) {
+      console.error('Insert error:', error);
+      process.exit(1);
+    }
+    inserted += batch.length;
+    console.log(`Inserted ${inserted}/${rows.length}...`);
   }
-  const { error } = await supabase.from('documents').insert(rows);
-  if (error) {
-    console.error('Insert error:', error);
-    process.exit(1);
-  }
-  console.log(`Inserted ${rows.length} documents.`);
+  console.log(`Done. Inserted ${rows.length} documents in batches of ${batchSize}.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
