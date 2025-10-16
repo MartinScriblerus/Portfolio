@@ -48,14 +48,14 @@ export function middleware(req: NextRequest) {
   const method = req.method.toUpperCase();
 
   // Only allow POST for these endpoints
-  if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter') && method !== 'POST') {
+  if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent') && method !== 'POST') {
     const res = NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
     res.headers.set('Allow', 'POST');
     return res;
   }
 
   // For POST endpoints, ensure JSON Content-Type
-  if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter') && method === 'POST') {
+  if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent') && method === 'POST') {
     const ct = req.headers.get('content-type') || '';
     if (!ct.toLowerCase().includes('application/json')) {
       return NextResponse.json({ error: 'Unsupported Media Type' }, { status: 415 });
@@ -63,7 +63,7 @@ export function middleware(req: NextRequest) {
   }
 
   // Apply rate limit (POST endpoints) and light limit on GET test/count
-  if (path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/rag/test' || path === '/api/rag/count') {
+  if (path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent' || path === '/api/rag/test' || path === '/api/rag/count') {
     const { allowed, headers } = checkRateLimit(req);
     if (!allowed) {
       const res = NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
@@ -79,5 +79,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/embed', '/api/rag/search', '/api/utter', '/api/rag/test', '/api/rag/count'],
+  matcher: ['/api/embed', '/api/rag/search', '/api/utter', '/api/intent', '/api/rag/test', '/api/rag/count'],
 };

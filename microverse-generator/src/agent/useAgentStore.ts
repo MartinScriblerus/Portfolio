@@ -8,7 +8,7 @@ export type Telemetry = {
   clicks: number;
   cameraRadius: number;
   vtime: number;
-  past23: boolean;
+  past25: boolean;
   energy: number;
 };
 
@@ -41,7 +41,7 @@ const initialTelemetry: Telemetry = {
   clicks: 0,
   cameraRadius: 0,
   vtime: 0,
-  past23: false,
+  past25: false,
   energy: 0,
 };
 

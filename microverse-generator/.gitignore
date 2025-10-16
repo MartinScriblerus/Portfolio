@@ -27,3 +27,9 @@ yarn-error.log*
 
 # local corpus (optional)
 /content/
+
+# Python caches and local script artifacts
+**/__pycache__/
+*.py[cod]
+scripts/raw_content/
+scripts/cleaned_chunks.txt

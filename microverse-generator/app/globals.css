@@ -23,10 +23,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .title-wrapper {
-  position: absolute; 
-  top: 12px; 
-  right: 24px; 
   margin: 0; 
   z-index: 10; 
-  pointer-events: none; 
+  pointer-events: none;
+  font-size: 24px; 
 }
