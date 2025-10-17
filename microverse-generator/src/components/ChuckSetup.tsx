@@ -1,6 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import { loadWebChugins } from './WebChuckRaf';
+import { useSignalBus } from '../store/useSignalBus';
 
 export default function ChuckSetup() {
 
@@ -8,6 +9,8 @@ export default function ChuckSetup() {
     const devices = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     console.log('Audio devices:', devices);
   };
+
+  const bus = useSignalBus.getState();
 
   useEffect(() => {
     import('webchuck').then((mod) => {        
@@ -65,15 +68,34 @@ export default function ChuckSetup() {
                     if (message.includes("SHREDCOUNT: ")) {
                         console.log("SHREDCOUNT ", message)
                     }
-                    if (message.includes("updatedgain: ")) { 
+                    if (message.includes("updatedgain: ")) {
+                         
                         console.log("updatedgain ", message)
+
+                        const energy: number = useSignalBus.getState().rgb.energy;
+                        const blue: number = useSignalBus.getState().rgb.b;
+                        const red: number = useSignalBus.getState().rgb.r;
+                        const green: number = useSignalBus.getState().rgb.g;
+
+                        theChuck.setFloat("energy", energy);
+                        theChuck.setFloat("red", red);
+                        theChuck.setFloat("green", green);
+                        theChuck.setFloat("blue", blue);
                     }
                 }
             }
 
             console.log("THE CHUCK: ", theChuck);
 
-            theChuck.runCode(`
+
+            const chuckInstructions = `
+
+                0.0 => global float energy;
+                0.0 => global float red;
+                0.0 => global float green;
+                0.0 => global float blue;
+                float _m;
+
                 class TheEvent extends Event
                 {
                     int pitch;
@@ -110,8 +132,11 @@ export default function ChuckSetup() {
                         e.pitch => Std.mtof => f.freq;
                         theUpdatedGain => f.gain;
                         e.velocity => f.noteOn;
-                        
-                        <<< "updatedgain: ", theUpdatedGain >>>;
+
+                        float _m;
+
+                        energy => reverb.mix;
+                        <<< "updatedgain: ", reverb.mix() >>>;
                         300::ms => now;
                         
                         f.noteOff( 0 );
@@ -129,11 +154,17 @@ export default function ChuckSetup() {
                     e.signal();
                     4000::ms => now;
                 }
-            `)
+            `;
+
+            console.log("CHUCK DEBUG: ", chuckInstructions);
+
+            theChuck.runCode(chuckInstructions)
 
         })();
     });
   }, []);
+
+  console.log("WTF BUS??? ", bus);
 
   return null;
 }

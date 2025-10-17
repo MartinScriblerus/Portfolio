@@ -138,10 +138,10 @@ function ruleBasedFallback({ query, snippets, keywords, citations, stylePack }: 
   ];
   const maxims: string[] = stylePack?.maxims || [
     'Sight makes borders; sound makes returns.',
-    'Call nothing secret; call it patient.',
+    'Call nothing secret but call it patient.',
     'What repeats gains shape; what fades gains room.'
   ];
-  const cites = citations?.[0] ? `Even ${citations[0].author || 'a classic'}${citations[0].work ? ' in '+citations[0].work : ''} leans this way.` : '';
+  const cites = citations?.[0] ? `${citations[0].author || 'a classic'}${citations[0].work ? ' in '+citations[0].work : ''} leans this way. Could we move in that direction? Try this... ` : '';
   const k = keywords?.slice(0,2) || [];
   const op = pick(openers);
   const mx = pick(maxims);

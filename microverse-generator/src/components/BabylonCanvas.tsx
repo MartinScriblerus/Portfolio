@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
+import { useSignalBus } from '../store/useSignalBus';
 import * as BABYLON from '@babylonjs/core';
 import { tryGetAudio } from '../utils/utils';
 import { useVisStore } from '../store/useVisStore';
@@ -20,7 +20,17 @@ export default function BabylonHydraCanvas() {
     const [hud, setHud] = useState({ r:0, g:0, b:0, energy:0, impact:0, pulse:0 });
     const [bpm, setBpm] = useState<number>(120);
     const [clicksTotal, setClicksTotal] = useState<number>(0);
-    const metrics = useGuideMetricsStore(s => s.metrics);
+    const setRGB = useSignalBus(s => s.setRGB);
+    const setImpactPulse = useSignalBus(s => s.setImpactPulse);
+    // Prefer the shared signal bus for cross-layer metrics
+    const busMetrics = useSignalBus(s => s.metrics);
+    // Read agent telemetry (vtime/past30 computed in frame loop)
+    const telemetry = useAgentStore(s => s.telemetry);
+
+    // // Reset timing flags on mount to avoid HMR-persisted state causing early reveals
+    // useEffect(() => {
+    //     try { useAgentStore.getState().setTelemetry({ vtime: 0, past30: false }); } catch {}
+    // }, []);
 
     function makeLetterOverlay(scene: BABYLON.Scene, text: string, color: string) {
         const size = 256;
@@ -106,10 +116,10 @@ export default function BabylonHydraCanvas() {
     }
 
     useEffect(() => {
-        if (!metrics) return;
-        const { echo, tension, drift, cache } = metrics;
+        if (!busMetrics) return;
+        const { echo, tension, drift, cache } = busMetrics;
         console.log(`[guide] echo=${echo.toFixed(2)} tension=${tension.toFixed(2)} drift=${drift.toFixed(2)}${cache ? ` cache=${cache}` : ''}`);
-    }, [metrics]);
+    }, [busMetrics]);
 
     useEffect(() => {
         if (!canvasRef.current) return;
@@ -133,14 +143,14 @@ export default function BabylonHydraCanvas() {
             const { osc, noise } = hydra.synth;
             // Mutable live average reference so Hydra param functions see updates every frame.
             const currentAvg = { r:0, g:0, b:0, energy:0 };
-            const hydraState = { pattern:0, impact:0, hRotAngle: 0, hRotSpeed: 0 };
+            const hydraState = { pattern:0, impact:0, hRotAngle: 0, hRotSpeed: 0, kaleidRamp: 0.3, lastEnergy: 0 };
             const backgroundState = { pulse:0, lastEnergy:0 };
             const saturationMode = { enabled: false }; // placeholder, remains off
             let hydraCamReady = false;
             // Pixel overlay controller: heavy from the start, clears at 22s
             const PX_HEAVY = 220;
             let hydraVideoEl: HTMLVideoElement | null = null;
-            let past25 = false;
+            let past30 = false;
             let videoStartMs: number | null = null; // fallback when currentTime is unavailable
             // Exponential moving average for smoothing Hydra inputs
             const smoothAvg = { r:0, g:0, b:0, energy:0 };
@@ -444,6 +454,17 @@ export default function BabylonHydraCanvas() {
                 // color with optional target bias mixing
                 const mix = (a:number, b:number, t:number)=> a*(1-t) + b*t;
                 const biasW = targetBias ? Math.max(0, Math.min(1, colorBiasWeight)) : 0.0;
+                // Dynamic repeat count based on agent clicks (sqrt scale, min 1, capped)
+                const getRepeatCount = () => {
+                    try {
+                        const clicks = useAgentStore.getState().telemetry.clicks || 0;
+                        const rc = Math.max(1, Math.floor(Math.sqrt(Math.max(0, clicks))));
+                        return Math.min(16, rc);
+                    } catch { return 1; }
+                };
+
+                const minRep = (useAgentStore.getState().telemetry.clicks < 1) ? 4 : 1;
+
                 let base = osc(
                         () => 1.0 + smoothAvg.energy*0.5,
                         0.05,
@@ -459,8 +480,30 @@ export default function BabylonHydraCanvas() {
                         () => hydraState.hRotSpeed % (2*Math.PI) * hydraState.impact
                     )
                     .scale(hydraState.impact + 1.0)
-                    .kaleid()
-                    .repeat(4,4)
+                    // Kaleid sides increase as kaleidRamp grows (gradual strengthening)
+                    .kaleid(() => {
+                            const dyn = 1 + Math.floor(Math.max(0, Math.min(1, hydraState.kaleidRamp)) * 15);
+                            return Math.max(4, dyn);
+                    })
+                    // Repeat count grows with sqrt(clicks) symmetrically on X/Y
+                        .repeat(
+                            () => {
+                                try {
+                                    const clicks = useAgentStore.getState().telemetry.clicks || 0;
+                                    const past30 = useAgentStore.getState().telemetry.past30;
+                                    const base = (clicks < 1 && !past30) ? 4 : 1;
+                                    return Math.max(base, getRepeatCount());
+                                } catch { return 4; }
+                            },
+                            () => {
+                                try {
+                                    const clicks = useAgentStore.getState().telemetry.clicks || 0;
+                                    const past30 = useAgentStore.getState().telemetry.past30;
+                                    const base = (clicks < 1 && !past30) ? 4 : 1;
+                                    return Math.max(base, getRepeatCount());
+                                } catch { return 4; }
+                            }
+                        )
                     .modulate(noise(() => 1.0 + smoothAvg.energy*1.0 + hydraState.impact*0.55 + backgroundState.pulse*0.035));
                 // Optional post ops on base
                 base = applyOps(base, ['saturate','contrast','brightness','hue','invert','colorama','posterize','pixelate','kaleid','rotate','scale','scrollX','scrollY','modulate','modulateHue','luma','modulateScale','modulateRotate','modulateKaleid','modulateRepeatX','modulateRepeatY','blend','add','mult','mask']);
@@ -471,14 +514,14 @@ export default function BabylonHydraCanvas() {
                             ?? (gAny.s0?.video?.currentTime)
                             ?? (gAny.s0?.vid?.currentTime)
                             ?? (videoStartMs != null ? (performance.now() - videoStartMs)/1000 : 0);
-                        // Heavy pixelation from the start, clears exactly at 22s
                         let camLuma = src(s0).color(1,1,1);
-                        if (vtime < 22) {
+                        
+                        if (vtime < 10) {
                             camLuma = camLuma.pixelate(() => PX_HEAVY, () => PX_HEAVY).modulateHue(noise(10), 0.1).invert(0.2).kaleid(6).repeat(16);
                         }
                         // Apply camera ops excluding pixelate to avoid double effect
                         camLuma = applyOps(camLuma, ['saturate','contrast','brightness','hue','posterize','invert','modulateHue','luma']);
-                        if (vtime >= 25) {
+                        if (vtime >= 30) {
                             // After credits, show clear camera feed
                             camLuma.out();
                         } else {
@@ -778,19 +821,34 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 const avg = manager.getAverageChannels();
                 // update mutable avg for hydra dynamic callbacks
                 currentAvg.r = avg.r; currentAvg.g = avg.g; currentAvg.b = avg.b; currentAvg.energy = avg.energy;
+                // publish to signal bus (throttle implicitly by frame rate)
+                try { setRGB({ r: avg.r, g: avg.g, b: avg.b, energy: avg.energy }); } catch {}
                 applySmoothing();
+                // Trigger kaleid ramp when energy is rising past threshold; otherwise decay slowly
+                const rising = avg.energy > hydraState.lastEnergy;
+                if (avg.energy > 1.0 && rising) {
+                    // Ramp up faster when far above threshold
+                    const excess = Math.max(0, avg.energy - 1.5);
+                    hydraState.kaleidRamp = Math.min(1, hydraState.kaleidRamp + 0.05 + excess * 0.02);
+                } else {
+                    hydraState.kaleidRamp = Math.max(0, hydraState.kaleidRamp - 0.01);
+                }
+                hydraState.lastEnergy = avg.energy;
                 // Ensure the video is clearly visible after 22s by swapping to a screen-facing plane
-                const vtime = (hydraVideoEl?.currentTime)
-                    ?? ((globalThis as any).s0?.video?.currentTime)
-                    ?? ((globalThis as any).s0?.vid?.currentTime)
-                    ?? (videoStartMs != null ? (performance.now() - videoStartMs)/1000 : 0);
-                try { useAgentStore.getState().setTelemetry({ vtime, past25: vtime >= 25, cameraRadius: camera.radius, energy: avg.energy }); } catch {}
-                if (!past25 && vtime >= 25) {
-                    past25 = true;
+                // Use only actual media currentTime; avoid perf-now fallback to prevent early gating
+                const vtimeSrcA = hydraVideoEl && Number.isFinite(hydraVideoEl.currentTime) ? hydraVideoEl.currentTime : undefined;
+                const gAnyVT = (globalThis as any);
+                const vtimeSrcB = Number.isFinite(gAnyVT?.s0?.video?.currentTime) ? gAnyVT.s0.video.currentTime
+                                  : Number.isFinite(gAnyVT?.s0?.vid?.currentTime) ? gAnyVT.s0.vid.currentTime
+                                  : undefined;
+                const vtime = (vtimeSrcA ?? vtimeSrcB ?? 0);
+                try { useAgentStore.getState().setTelemetry({ vtime, past30: vtime >= 30, cameraRadius: camera.radius, energy: avg.energy }); } catch {}
+                if (!past30 && vtime >= 30) {
+                    past30 = true;
                     // Rebuild to switch Hydra graph to camera-only branch
                     buildHydraPipeline(hydraState.pattern);
                 }
-                if (vtime >= 25 && !cubeVideoCleared) {
+                if (vtime >= 30 && !cubeVideoCleared) {
                     // Remove Hydra/dynamicTexture from cube faces so the video does NOT overlay cubes
                     manager.cubes.forEach(meta => {
                         const mm = meta.mesh.material as BABYLON.MultiMaterial;
@@ -838,6 +896,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 );
                 // HydrState impact natural decay (slow) to let pulses stand out (slightly slower now for visible feedback)
                 if (hydraState.impact > 0) hydraState.impact = Math.max(0, hydraState.impact - 0.022 - hydraState.impact*0.08);
+                try { setImpactPulse({ impact: hydraState.impact, pulse: backgroundState.pulse }); } catch {}
                 if (avg.energy > ENERGY_THRESHOLD && (now - manager.lastPatternSwitch) > ENTROPY_COOLDOWN_MS) {
                     manager.lastPatternSwitch = now;
                     const pattern = Math.floor(Math.random()*4);
@@ -866,6 +925,9 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 if (t - lastHudUpdate > 33) { // ~30fps HUD refresh
                     lastHudUpdate = t;
                     setHud({ r: currentAvg.r, g: currentAvg.g, b: currentAvg.b, energy: currentAvg.energy, impact: hydraState.impact, pulse: backgroundState.pulse });
+                    setRGB({ r: currentAvg.r, g: currentAvg.g, b: currentAvg.b, energy: currentAvg.energy });
+                    setImpactPulse({ impact: hydraState.impact, pulse: backgroundState.pulse });
+                  
                 }
             });
 
@@ -902,7 +964,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
 
     return (
         <>
-            {/* <Title text={titleText} /> */}
+            {telemetry?.past30 && <Title text={titleText} />}
             <canvas
                 ref={canvasRef}
                 id="babylonCanvas"
