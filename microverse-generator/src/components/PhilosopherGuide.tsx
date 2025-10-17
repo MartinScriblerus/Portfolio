@@ -8,9 +8,13 @@ import { getSupabaseClient, matchDocuments, MatchRow } from '../rag/querySupabas
 import { useAskStore } from '../store/useAskStore';
 import { useQueryStore } from '../store/useQueryStore';
 import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
+import { useSignalBus } from '../store/useSignalBus';
 import { randomCTA, randomStarter } from '../content/prompts';
 
+
+
 export default function PhilosopherGuide() {
+
   // Select fields individually to avoid creating new objects every render
   const currentTaskId = useAgentStore((s) => s.currentTaskId);
   const tasks = useAgentStore((s) => s.tasks);
@@ -33,6 +37,7 @@ export default function PhilosopherGuide() {
   // Track user input history with embeddings for long-form consequences
   const [history, setHistory] = useState<Array<{ text: string; ts: number; emb: number[] }>>([]);
   const setGuideMetrics = useGuideMetricsStore((s) => s.setMetrics);
+  const setBusMetrics = useSignalBus((s) => s.setMetrics);
   const bansRef = useRef<string[]>([]);
   const lastTwoTextsRef = useRef<string[]>([]);
   const lastInputAtRef = useRef<number>(Date.now());
@@ -52,14 +57,14 @@ export default function PhilosopherGuide() {
     const initialPrompts = [
       "How does the paradox resolve?",
       "What don't we know that we don't know?",
-      "What can't be said here?",
+      "What can't be seen here?",
       "What can't we ignore here?",
       "Note where light meets darkness. What is passing between them?",
       'Look closely. What patterns or principles emerge?'
     ]
-    setChat([
-    { role: 'guide', text: initialPrompts[Math.floor(Math.ceil(Math.random() * initialPrompts.length - 1))] }
-  ])
+    // Proper random index in [0, length)
+    const idx = Math.floor(Math.random() * initialPrompts.length);
+    setChat([{ role: 'guide', text: initialPrompts[idx] }])
     if (s.tasks.length === 0) {
       registerTasks([
         {
@@ -77,7 +82,7 @@ export default function PhilosopherGuide() {
         {
           id: 't3',
           name: 'Resolve the veil—wait until the image clears on its own',
-          check: (t) => t.past25 === true, // after the video clears
+          check: (t) => t.past30 === true, // after the video clears
           onSuccess: () => console.log('[Agent] t3 success'),
         },
       ]);
@@ -231,9 +236,9 @@ export default function PhilosopherGuide() {
         replyText = utter.text; promptText = utter.prompt;
       }
 
-      setChat((c) => [...c, { role: 'you', text: q }, { role: 'guide', text: replyText! }]);
-      // Prompt sometimes
-      if (promptText && Math.random() < 0.6) setChat((c) => [...c, { role: 'guide', text: promptText! }]);
+  // Single-line update: only the latest guide text
+  setChat((c) => [{ role: 'guide', text: replyText! }]);
+  // No extra prompt line; CTA already embedded in the main text when needed
 
       // Track bans and last outputs for variety
       bansRef.current = [...bansRef.current, replyText!].slice(-20);
@@ -243,7 +248,9 @@ export default function PhilosopherGuide() {
       const echo = computeEcho(vec!, history);
       const tension = computeTension(matches);
       const drift = computeDrift(history);
-      setGuideMetrics({ echo, tension, drift, cache: stylizerUsed ? 'hit' : undefined });
+  const m = { echo, tension, drift, cache: stylizerUsed ? 'hit' : undefined as 'hit'|'miss'|undefined };
+  setGuideMetrics(m);
+  try { setBusMetrics(m); } catch {}
     } catch (e: any) {
       setErr(e?.message || String(e));
     } finally {
@@ -274,7 +281,8 @@ export default function PhilosopherGuide() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8 }}>
         {chat.map((m, i) => (
           <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 16, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
-            <span style={{ opacity: 0.7 }}>{m.role === 'you' ? 'You' : 'Guide'}: </span>
+            <span style={{ opacity: 0.7 }}>
+              {m.role === 'you' ? 'You' : 'Guide'}: </span>
             {m.text}
           </div>
         ))}
@@ -348,10 +356,12 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
     const weave = buildPhiloWeave(matches, terms);
     const firstCite = rankedCites.find(c => !(weave.cite && c.author === weave.cite.author && c.work === weave.cite.work));
     const citeLine = firstCite ? vernacularCite(firstCite) : '';
-    let text = [opener, weave.line, prod, citeLine].filter(Boolean).join(' ');
-    text = ensureCTAClient(text);
-    text = tightenUtteranceKeepCTA(text, 260);
-    return { text, prompt: ask };
+  let text = [opener, weave.line, prod, citeLine].filter(Boolean).join(' ');
+  text = ensureCTAClient(text);
+  text = tightenUtteranceKeepCTA(text, 260);
+  // @@@ opener, weave, prod, cite 
+  text = sanitizeFinal(text);
+  return { text, prompt: ask };
   }
 
   const picked = pickN(terms, 2);
@@ -361,17 +371,37 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
     : (safePicked[0] ? `You bring ${safePicked[0]}.` : `You're onto something.`);
   const philoWeave = buildPhiloWeave(matches, terms);
   const riffLine = riffOnKeywords(safePicked as string[], query);
-  const topCite = rankedCites.find(c => !(philoWeave.cite && c.author === philoWeave.cite.author && c.work === philoWeave.cite.work));
+  // Rich two-quote weave path
+  const primaryCite = philoWeave.cite;
+  let secondCite: (typeof rankedCites)[number] | undefined;
+  for (const c of rankedCites) {
+    if (!primaryCite || c.author !== primaryCite.author || c.work !== primaryCite.work) { secondCite = c; break; }
+  }
   const opticsSoundSet = new Set(['optics', 'vision', 'light', 'eye', 'mirror', 'form', 'color', 'colour', 'sound', 'hearing', 'echo', 'voice', 'acoustics']);
   const domainFocus = terms.some(t => opticsSoundSet.has(t));
-  const includeCite = topCite ? (domainFocus ? true : (topCite.score >= 0.8 ? true : Math.random() < 0.45)) : false;
-  const citeLine2 = includeCite && topCite ? vernacularCite(topCite) : '';
+  // Only allow dual weave from the 3rd user turn onward (history excludes current input here)
+  const allowDual = (history?.length || 0) >= 2;
+  const includeSecond = !!secondCite && allowDual && (domainFocus || (secondCite!.score >= 0.9) || Math.random() < 0.3);
+  const dual = includeSecond ? buildDualWeave(matches, terms, primaryCite, secondCite) : null;
+  const citeLine2 = (!dual && includeSecond && secondCite) ? shortCiteClause(secondCite) : '';
 
-  const lines = [themeLine, philoWeave.line, riffLine, citeLine2].filter(Boolean);
-  let text = lines.join(' ');
-  text = ensureCTAClient(text);
-  text = tightenUtteranceKeepCTA(text, 260);
-  return { text, prompt: defaultPrompt() };
+  if (dual) {
+    // Build weighted CTA (click/navigate/type) with a hard pause before it
+    const cta = chooseCTA();
+    let text = [themeLine, dual.text].filter(Boolean).join(' ');
+    text = sanitizeFinal(text);
+    text = `${text}\n\n${cta}`;
+    // No extra prompt; CTA is embedded explicitly
+    return { text };
+  } else {
+    const lines = [themeLine, philoWeave.line, riffLine, citeLine2].filter(Boolean);
+    let text = lines.join(' ');
+    text = ensureCTAClient(text);
+    text = tightenUtteranceKeepCTA(text, 260);
+    // @@@ theme, weave, riff, cite
+    text = sanitizeFinal(text);
+    return { text, prompt: defaultPrompt() };
+  }
 }
 
 function pickN<T>(arr: T[], n: number): T[] {
@@ -467,19 +497,122 @@ function vernacularCite(c: { author?: string; work?: string }): string {
   const w = (c.work || '').trim();
   if (!a && !w) return '';
   if (/readme/i.test(a) || /readme/i.test(w)) return '';
+  // Self-contained cite line (no dangling comma/colon)
   const variants = [
-    () => `Even ${a}${w ? `, in the work titled ${w}` : ''}, points this way.`,
-    () => `${a || 'A classic'}${w ? `, in the work titled ${w}` : ''}, nods toward this.`,
-    () => `A line from ${a || 'a classic'}${w ? `, in the work titled ${w}` : ''}, leans here.`,
+    () => `As ${a}${w ? `, in ${w}` : ''}, has it.`,
+    () => `${a}${w ? ` (${w})` : ''} leans this way.`,
+    () => `Even ${a}${w ? ` in ${w}` : ''} would nod.`,
   ];
   const pick = variants[(Math.random() * variants.length) | 0];
   return pick();
 }
 
+// A short, non-dangling clause for a secondary cite (keeps cadence tight)
+function shortCiteClause(c: { author?: string; work?: string }): string {
+  const a = (c.author || '').trim();
+  const w = (c.work || '').trim();
+  if (!a && !w) return '';
+  if (/readme/i.test(a) || /readme/i.test(w)) return '';
+  const variants = [
+    () => `${a}${w ? `, ${w}` : ''} echoes the point.`,
+    () => `So does ${a}${w ? `, ${w}` : ''}.`,
+    () => `${a}${w ? ` (${w})` : ''} agrees enough.`,
+  ];
+  const pick = variants[(Math.random() * variants.length) | 0];
+  return pick();
+}
+
+// Build a richer two-quote weave with a small transition; aim for clarity and a comparison setup.
+function buildDualWeave(matches: MatchRow[], focusTerms: string[], a?: { author?: string; work?: string }, b?: { author?: string; work?: string }): { text: string } {
+  // Collect candidate sentences keyed by author/work
+  const take = Math.min(6, matches.length);
+  type Cand = { author?: string; work?: string; s1: string; s2?: string; score: number };
+  const keyset = new Set(focusTerms.map(s => s.toLowerCase()));
+  const byKey: Record<string, Cand> = {};
+  for (let i = 0; i < take; i++) {
+    const m: any = matches[i];
+    const content = String(m.content || '');
+    const author = m.author as string | undefined;
+    const work = m.work as string | undefined;
+    if (!author && !work) continue;
+    const segs = splitSentences(content);
+    for (let j = 0; j < segs.length; j++) {
+      const seg = segs[j];
+      const tok = tokenize(seg);
+      const overlap = tok.filter(t => keyset.has(t)).length;
+      if (overlap === 0) continue;
+      const key = `${author||''}::${work||''}`;
+      const s1 = shortenForQuote(seg, 18);
+      const s2 = segs[j+1] ? shortenForQuote(segs[j+1], 14) : undefined;
+      const score = overlap / Math.max(1, tok.length);
+      const cur = byKey[key];
+      if (!cur || score > cur.score) byKey[key] = { author, work, s1, s2, score };
+    }
+  }
+  const cands = Object.values(byKey);
+  if (cands.length < 2) return { text: '' };
+  const pickA = a ? cands.find(c => c.author === a.author && c.work === a.work) || cands[0] : cands[0];
+  const pickB = b ? cands.find(c => c.author === b.author && c.work === b.work) || cands[1] : cands[1];
+  if (!pickA || !pickB || (pickA.author === pickB.author && pickA.work === pickB.work)) {
+    // fallback: simple weave
+    const tagA = `${pickA?.author||'one voice'}${pickA?.work?`, ${pickA.work}`:''}`;
+    return { text: `As ${tagA} has it: ${pickA?.s1||''}.` };
+  }
+  const transVariants = [
+    (a:string,b:string)=> `Hold these together: ${a} and ${b}.`,
+    (a:string,b:string)=> `Set them side by side—${a} and ${b}.`,
+    (a:string,b:string)=> `Let two speak: ${a}, then ${b}.`,
+  ];
+  const nameA = `${pickA.author||'one'}${pickA.work?` (${pickA.work})`:''}`;
+  const nameB = `${pickB.author||'another'}${pickB.work?` (${pickB.work})`:''}`;
+  const trans = transVariants[(Math.random()*transVariants.length)|0](nameA, nameB);
+  const qa = `${pickA.s1}${pickA.s2? ` ${pickA.s2}`:''}`.replace(/\s{2,}/g,' ').trim();
+  const qb = `${pickB.s1}${pickB.s2? ` ${pickB.s2}`:''}`.replace(/\s{2,}/g,' ').trim();
+  const line = `${trans} ${pickA.author||'One'}: “${qa}” ${pickB.author||'Another'}: “${qb}”`;
+  return { text: line };
+}
+
+// Weighted CTA (click cubes, navigate environment, or add text)
+function chooseCTA(): string {
+  try {
+    const t = useAgentStore.getState().telemetry;
+    const clicks = t.clicks || 0;
+    const cam = t.cameraRadius || 0;
+    const opts: Array<{w:number, s:()=>string}> = [
+      { w: Math.max(1, 4 - clicks), s: ()=> 'Click a cube to tilt the pattern.' },
+      { w: cam < 10 ? 3 : 1,        s: ()=> 'Drag or scroll to change your distance.' },
+      { w: 2,                        s: ()=> 'Type one word you trust.' },
+    ];
+    const sum = opts.reduce((a,o)=>a+o.w,0);
+    let r = Math.random()*sum;
+    for (const o of opts) { if ((r -= o.w) <= 0) return o.s(); }
+    return opts[0].s();
+  } catch {
+    const fallback = ['Click a cube to tilt the pattern.', 'Drag or scroll to change your distance.', 'Type one word you trust.'];
+    return fallback[(Math.random()*fallback.length)|0];
+  }
+}
+
 function riffOnKeywords(kw: string[], query: string): string {
   const [a, b] = kw;
-  if (a && b) return `Consider ${a} and ${b}; choose one to push.`;
-  if (a) return `Let’s lean into ${a}.`;
+  if (a && b) {
+    const variants = [
+      () => `${a} and ${b}, side by side.`,
+      () => `${a} with ${b}: one will come forward.`,
+      () => `Between ${a} and ${b}, the edge appears.`,
+    ];
+    const pick = variants[(Math.random() * variants.length) | 0];
+    return pick();
+  }
+  if (a) {
+    const single = [
+      () => `${a} stands out for now.`,
+      () => `On ${a}, clarity gathers.`,
+      () => `${a} keeps returning.`,
+    ];
+    const pick = single[(Math.random() * single.length) | 0];
+    return pick();
+  }
   return '';
 }
 
@@ -493,7 +626,7 @@ function tokenize(text: string): string[] {
 }
 
 function isJunkKeyword(t: string): boolean {
-  const junk = new Set<string>(['which', 'there', 'here', 'where', 'when', 'then', 'also', 'much', 'many', 'very', 'thing', 'things']);
+  const junk = new Set<string>(['which', 'there', 'here', 'where', 'when', 'then', 'also', 'much', 'many', 'very', 'thing', 'things', 'any', 'bring']);
   return !t || t.length < 3 || STOPWORDS.has(t) || junk.has(t.toLowerCase());
 }
 
@@ -653,6 +786,22 @@ function ensureCTAClient(text: string): string {
   const hasCTA = /\b(click|tap|type|enter|name|say|choose|tilt|lean|look|listen)\b/i.test(text);
   if (hasCTA) return text;
   return `${text} ${randomCTA()}`.trim();
+}
+
+// Strip clipped or command-like artifacts at the end and remove stray beginnings
+function sanitizeFinal(text: string): string {
+  if (!text) return text;
+  let out = text.trim();
+  // Remove trailing fragments like ': it', '—it', ', it', or lone colon/hyphen
+  out = out.replace(/[:\u2014\-]\s*(it|this|that)\.?\s*$/i, '.');
+  out = out.replace(/[:\u2014\-]\s*$/,'');
+  // Remove programmatic phrasing
+  out = out.replace(/\bchoose one to push\b/gi, '');
+  // Collapse spaces and tidy
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  // Ensure ends with period if missing
+  if (!/[.!?]\s*$/.test(out)) out += '.';
+  return out;
 }
 
 // --- Contradiction detection ---
