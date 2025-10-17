@@ -571,8 +571,8 @@ export default function BabylonHydraCanvas() {
             });
             const scene = new BABYLON.Scene(engine);
             // Lighten baseline background so cubes are discoverable
-            scene.clearColor = new BABYLON.Color4(0.06, 0.07, 0.085, 1);
-
+            // scene.clearColor = new BABYLON.Color4(0.06, 0.07, 0.085, 1);
+scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
             // Locked camera inside sphere
             const camera = new BABYLON.ArcRotateCamera('camera', Math.PI/2, Math.PI/2, 10, BABYLON.Vector3.Zero(), scene);
             camera.lowerRadiusLimit = 6;
@@ -598,7 +598,7 @@ export default function BabylonHydraCanvas() {
             // Flip U to correct orientation on inside sphere
             (hydraMat.diffuseTexture as BABYLON.Texture).uScale = -1;
             (hydraMat.diffuseTexture as BABYLON.Texture).vScale = 1;
-            hydraMat.emissiveColor = new BABYLON.Color3(0.8,0.9,0.9);
+            hydraMat.emissiveColor = new BABYLON.Color3(0.95,0.98,1.0);
             hydraMat.diffuseColor = new BABYLON.Color3(0.55,0.56,0.58);
             hydraMat.alpha = 1;
 
