@@ -28,7 +28,7 @@ export default function PhilosopherGuide() {
   const historyEmbedCache = useRef<Record<string, number[]>>({});
   const setTextResults = useAskStore(s => s.setTextResults);
   const [chat, setChat] = useState<Array<{ role: 'guide' | 'you'; text: string }>>([
-    { role: 'guide', text: 'Look closely. What patterns or principles reveal themselves?' }
+    { role: 'guide', text: '' }
   ]);
   // Track user input history with embeddings for long-form consequences
   const [history, setHistory] = useState<Array<{ text: string; ts: number; emb: number[] }>>([]);
@@ -49,6 +49,17 @@ export default function PhilosopherGuide() {
   // Register a small default sequence of tasks once
   useEffect(() => {
     const s = useAgentStore.getState();
+    const initialPrompts = [
+      "How does the paradox resolve?",
+      "What don't we know that we don't know?",
+      "What can't be said here?",
+      "What can't we ignore here?",
+      "Note where light meets darkness. What is passing between them?",
+      'Look closely. What patterns or principles emerge?'
+    ]
+    setChat([
+    { role: 'guide', text: initialPrompts[Math.floor(Math.ceil(Math.random() * initialPrompts.length - 1))] }
+  ])
     if (s.tasks.length === 0) {
       registerTasks([
         {
