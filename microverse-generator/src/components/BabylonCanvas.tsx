@@ -143,7 +143,20 @@ export default function BabylonHydraCanvas() {
             const { osc, noise } = hydra.synth;
             // Mutable live average reference so Hydra param functions see updates every frame.
             const currentAvg = { r:0, g:0, b:0, energy:0 };
-            const hydraState = { pattern:0, impact:0, hRotAngle: 0, hRotSpeed: 0, kaleidRamp: 0.3, lastEnergy: 0 };
+            const hydraState = { pattern:0, impact:0, hRotAngle: 0, hRotSpeed: 0, kaleidRamp: 1, lastEnergy: 0 };
+            // Animate kaleidRamp from 1 down to 0.3 over 3 seconds for visible effect at startup
+            let kaleidAnimStart = performance.now();
+            function animateKaleidRamp() {
+                const now = performance.now();
+                const elapsed = (now - kaleidAnimStart) / 1000;
+                if (elapsed < 3) {
+                    hydraState.kaleidRamp = 1 - 0.7 * (elapsed / 3);
+                    requestAnimationFrame(animateKaleidRamp);
+                } else {
+                    hydraState.kaleidRamp = 0.3;
+                }
+            }
+            animateKaleidRamp();
             const backgroundState = { pulse:0, lastEnergy:0 };
             const saturationMode = { enabled: false }; // placeholder, remains off
             let hydraCamReady = false;
@@ -515,21 +528,26 @@ export default function BabylonHydraCanvas() {
                             ?? (gAny.s0?.vid?.currentTime)
                             ?? (videoStartMs != null ? (performance.now() - videoStartMs)/1000 : 0);
                         let camLuma = src(s0).color(1,1,1);
-                        
-                        if (vtime < 10) {
-                            camLuma = camLuma.pixelate(() => PX_HEAVY, () => PX_HEAVY).modulateHue(noise(10), 0.1).invert(0.2).kaleid(6).repeat(16);
+                        // Always apply stained glass effect for first 30s
+                        if (vtime < 30) {
+                            camLuma = camLuma
+                                .pixelate(() => PX_HEAVY, () => PX_HEAVY)
+                                .modulateHue(noise(10), 0.1)
+                                .invert(0.2)
+                                .kaleid(6)
+                                .repeat(16);
                         }
-                        // Apply camera ops excluding pixelate to avoid double effect
+                        // Always apply camera ops, but skip pixelate if already applied
                         camLuma = applyOps(camLuma, ['saturate','contrast','brightness','hue','posterize','invert','modulateHue','luma']);
                         if (vtime >= 30) {
                             // After credits, show clear camera feed
                             camLuma.out();
                         } else {
+                            // Smoothly blend in the base and camLuma to avoid lighting drop
+                            const blendAmt = vtime < 2 ? 0.6 + 0.2 * (1 - vtime/2) : 0.35 + currentAvg.energy*0.72;
                             if (pattern % 2 === 0) {
-                                // lighter blend to preserve Hydra color saturation
-                                base.blend(camLuma, () => 0.35 + currentAvg.energy*0.72).out();
+                                base.blend(camLuma, () => blendAmt).out();
                             } else {
-                                // lighter add to avoid washing out
                                 base.add(camLuma, () => 0.06 + currentAvg.energy*0.78).out();
                             }
                         }

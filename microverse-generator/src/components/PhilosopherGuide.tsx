@@ -366,9 +366,29 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
 
   const picked = pickN(terms, 2);
   const safePicked = picked.filter(t => !isJunkKeyword(t));
-  const themeLine = recentThemes.length
-    ? `You keep circling ${recentThemes[0]}${recentThemes[1] ? ` and ${recentThemes[1]}` : ''}.`
-    : (safePicked[0] ? `You bring ${safePicked[0]}.` : `You're onto something.`);
+  let themeLine = '';
+  if (recentThemes.length) {
+    themeLine = `You keep circling ${recentThemes[0]}${recentThemes[1] ? ` and ${recentThemes[1]}` : ''}.`;
+  } else if (safePicked[0]) {
+    // Always use a full phrase or sentence from the top match's content if available
+    let phrase = safePicked[0];
+    if (matches && matches.length > 0) {
+      const content = (matches[0] as any).content || '';
+      const sentences = content.split(/[.!?]/).map((s: string) => s.trim()).filter(Boolean);
+      // Prefer a sentence containing the keyword, else any non-empty sentence, else the whole content
+      let containing = sentences.find((s: string) => s.toLowerCase().includes(safePicked[0].toLowerCase()));
+      if (!containing) containing = sentences.find((s: string) => s);
+      phrase = containing || content.trim() || safePicked[0];
+    }
+    // If phrase is empty, fallback to generic
+    if (!phrase) {
+      themeLine = `You're onto something.`;
+    } else {
+      themeLine = `${phrase}.`;
+    }
+  } else {
+    themeLine = `You're onto something.`;
+  }
   const philoWeave = buildPhiloWeave(matches, terms);
   const riffLine = riffOnKeywords(safePicked as string[], query);
   // Rich two-quote weave path
