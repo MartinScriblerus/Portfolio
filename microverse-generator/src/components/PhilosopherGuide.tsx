@@ -177,6 +177,7 @@ export default function PhilosopherGuide() {
       let matches = data ?? [];
       // Diversify by author/work to reduce dominance by a single source
       if (matches.length > 0) {
+        console.log("@@@ CHECK WHAT ARE MATCHES: ", matches);
         const seen = new Set<string>();
         const diverse: MatchRow[] = [];
         for (const m of matches) {
@@ -206,6 +207,11 @@ export default function PhilosopherGuide() {
       // Compose reply: hybrid LLM only under certain conditions
       const tensionScore = computeTension(matches);
       const varietyLow = looksSimilar(lastTwoTextsRef.current[0], lastTwoTextsRef.current[1]);
+
+
+      console.log("@@@ TENSION SCORE: ", tensionScore, " VARIETY LOW: ", varietyLow);
+
+
       const paused = Date.now() - lastInputAtRef.current > 10_000; // 10s beat
       const useLLM = tensionScore > 0.55 || varietyLow || paused;
 
@@ -223,6 +229,7 @@ export default function PhilosopherGuide() {
           if (res.ok) {
             const j = await res.json();
             const candidate = (j?.text || '').trim();
+            console.log("@@@ Here is a candidate: ", candidate, "@@@ last two refs: ", lastTwoTextsRef.current);
             if (candidate && !looksSimilar(candidate, lastTwoTextsRef.current[0])) {
               replyText = candidate;
               stylizerUsed = true;
@@ -233,12 +240,13 @@ export default function PhilosopherGuide() {
       }
       if (!replyText) {
         const utter = await composeGenericReply({ query: q, currentEmb: vec!, history, matches });
-        replyText = utter.text; promptText = utter.prompt;
+        replyText = utter.text;
+        promptText = utter.prompt;
       }
 
-  // Single-line update: only the latest guide text
-  setChat((c) => [{ role: 'guide', text: replyText! }]);
-  // No extra prompt line; CTA already embedded in the main text when needed
+      // Single-line update: only the latest guide text
+      setChat((c) => [{ role: 'guide', text: replyText! }]);
+      // No extra prompt line; CTA already embedded in the main text when needed
 
       // Track bans and last outputs for variety
       bansRef.current = [...bansRef.current, replyText!].slice(-20);
@@ -248,9 +256,9 @@ export default function PhilosopherGuide() {
       const echo = computeEcho(vec!, history);
       const tension = computeTension(matches);
       const drift = computeDrift(history);
-  const m = { echo, tension, drift, cache: stylizerUsed ? 'hit' : undefined as 'hit'|'miss'|undefined };
-  setGuideMetrics(m);
-  try { setBusMetrics(m); } catch {}
+      const m = { echo, tension, drift, cache: stylizerUsed ? 'hit' : undefined as 'hit' | 'miss' | undefined };
+      setGuideMetrics(m);
+      try { setBusMetrics(m); } catch { }
     } catch (e: any) {
       setErr(e?.message || String(e));
     } finally {
@@ -290,8 +298,37 @@ export default function PhilosopherGuide() {
       {/* <div style={{ marginTop:8, fontSize: 12, opacity: 0.8 }}>Status: {status}</div> */}
       {/* <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 6 }}><Title text={titleText} /></div> */}
       <div style={{ margin: 0, marginTop: 12, width: '100%', display: 'flex', gap: 8, flexDirection: 'row' }}>
-        <input value={query} onChange={(e) => { setQuery(e.target.value); lastInputAtRef.current = Date.now(); }} placeholder="ask about optics, vision, sound..." style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(0,0,0,0.25)', color: '#e9f1ff', maxWidth: '420px' }} />
-        <button disabled={loading} onClick={run} style={{ marginTop: 8, marginLeft: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.18)', background: loading ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.25)', color: '#e9f1ff', cursor: loading ? 'default' : 'pointer' }}>
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            lastInputAtRef.current = Date.now();
+          }}
+          placeholder="ask about optics, vision, sound..."
+          style={{
+            width: '100%',
+            padding: '8px 10px',
+            borderRadius: 6,
+            border: '1px solid rgba(255,255,255,0.18)',
+            background: 'rgba(0,0,0,0.25)',
+            color: '#e9f1ff',
+            maxWidth: '420px'
+          }}
+        />
+        <button
+          disabled={loading}
+          onClick={run}
+          style={{
+            marginTop: 8,
+            marginLeft: 12,
+            padding: '8px 10px',
+            borderRadius: 6,
+            border: '1px solid rgba(255,255,255,0.18)',
+            background: loading ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.25)',
+            color: '#e9f1ff',
+            cursor: loading ? 'default' : 'pointer'
+          }}
+        >
           {loading ? 'Sending…' : 'Send'}
         </button>
       </div>
@@ -348,27 +385,32 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
   // Detect contradictions or enigma-worthy tensions
   const contradiction = detectContradiction(terms, rankedCites.map(c => ({ author: c.author, work: c.work })));
   if (contradiction) {
+    console.log("@@@ Detected contradiction: ", contradiction);
     const { a, b, thinkers } = contradiction;
-    const thinkerLine = thinkers?.length ? `${thinkers[0]} and ${thinkers[1] || 'a skeptic'}` : 'two stubborn friends';
-    const opener = recentThemes.length ? `You orbit ${recentThemes[0]}, and it splits: ${a} vs ${b}.` : `Your query fractures: ${a} vs ${b}.`;
+    // const thinkerLine = thinkers?.length ? `${thinkers[0]} and ${thinkers[1] || 'a skeptic'}` : 'two stubborn friends';
+    // const opener = recentThemes.length ? `You orbit ${recentThemes[0]}, and it splits: ${a} vs ${b}.` : `Your query fractures: ${a} vs ${b}.`;
+    const opener = '';
+    const thinkerLine = '';
     const prod = `Both can be true, if the frame shifts. ${thinkerLine} would grin.`;
     const ask = `Which side do you want to lean on, or do we keep the hinge and listen to its creak?`;
     const weave = buildPhiloWeave(matches, terms);
     const firstCite = rankedCites.find(c => !(weave.cite && c.author === weave.cite.author && c.work === weave.cite.work));
-    const citeLine = firstCite ? vernacularCite(firstCite) : '';
-  let text = [opener, weave.line, prod, citeLine].filter(Boolean).join(' ');
-  text = ensureCTAClient(text);
-  text = tightenUtteranceKeepCTA(text, 260);
-  // @@@ opener, weave, prod, cite 
-  text = sanitizeFinal(text);
-  return { text, prompt: ask };
+    // const citeLine = firstCite ? vernacularCite(firstCite) : '';
+    const citeLine = '';
+    let text = [opener, weave.line, prod, citeLine].filter(Boolean).join(' ');
+    text = ensureCTAClient(text);
+    text = tightenUtteranceKeepCTA(text, 260);
+    // @@@ opener, weave, prod, cite 
+    text = sanitizeFinal(text);
+    return { text, prompt: ask };
   }
 
   const picked = pickN(terms, 2);
   const safePicked = picked.filter(t => !isJunkKeyword(t));
   let themeLine = '';
   if (recentThemes.length) {
-    themeLine = `You keep circling ${recentThemes[0]}${recentThemes[1] ? ` and ${recentThemes[1]}` : ''}.`;
+    // themeLine = `You keep circling ${recentThemes[0]}${recentThemes[1] ? ` and ${recentThemes[1]}` : ''}.`;
+    themeLine = '';
   } else if (safePicked[0]) {
     // Always use a full phrase or sentence from the top match's content if available
     let phrase = safePicked[0];
@@ -390,7 +432,8 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
     themeLine = `You're onto something.`;
   }
   const philoWeave = buildPhiloWeave(matches, terms);
-  const riffLine = riffOnKeywords(safePicked as string[], query);
+  // const riffLine = riffOnKeywords(safePicked as string[], query);
+  const riffLine = '';
   // Rich two-quote weave path
   const primaryCite = philoWeave.cite;
   let secondCite: (typeof rankedCites)[number] | undefined;
@@ -561,9 +604,9 @@ function buildDualWeave(matches: MatchRow[], focusTerms: string[], a?: { author?
       const tok = tokenize(seg);
       const overlap = tok.filter(t => keyset.has(t)).length;
       if (overlap === 0) continue;
-      const key = `${author||''}::${work||''}`;
+      const key = `${author || ''}::${work || ''}`;
       const s1 = shortenForQuote(seg, 18);
-      const s2 = segs[j+1] ? shortenForQuote(segs[j+1], 14) : undefined;
+      const s2 = segs[j + 1] ? shortenForQuote(segs[j + 1], 14) : undefined;
       const score = overlap / Math.max(1, tok.length);
       const cur = byKey[key];
       if (!cur || score > cur.score) byKey[key] = { author, work, s1, s2, score };
@@ -575,20 +618,20 @@ function buildDualWeave(matches: MatchRow[], focusTerms: string[], a?: { author?
   const pickB = b ? cands.find(c => c.author === b.author && c.work === b.work) || cands[1] : cands[1];
   if (!pickA || !pickB || (pickA.author === pickB.author && pickA.work === pickB.work)) {
     // fallback: simple weave
-    const tagA = `${pickA?.author||'one voice'}${pickA?.work?`, ${pickA.work}`:''}`;
-    return { text: `As ${tagA} has it: ${pickA?.s1||''}.` };
+    const tagA = `${pickA?.author || 'one voice'}${pickA?.work ? `, ${pickA.work}` : ''}`;
+    return { text: `As ${tagA} has it: ${pickA?.s1 || ''}.` };
   }
   const transVariants = [
-    (a:string,b:string)=> `Hold these together: ${a} and ${b}.`,
-    (a:string,b:string)=> `Set them side by side—${a} and ${b}.`,
-    (a:string,b:string)=> `Let two speak: ${a}, then ${b}.`,
+    (a: string, b: string) => `Hold these together: ${a} and ${b}.`,
+    (a: string, b: string) => `Set them side by side—${a} and ${b}.`,
+    (a: string, b: string) => `Let two speak: ${a}, then ${b}.`,
   ];
-  const nameA = `${pickA.author||'one'}${pickA.work?` (${pickA.work})`:''}`;
-  const nameB = `${pickB.author||'another'}${pickB.work?` (${pickB.work})`:''}`;
-  const trans = transVariants[(Math.random()*transVariants.length)|0](nameA, nameB);
-  const qa = `${pickA.s1}${pickA.s2? ` ${pickA.s2}`:''}`.replace(/\s{2,}/g,' ').trim();
-  const qb = `${pickB.s1}${pickB.s2? ` ${pickB.s2}`:''}`.replace(/\s{2,}/g,' ').trim();
-  const line = `${trans} ${pickA.author||'One'}: “${qa}” ${pickB.author||'Another'}: “${qb}”`;
+  const nameA = `${pickA.author || 'one'}${pickA.work ? ` (${pickA.work})` : ''}`;
+  const nameB = `${pickB.author || 'another'}${pickB.work ? ` (${pickB.work})` : ''}`;
+  const trans = transVariants[(Math.random() * transVariants.length) | 0](nameA, nameB);
+  const qa = `${pickA.s1}${pickA.s2 ? ` ${pickA.s2}` : ''}`.replace(/\s{2,}/g, ' ').trim();
+  const qb = `${pickB.s1}${pickB.s2 ? ` ${pickB.s2}` : ''}`.replace(/\s{2,}/g, ' ').trim();
+  const line = `${trans} ${pickA.author || 'One'}: “${qa}” ${pickB.author || 'Another'}: “${qb}”`;
   return { text: line };
 }
 
@@ -598,43 +641,22 @@ function chooseCTA(): string {
     const t = useAgentStore.getState().telemetry;
     const clicks = t.clicks || 0;
     const cam = t.cameraRadius || 0;
-    const opts: Array<{w:number, s:()=>string}> = [
-      { w: Math.max(1, 4 - clicks), s: ()=> 'Click a cube to tilt the pattern.' },
-      { w: cam < 10 ? 3 : 1,        s: ()=> 'Drag or scroll to change your distance.' },
-      { w: 2,                        s: ()=> 'Type one word you trust.' },
+    const opts: Array<{ w: number, s: () => string }> = [
+      { w: Math.max(1, 4 - clicks), s: () => 'Click a cube to tilt the pattern.' },
+      { w: cam < 10 ? 3 : 1, s: () => 'Drag or scroll to change your distance.' },
+      { w: 2, s: () => 'Type one word you trust.' },
     ];
-    const sum = opts.reduce((a,o)=>a+o.w,0);
-    let r = Math.random()*sum;
+    const sum = opts.reduce((a, o) => a + o.w, 0);
+    let r = Math.random() * sum;
     for (const o of opts) { if ((r -= o.w) <= 0) return o.s(); }
     return opts[0].s();
   } catch {
     const fallback = ['Click a cube to tilt the pattern.', 'Drag or scroll to change your distance.', 'Type one word you trust.'];
-    return fallback[(Math.random()*fallback.length)|0];
+    return fallback[(Math.random() * fallback.length) | 0];
   }
 }
 
-function riffOnKeywords(kw: string[], query: string): string {
-  const [a, b] = kw;
-  if (a && b) {
-    const variants = [
-      () => `${a} and ${b}, side by side.`,
-      () => `${a} with ${b}: one will come forward.`,
-      () => `Between ${a} and ${b}, the edge appears.`,
-    ];
-    const pick = variants[(Math.random() * variants.length) | 0];
-    return pick();
-  }
-  if (a) {
-    const single = [
-      () => `${a} stands out for now.`,
-      () => `On ${a}, clarity gathers.`,
-      () => `${a} keeps returning.`,
-    ];
-    const pick = single[(Math.random() * single.length) | 0];
-    return pick();
-  }
-  return '';
-}
+
 
 const STOPWORDS = new Set<string>([
   'the', 'and', 'a', 'an', 'to', 'of', 'in', 'on', 'for', 'with', 'as', 'by', 'is', 'it', 'that', 'this', 'be', 'are', 'was', 'were', 'or', 'at', 'from', 'but', 'so', 'if', 'into', 'about', 'over', 'under', 'between', 'within', 'without', 'you', 'your', 'we', 'our', 'they', 'their', 'i', 'me', 'my', 'mine', 'ours', 'theirs', 'he', 'she', 'his', 'her', 'its', 'not', 'no', 'yes', 'do', 'does', 'did', 'done', 'can', 'could', 'should', 'would', 'will', 'shall'
@@ -814,7 +836,7 @@ function sanitizeFinal(text: string): string {
   let out = text.trim();
   // Remove trailing fragments like ': it', '—it', ', it', or lone colon/hyphen
   out = out.replace(/[:\u2014\-]\s*(it|this|that)\.?\s*$/i, '.');
-  out = out.replace(/[:\u2014\-]\s*$/,'');
+  out = out.replace(/[:\u2014\-]\s*$/, '');
   // Remove programmatic phrasing
   out = out.replace(/\bchoose one to push\b/gi, '');
   // Collapse spaces and tidy

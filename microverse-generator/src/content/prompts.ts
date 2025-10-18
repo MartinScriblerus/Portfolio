@@ -1,5 +1,5 @@
 export const CTA_PROMPTS: string[] = [
-  'Name a color or a sound.',
+  'Name a color or a soundz.',
   'Tap once to stir the image.',
   'Type one word you trust.',
   'Lean left or right—choose a side.',
