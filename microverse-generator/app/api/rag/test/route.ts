@@ -38,6 +38,9 @@ export async function GET(_req: NextRequest) {
     match_count: 5,
     min_similarity: -1.0,
   });
+
+  console.log("@@@ RPC DATA: ", data);
+
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   const { data: exactData, error: exactErr } = await (supabase as any).rpc('match_documents_exact', {
     query_embedding: embedding,

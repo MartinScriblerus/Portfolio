@@ -19,7 +19,7 @@ export default function AskPanel() {
       <div>
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ask about optics, vision, sound..." style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(0,0,0,0.25)', color: '#e9f1ff' }} />
         <button disabled={inFlight} onClick={run} style={{ marginTop: 8, padding: '8px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.18)', background: inFlight ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.25)', color: '#e9f1ff', cursor: inFlight ? 'default' : 'pointer' }}>
-          {inFlight ? 'Sending…' : 'Send'}
+          {inFlight ? 'SSSSSending…' : 'Send'}
         </button>
       </div>
     </div>

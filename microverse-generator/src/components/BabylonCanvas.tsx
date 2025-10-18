@@ -1,3 +1,9 @@
+declare global {
+    interface Window {
+        __hydraDebugLastLog?: number;
+    }
+}
+
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -9,6 +15,7 @@ import { BLUE_CHANNEL, GREEN_CHANNEL, RED_CHANNEL } from '../constants';
 import Title from './Title';
 import { useAgentStore } from '../agent/useAgentStore';
 import { DECAY_PER_SEC, ENERGY_THRESHOLD, ENTROPY_COOLDOWN_MS, INCREMENT, NEIGHBOR_FACTOR } from './constants';
+import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
 
 
 export default function BabylonHydraCanvas() {
@@ -87,9 +94,22 @@ export default function BabylonHydraCanvas() {
             faceDefs.forEach(([letter, col], idx) => {
                 const m = new BABYLON.StandardMaterial(`mat-${c.name}-${idx}`, this.scene);
                 m.backFaceCulling = true;
-                const letterDT = makeLetterOverlay(this.scene, letter, col);
-                m.emissiveTexture = letterDT;
+                if (idx === 2 && hydraCanvasRef.current) {
+                    // Show the Hydra/video canvas on one face (e.g., face 2)
+                    console.log("yoyo1");
+                    m.emissiveTexture = new BABYLON.DynamicTexture(
+                        `hydra-face-${c.name}`,
+                        hydraCanvasRef.current,
+                        this.scene,
+                        false
+                    );
+                } else {
+                    const letterDT = makeLetterOverlay(this.scene, letter, col);
+                    m.emissiveTexture = letterDT;
+                    console.log("yoyo2");
+                }
                 m.emissiveColor = new BABYLON.Color3(1,1,1);
+                console.log("yoyo3");
                 m.alpha = 1;
                 mats.push(m);
             });
@@ -124,6 +144,7 @@ export default function BabylonHydraCanvas() {
     useEffect(() => {
         if (!canvasRef.current) return;
         (async () => {
+            // ...existing code...
             const isIntro = true;
             const HydraModule = await import('hydra-synth');
             const Hydra = HydraModule.default;
@@ -144,6 +165,10 @@ export default function BabylonHydraCanvas() {
             // Mutable live average reference so Hydra param functions see updates every frame.
             const currentAvg = { r:0, g:0, b:0, energy:0 };
             const hydraState = { pattern:0, impact:0, hRotAngle: 0, hRotSpeed: 0, kaleidRamp: 1, lastEnergy: 0 };
+            // Manual pipeline rebuild function for button/query triggers
+            const rebuildHydraPipeline = () => {
+                buildHydraPipeline(hydraState.pattern);
+            };
             // Animate kaleidRamp from 1 down to 0.3 over 3 seconds for visible effect at startup
             let kaleidAnimStart = performance.now();
             function animateKaleidRamp() {
@@ -184,21 +209,31 @@ export default function BabylonHydraCanvas() {
             let targetBias = useVisStore.getState().targetColorBias;
             let colorBiasWeight = useVisStore.getState().colorBiasWeight;
 
-            // Subscribe to ops/strongMode changes and rebuild pipeline on updates (no visual change if defaults match)
+            // Subscribe to ops/strongMode changes and rebuild pipeline ONLY if not caused by key input events
             const unsubscribeVis = useVisStore.subscribe((state, prev) => {
+                const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+                const isTextInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+                if (isTextInput) return;
                 if (state.ops !== (prev as any)?.ops || state.strongMode !== (prev as any)?.strongMode) {
                     ops = state.ops as any;
-                    buildHydraPipeline(hydraState.pattern);
+                    rebuildHydraPipeline();
                 }
                 if (state.targetColorBias !== (prev as any)?.targetColorBias) {
                     targetBias = state.targetColorBias;
-                    buildHydraPipeline(hydraState.pattern);
+                    rebuildHydraPipeline();
                 }
                 if (state.colorBiasWeight !== (prev as any)?.colorBiasWeight) {
                     colorBiasWeight = state.colorBiasWeight;
-                    buildHydraPipeline(hydraState.pattern);
+                    rebuildHydraPipeline();
                 }
             });
+            // Example: Button to trigger pipeline rebuild
+            // <button onClick={() => rebuildHydraPipeline()}>Update Visuals</button>
+
+            // Example: Call rebuildHydraPipeline() when vector query results arrive
+            // useEffect(() => {
+            //   if (vectorQueryResults) rebuildHydraPipeline();
+            // }, [vectorQueryResults]);
 
             // ------------------------------
             // Descriptor helpers for nested/stacked ops
@@ -521,36 +556,20 @@ export default function BabylonHydraCanvas() {
                 // Optional post ops on base
                 base = applyOps(base, ['saturate','contrast','brightness','hue','invert','colorama','posterize','pixelate','kaleid','rotate','scale','scrollX','scrollY','modulate','modulateHue','luma','modulateScale','modulateRotate','modulateKaleid','modulateRepeatX','modulateRepeatY','blend','add','mult','mask']);
                 if (hydraCamReady && typeof gAny.src === 'function' && gAny.s0) {
-                    // Guard against Hydra errors so Babylon still renders
+                    // Output ONLY the video/camera source, with stained glass effect, no blend/add with procedural texture
                     try {
-                        const vtime = (hydraVideoEl?.currentTime)
-                            ?? (gAny.s0?.video?.currentTime)
-                            ?? (gAny.s0?.vid?.currentTime)
-                            ?? (videoStartMs != null ? (performance.now() - videoStartMs)/1000 : 0);
                         let camLuma = src(s0).color(1,1,1);
                         // Always apply stained glass effect for first 30s
-                        if (vtime < 30) {
-                            camLuma = camLuma
-                                .pixelate(() => PX_HEAVY, () => PX_HEAVY)
-                                .modulateHue(noise(10), 0.1)
-                                .invert(0.2)
-                                .kaleid(6)
-                                .repeat(16);
-                        }
-                        // Always apply camera ops, but skip pixelate if already applied
+                        camLuma = camLuma
+                            .pixelate(() => PX_HEAVY, () => PX_HEAVY)
+                            .modulateHue(noise(10), 0.1)
+                            .invert(0.2)
+                            .kaleid(6)
+                            .repeat(16);
+                        // Always apply camera ops
                         camLuma = applyOps(camLuma, ['saturate','contrast','brightness','hue','posterize','invert','modulateHue','luma']);
-                        if (vtime >= 30) {
-                            // After credits, show clear camera feed
-                            camLuma.out();
-                        } else {
-                            // Smoothly blend in the base and camLuma to avoid lighting drop
-                            const blendAmt = vtime < 2 ? 0.6 + 0.2 * (1 - vtime/2) : 0.35 + currentAvg.energy*0.72;
-                            if (pattern % 2 === 0) {
-                                base.blend(camLuma, () => blendAmt).out();
-                            } else {
-                                base.add(camLuma, () => 0.06 + currentAvg.energy*0.78).out();
-                            }
-                        }
+                        // Output only the video/camera branch
+                        camLuma.out();
                     } catch (err) {
                         console.warn('[Hydra] camera branch error; falling back to base', err);
                         base.out();
@@ -593,6 +612,7 @@ export default function BabylonHydraCanvas() {
             }
 
             console.log('Hydra instance ready (globals?):', { s0: g.s0, srcFn: typeof g.src });
+
 
             // initial pipeline build with zeroed averages
             buildHydraPipeline(0);
@@ -659,6 +679,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
             // Flip U to correct orientation on inside sphere
             (hydraMat.diffuseTexture as BABYLON.Texture).uScale = -1;
             (hydraMat.diffuseTexture as BABYLON.Texture).vScale = 1;
+            console.log("yoyo4");
             hydraMat.emissiveColor = new BABYLON.Color3(0.95,0.98,1.0);
             hydraMat.diffuseColor = new BABYLON.Color3(0.55,0.56,0.58);
             hydraMat.alpha = 1;
@@ -753,19 +774,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 if (mesh === innerSphere) {
                     registerUserClick();
                     sphereClickCount += 1;
-                    if (sphereClickCount === 10 && !envLerpActive) {
-                        envLerpActive = true;
-                        envLerpFrom = environSphereRadius;
-                        envLerpStart = performance.now();
-                        // Kick off intro once the expansion begins
-                        // tryStartChucKIntro?.(bpm);
-                        // Prepare camera LERP
-                        camLerpActive = true;
-                        camLerpFrom = camera.radius;
-                        camLerpStart = envLerpStart;
-                        // Ensure camera can reach target radius
-                        camera.upperRadiusLimit = Math.max(camera.upperRadiusLimit ?? camTargetRadius, camTargetRadius + 2);
-                    }
+                    console.log('[Click] sphere click count', sphereClickCount);
                     return;
                 }
                 const meta = manager.cubes.find(m=>m.mesh === mesh);
@@ -782,7 +791,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 registerUserClick();
                 incrementChannel(meta, faceIndex);
                 const avg = manager.getAverageChannels();
-                console.log('[Click] meta channels', meta.channels, 'avg', avg);
+                // console.log('[Click] meta channels', meta.channels, 'avg', avg);
                 // Use functional updater to avoid stale closures
                 setClicksTotal((c) => c + 1);
             });
@@ -831,6 +840,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                             if (faceIdx === 0 || faceIdx === 1) { er = Math.min(1, baseGlow + r * 1.2); }
                             else if (faceIdx === 2 || faceIdx === 3 ) { eg = Math.min(1, baseGlow + g * 1.2); }
                             else { eb = Math.min(1, baseGlow + b * 1.2); }
+                            // console.log("yoyo5: ", er, eg, eb);
                             sm.emissiveColor = new BABYLON.Color3(er, eg, eb);
                         }
                     });
@@ -906,6 +916,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 const sphereR = clamp01(avg.r);
                 const sphereG = clamp01(avg.g);
                 const sphereB = clamp01(avg.b);
+                // console.log("yoyo6: ", sphereR, sphereG, sphereB);
                 hydraMat.emissiveColor = new BABYLON.Color3(sphereR, sphereG, sphereB);
                 hydraMat.diffuseColor = new BABYLON.Color3(
                     0.35 + Math.min(1, sphereR)*0.65,
@@ -926,6 +937,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
             // Render loop
             // ------------------------------
             let lastHudUpdate = 0;
+            let frameCount = 0;
             engine.runRenderLoop(() => {
                 const ctx = dynamicTexture.getContext();
                 if (hydraCanvasRef.current && ctx) {
@@ -937,6 +949,25 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                         dynamicTexture.getSize().height
                     );
                     dynamicTexture.update();
+                    // Debug: log a frame update every 2 seconds
+                    if (typeof window !== 'undefined') {
+                        if (!window.__hydraDebugLastLog) window.__hydraDebugLastLog = 0;
+                        const now = performance.now();
+                        if (now - window.__hydraDebugLastLog > 2000) {
+                            window.__hydraDebugLastLog = now;
+                            console.log('[Hydra/Babylon] Frame update', {
+                                hydraCanvas: hydraCanvasRef.current,
+                                video: typeof hydraVideoEl !== 'undefined' ? hydraVideoEl : null,
+                                videoPaused: hydraVideoEl ? hydraVideoEl.paused : undefined,
+                                videoCurrentTime: hydraVideoEl ? hydraVideoEl.currentTime : undefined
+                            });
+                        }
+                    }
+                    // Force video play if paused (browser may pause it)
+                    if (typeof hydraVideoEl !== 'undefined' && hydraVideoEl && hydraVideoEl.paused) {
+                        hydraVideoEl.muted = true;
+                        hydraVideoEl.play().catch(()=>{});
+                    }
                 }
                 scene.render();
                 const t = performance.now();
@@ -945,7 +976,17 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                     setHud({ r: currentAvg.r, g: currentAvg.g, b: currentAvg.b, energy: currentAvg.energy, impact: hydraState.impact, pulse: backgroundState.pulse });
                     setRGB({ r: currentAvg.r, g: currentAvg.g, b: currentAvg.b, energy: currentAvg.energy });
                     setImpactPulse({ impact: hydraState.impact, pulse: backgroundState.pulse });
-                  
+                    frameCount++;
+                    if (frameCount % 240 === 0) {
+                        // Log Zustand store state every 240 HUD updates (~8s at 30fps)
+                        try {
+                            const visState = useVisStore.getState();
+                            const busState = useSignalBus.getState();
+                            console.log('[Zustand] visState:', visState, '[Zustand] busState:', busState);
+                        } catch (e) {
+                            console.warn('Could not log Zustand state', e);
+                        }
+                    }
                 }
             });
 

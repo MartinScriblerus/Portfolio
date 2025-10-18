@@ -186,7 +186,7 @@ function ensureCTA(text: string): string {
   const hasCTA = /\b(click|tap|type|enter|name|choose|tilt|lean|look|listen)\b/i.test(text);
   if (hasCTA) return text;
   const ctas = [
-    'Name a color or a sound.',
+    'Name a color or sound.',
     'Tap once to stir the image.',
     'Type one word you trust.',
     'Lean left or right—choose a side.',
