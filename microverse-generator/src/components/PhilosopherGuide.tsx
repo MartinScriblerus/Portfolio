@@ -9,7 +9,9 @@ import { useAskStore } from '../store/useAskStore';
 import { useQueryStore } from '../store/useQueryStore';
 import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
 import { useSignalBus } from '../store/useSignalBus';
-import { randomCTA, randomStarter } from '../content/prompts';
+import { 
+  // randomCTA, 
+  randomStarter } from '../content/prompts';
 
 
 
@@ -59,8 +61,9 @@ export default function PhilosopherGuide() {
       "What don't we know that we don't know?",
       "What can't be seen here?",
       "What can't we ignore here?",
-      "Note where light meets darkness. What is passing between them?",
-      'Look closely. What patterns or principles emerge?'
+      // "Note where light meets darkness. What is passing between them?",
+      'Look closely. What patterns emerge?',
+      'Look closely. What principles emerge?'
     ]
     // Proper random index in [0, length)
     const idx = Math.floor(Math.random() * initialPrompts.length);
@@ -285,18 +288,15 @@ export default function PhilosopherGuide() {
 
   return (
     <div style={{ position: 'absolute', bottom: 16, right: 16, maxWidth: 540, padding: '12px 14px', background: 'rgba(0,0,0,0.5)', color: '#e9f1ff', fontFamily: 'serif', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8 }}>
-      {/* <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 6, marginLeft: 4 }}>Guide</div> */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8, fontSize: '10px', fontFamily: 'monospace' }}>
         {chat.map((m, i) => (
-          <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 16, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
-            <span style={{ opacity: 0.7 }}>
-              {m.role === 'you' ? 'You' : 'Guide'}: </span>
+          <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
+            {/* <span style={{ opacity: 0.7 }}>
+              {m.role === 'you' ? 'You' : 'Guide'}: </span> */}
             {m.text}
           </div>
         ))}
       </div>
-      {/* <div style={{ marginTop:8, fontSize: 12, opacity: 0.8 }}>Status: {status}</div> */}
-      {/* <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 6 }}><Title text={titleText} /></div> */}
       <div style={{ margin: 0, marginTop: 12, width: '100%', display: 'flex', gap: 8, flexDirection: 'row' }}>
         <input
           value={query}
@@ -304,11 +304,12 @@ export default function PhilosopherGuide() {
             setQuery(e.target.value);
             lastInputAtRef.current = Date.now();
           }}
-          placeholder="ask about optics, vision, sound..."
+          placeholder="write a few sentences detailing what you see and hear..."
           style={{
             width: '100%',
             padding: '8px 10px',
             borderRadius: 6,
+            fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
             border: '1px solid rgba(255,255,255,0.18)',
             background: 'rgba(0,0,0,0.25)',
             color: '#e9f1ff',
@@ -416,11 +417,13 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
     let phrase = safePicked[0];
     if (matches && matches.length > 0) {
       const content = (matches[0] as any).content || '';
+      console.log("@@@ WHAT IS CONTENT HERE??? ", content);
       const sentences = content.split(/[.!?]/).map((s: string) => s.trim()).filter(Boolean);
       // Prefer a sentence containing the keyword, else any non-empty sentence, else the whole content
       let containing = sentences.find((s: string) => s.toLowerCase().includes(safePicked[0].toLowerCase()));
       if (!containing) containing = sentences.find((s: string) => s);
       phrase = containing || content.trim() || safePicked[0];
+      console.log("@@@ PHRASE! ", phrase, sentences)
     }
     // If phrase is empty, fallback to generic
     if (!phrase) {
@@ -513,6 +516,7 @@ function extractWeightedKeywords(matches: MatchRow[], take = 8): Array<{ term: s
     for (const t of tokens) counts[t] = (counts[t] || 0) + sim;
   }
   const arr = Object.entries(counts).map(([term, score]) => ({ term, score })).sort((a, b) => b.score - a.score);
+  console.log("@@@ ARR OF WEIGHTED KEYWORDS: ", arr);
   return arr.slice(0, take);
 }
 
@@ -550,24 +554,11 @@ function rankCitations(matches: MatchRow[], focusTerms: string[], take = 2): Arr
     const score = Math.max(0, sim) + overlap * 0.25;
     seen.add(key);
     scored.push({ author, work, score });
+
+
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, take);
-}
-
-function vernacularCite(c: { author?: string; work?: string }): string {
-  const a = (c.author || '').trim();
-  const w = (c.work || '').trim();
-  if (!a && !w) return '';
-  if (/readme/i.test(a) || /readme/i.test(w)) return '';
-  // Self-contained cite line (no dangling comma/colon)
-  const variants = [
-    () => `As ${a}${w ? `, in ${w}` : ''}, has it.`,
-    () => `${a}${w ? ` (${w})` : ''} leans this way.`,
-    () => `Even ${a}${w ? ` in ${w}` : ''} would nod.`,
-  ];
-  const pick = variants[(Math.random() * variants.length) | 0];
-  return pick();
 }
 
 // A short, non-dangling clause for a secondary cite (keeps cadence tight)
@@ -622,16 +613,16 @@ function buildDualWeave(matches: MatchRow[], focusTerms: string[], a?: { author?
     return { text: `As ${tagA} has it: ${pickA?.s1 || ''}.` };
   }
   const transVariants = [
-    (a: string, b: string) => `Hold these together: ${a} and ${b}.`,
-    (a: string, b: string) => `Set them side by side—${a} and ${b}.`,
-    (a: string, b: string) => `Let two speak: ${a}, then ${b}.`,
+    (a: string, b: string) => `Hold these thoughts together: ${a} and ${b}.`,
+    (a: string, b: string) => `Set these ideas side by side—${a} and ${b}.`,
+    (a: string, b: string) => `Let two arguments speak: ${a}, then ${b}.`,
   ];
-  const nameA = `${pickA.author || 'one'}${pickA.work ? ` (${pickA.work})` : ''}`;
-  const nameB = `${pickB.author || 'another'}${pickB.work ? ` (${pickB.work})` : ''}`;
+  const nameA = `${pickA.author || 'one thinker'}${pickA.work ? ` (${pickA.work})` : ''}`;
+  const nameB = `${pickB.author || 'another thinker'}${pickB.work ? ` (${pickB.work})` : ''}`;
   const trans = transVariants[(Math.random() * transVariants.length) | 0](nameA, nameB);
   const qa = `${pickA.s1}${pickA.s2 ? ` ${pickA.s2}` : ''}`.replace(/\s{2,}/g, ' ').trim();
   const qb = `${pickB.s1}${pickB.s2 ? ` ${pickB.s2}` : ''}`.replace(/\s{2,}/g, ' ').trim();
-  const line = `${trans} ${pickA.author || 'One'}: “${qa}” ${pickB.author || 'Another'}: “${qb}”`;
+  const line = `${trans} ${pickA.author || 'One thinker'}: “${qa}” ${pickB.author || 'Another thinker'}: “${qb}”`;
   return { text: line };
 }
 
@@ -644,7 +635,7 @@ function chooseCTA(): string {
     const opts: Array<{ w: number, s: () => string }> = [
       { w: Math.max(1, 4 - clicks), s: () => 'Click a cube to tilt the pattern.' },
       { w: cam < 10 ? 3 : 1, s: () => 'Drag or scroll to change your distance.' },
-      { w: 2, s: () => 'Type one word you trust.' },
+      // { w: 2, s: () => 'Type one word you trust.' },
     ];
     const sum = opts.reduce((a, o) => a + o.w, 0);
     let r = Math.random() * sum;
@@ -827,7 +818,8 @@ function modernizeArchaic(text: string): string {
 function ensureCTAClient(text: string): string {
   const hasCTA = /\b(click|tap|type|enter|name|say|choose|tilt|lean|look|listen)\b/i.test(text);
   if (hasCTA) return text;
-  return `${text} ${randomCTA()}`.trim();
+  return `${text} 
+  `.trim();   // ${randomCTA()}
 }
 
 // Strip clipped or command-like artifacts at the end and remove stray beginnings
