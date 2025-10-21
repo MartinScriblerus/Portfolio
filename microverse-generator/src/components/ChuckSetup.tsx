@@ -39,6 +39,10 @@ function EffectDropdown(props: FxDropProps) {
 
 // setAudioInSetting('grain_stretch', 12.0);
 
+    useEffect(() => {
+        console.log("Selected Effect in Dropdown: " + selected);
+    }, [selected]);
+
     return (
         <div style={{ width: '100%' }}>           
             <div
@@ -170,7 +174,7 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: { eff
 export default function ChuckSetup() {
 
     const chuckRef = useRef<Chuck>(null);
-    const [audioInSelected, setAudioInSelected] = useState<string>('lisaTrigger');
+    const [audioInSelected, setAudioInSelected] = useState<string>('t');
     const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
     const [deviceOptions, setDeviceOptions] = useState<MediaDeviceInfo[]>([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -181,15 +185,19 @@ export default function ChuckSetup() {
     const updateSelectedAudioInSetting = (newSetting: string) => {
         setTimeout(() => {switch (newSetting.toLowerCase()) {
             case 'grain':
+                console.log("Setting audioInSelected to 'grain'");
                 setAudioInSelected('grain');
                 break;
             case 'tape':
+                console.log("Setting audioInSelected to 't'");
                 setAudioInSelected('t');
                 break;
             case 'random reverse':
+                console.log("Setting audioInSelected to 'random reverse'");
                 setAudioInSelected('rr');
                 break;
             case 'clapping':
+                console.log("Setting audioInSelected to 'clapping music'");
                 setAudioInSelected('rei');
                 break;
             case 'lisa trigger':
