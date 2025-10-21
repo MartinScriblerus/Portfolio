@@ -1,4 +1,4 @@
-import * as BABYLON from "babylonjs";
+import * as BABYLON from "@babylonjs/core";
 
 export class SceneManager {
   private engine: BABYLON.Engine | null = null;

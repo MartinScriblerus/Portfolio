@@ -142,13 +142,19 @@ function ruleBasedFallback({ query, snippets, keywords, citations, stylePack }: 
     'What repeats gains shape; what fades gains room.'
   ];
   const cites = citations?.[0] ? `${citations[0].author || 'a classic'}${citations[0].work ? ' in '+citations[0].work : ''} leans this way. Could we move in that direction? Try this... ` : '';
-    const op = pick(openers);
-    const mx = pick(maxims);
-    // Use the top snippet (phrase/chunk) for line2 if available, else fallback to maxim
-    const topChunk = snippets && snippets.length ? snippets[0] : '';
-    // Remove any comparison/side-by-side phrasing
-    const line2 = topChunk ? `Consider: ${topChunk}` : mx;
-    return [op, line2, cites].filter(Boolean).join(' ');
+  const op = pick(openers);
+  const mx = pick(maxims);
+  // Use the top snippet, but extract only full sentences for clarity
+  let snippetSentences = '';
+  if (snippets && snippets.length) {
+    const sentences = snippets[0].match(/[^.!?]+[.!?]+/g);
+    if (sentences && sentences.length) {
+      snippetSentences = sentences.slice(0, 2).join(' ').trim();
+    }
+  }
+  // Prefer full sentences from snippet, else maxim
+  const line2 = snippetSentences || mx;
+  return [op, line2, cites].filter(Boolean).join(' ');
 }
 
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }

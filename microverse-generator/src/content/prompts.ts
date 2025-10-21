@@ -1,14 +1,14 @@
-export const CTA_PROMPTS: string[] = [
-  'Name a color or a soundz.',
-  'Tap once to stir the image.',
-  'Type one word you trust.',
-  'Lean left or right—choose a side.',
-];
+// export const CTA_PROMPTS: string[] = [
+//   'Name a color or a soundz.',
+//   'Tap once to stir the image.',
+//   'Type one word you trust.',
+//   'Lean left or right—choose a side.',
+// ];
 
-export function randomCTA(): string {
-  const i = (Math.random() * CTA_PROMPTS.length) | 0;
-  return CTA_PROMPTS[i];
-}
+// export function randomCTA(): string {
+//   const i = (Math.random() * CTA_PROMPTS.length) | 0;
+//   return CTA_PROMPTS[i];
+// }
 
 export const STARTER_PROMPTS: string[] = [
   'Offer a word to tilt the lens.',

@@ -16,9 +16,14 @@ import Title from './Title';
 import { useAgentStore } from '../agent/useAgentStore';
 import { DECAY_PER_SEC, ENERGY_THRESHOLD, ENTROPY_COOLDOWN_MS, INCREMENT, NEIGHBOR_FACTOR } from './constants';
 import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
+import { useHudStore } from '../hooks/useHudStore';
+import { useTimingStore } from '../hooks/useTimingStore';
 
 
 export default function BabylonHydraCanvas() {
+            // const metrics = useGuideMetricsStore(state => state.metrics);
+
+            // console.log("@@@ [guide] BabylonCanvas initial metrics:", metrics);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const hydraCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,6 +32,7 @@ export default function BabylonHydraCanvas() {
     const [hud, setHud] = useState({ r:0, g:0, b:0, energy:0, impact:0, pulse:0 });
     const [bpm, setBpm] = useState<number>(120);
     const [clicksTotal, setClicksTotal] = useState<number>(0);
+    const setBeatMs = useTimingStore((s:any) => s.setBeatMs);
     const setRGB = useSignalBus(s => s.setRGB);
     const setImpactPulse = useSignalBus(s => s.setImpactPulse);
     // Prefer the shared signal bus for cross-layer metrics
@@ -96,7 +102,6 @@ export default function BabylonHydraCanvas() {
                 m.backFaceCulling = true;
                 if (idx === 2 && hydraCanvasRef.current) {
                     // Show the Hydra/video canvas on one face (e.g., face 2)
-                    console.log("yoyo1");
                     m.emissiveTexture = new BABYLON.DynamicTexture(
                         `hydra-face-${c.name}`,
                         hydraCanvasRef.current,
@@ -106,10 +111,8 @@ export default function BabylonHydraCanvas() {
                 } else {
                     const letterDT = makeLetterOverlay(this.scene, letter, col);
                     m.emissiveTexture = letterDT;
-                    console.log("yoyo2");
                 }
                 m.emissiveColor = new BABYLON.Color3(1,1,1);
-                console.log("yoyo3");
                 m.alpha = 1;
                 mats.push(m);
             });
@@ -135,6 +138,10 @@ export default function BabylonHydraCanvas() {
         }
     }
 
+
+    
+ const isCameraOn = useHudStore((s: any) => s.isCameraOn);
+
     useEffect(() => {
         if (!busMetrics) return;
         const { echo, tension, drift, cache } = busMetrics;
@@ -144,7 +151,6 @@ export default function BabylonHydraCanvas() {
     useEffect(() => {
         if (!canvasRef.current) return;
         (async () => {
-            // ...existing code...
             const isIntro = true;
             const HydraModule = await import('hydra-synth');
             const Hydra = HydraModule.default;
@@ -165,10 +171,6 @@ export default function BabylonHydraCanvas() {
             // Mutable live average reference so Hydra param functions see updates every frame.
             const currentAvg = { r:0, g:0, b:0, energy:0 };
             const hydraState = { pattern:0, impact:0, hRotAngle: 0, hRotSpeed: 0, kaleidRamp: 1, lastEnergy: 0 };
-            // Manual pipeline rebuild function for button/query triggers
-            const rebuildHydraPipeline = () => {
-                buildHydraPipeline(hydraState.pattern);
-            };
             // Animate kaleidRamp from 1 down to 0.3 over 3 seconds for visible effect at startup
             let kaleidAnimStart = performance.now();
             function animateKaleidRamp() {
@@ -209,31 +211,21 @@ export default function BabylonHydraCanvas() {
             let targetBias = useVisStore.getState().targetColorBias;
             let colorBiasWeight = useVisStore.getState().colorBiasWeight;
 
-            // Subscribe to ops/strongMode changes and rebuild pipeline ONLY if not caused by key input events
+            // Subscribe to ops/strongMode changes and rebuild pipeline on updates (no visual change if defaults match)
             const unsubscribeVis = useVisStore.subscribe((state, prev) => {
-                const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
-                const isTextInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
-                if (isTextInput) return;
                 if (state.ops !== (prev as any)?.ops || state.strongMode !== (prev as any)?.strongMode) {
                     ops = state.ops as any;
-                    rebuildHydraPipeline();
+                    buildHydraPipeline(hydraState.pattern);
                 }
                 if (state.targetColorBias !== (prev as any)?.targetColorBias) {
                     targetBias = state.targetColorBias;
-                    rebuildHydraPipeline();
+                    buildHydraPipeline(hydraState.pattern);
                 }
                 if (state.colorBiasWeight !== (prev as any)?.colorBiasWeight) {
                     colorBiasWeight = state.colorBiasWeight;
-                    rebuildHydraPipeline();
+                    buildHydraPipeline(hydraState.pattern);
                 }
             });
-            // Example: Button to trigger pipeline rebuild
-            // <button onClick={() => rebuildHydraPipeline()}>Update Visuals</button>
-
-            // Example: Call rebuildHydraPipeline() when vector query results arrive
-            // useEffect(() => {
-            //   if (vectorQueryResults) rebuildHydraPipeline();
-            // }, [vectorQueryResults]);
 
             // ------------------------------
             // Descriptor helpers for nested/stacked ops
@@ -585,7 +577,12 @@ export default function BabylonHydraCanvas() {
             if (typeof g.s0?.initCam === 'function') {
                 try {
                     // await g.s0.initCam();
+                   
+                    // if (!isCameraOn) {
                     hydraVideoEl = await g.s0.initVideo("https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4");
+                    // } else {
+                        // hydraVideoEl = await g.s0.initCam();
+                    // } 
                     videoStartMs = performance.now();
                     hydraCamReady = true;
                     console.log('Hydra webcam started --> now for Audio');
@@ -679,7 +676,6 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
             // Flip U to correct orientation on inside sphere
             (hydraMat.diffuseTexture as BABYLON.Texture).uScale = -1;
             (hydraMat.diffuseTexture as BABYLON.Texture).vScale = 1;
-            console.log("yoyo4");
             hydraMat.emissiveColor = new BABYLON.Color3(0.95,0.98,1.0);
             hydraMat.diffuseColor = new BABYLON.Color3(0.55,0.56,0.58);
             hydraMat.alpha = 1;
@@ -774,7 +770,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 if (mesh === innerSphere) {
                     registerUserClick();
                     sphereClickCount += 1;
-                    console.log('[Click] sphere click count', sphereClickCount);
+     
                     return;
                 }
                 const meta = manager.cubes.find(m=>m.mesh === mesh);
@@ -791,7 +787,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 registerUserClick();
                 incrementChannel(meta, faceIndex);
                 const avg = manager.getAverageChannels();
-                // console.log('[Click] meta channels', meta.channels, 'avg', avg);
+                console.log('[Click] meta channels', meta.channels, 'avg', avg);
                 // Use functional updater to avoid stale closures
                 setClicksTotal((c) => c + 1);
             });
@@ -840,7 +836,6 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                             if (faceIdx === 0 || faceIdx === 1) { er = Math.min(1, baseGlow + r * 1.2); }
                             else if (faceIdx === 2 || faceIdx === 3 ) { eg = Math.min(1, baseGlow + g * 1.2); }
                             else { eb = Math.min(1, baseGlow + b * 1.2); }
-                            // console.log("yoyo5: ", er, eg, eb);
                             sm.emissiveColor = new BABYLON.Color3(er, eg, eb);
                         }
                     });
@@ -916,7 +911,6 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 const sphereR = clamp01(avg.r);
                 const sphereG = clamp01(avg.g);
                 const sphereB = clamp01(avg.b);
-                // console.log("yoyo6: ", sphereR, sphereG, sphereB);
                 hydraMat.emissiveColor = new BABYLON.Color3(sphereR, sphereG, sphereB);
                 hydraMat.diffuseColor = new BABYLON.Color3(
                     0.35 + Math.min(1, sphereR)*0.65,
@@ -955,12 +949,12 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                         const now = performance.now();
                         if (now - window.__hydraDebugLastLog > 2000) {
                             window.__hydraDebugLastLog = now;
-                            console.log('[Hydra/Babylon] Frame update', {
-                                hydraCanvas: hydraCanvasRef.current,
-                                video: typeof hydraVideoEl !== 'undefined' ? hydraVideoEl : null,
-                                videoPaused: hydraVideoEl ? hydraVideoEl.paused : undefined,
-                                videoCurrentTime: hydraVideoEl ? hydraVideoEl.currentTime : undefined
-                            });
+                            // console.log('[Hydra/Babylon] Frame update', {
+                            //     hydraCanvas: hydraCanvasRef.current,
+                            //     video: typeof hydraVideoEl !== 'undefined' ? hydraVideoEl : null,
+                            //     videoPaused: hydraVideoEl ? hydraVideoEl.paused : undefined,
+                            //     videoCurrentTime: hydraVideoEl ? hydraVideoEl.currentTime : undefined
+                            // });
                         }
                     }
                     // Force video play if paused (browser may pause it)
@@ -1021,6 +1015,10 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
         }
     }, [clicksTotal]);
 
+    useEffect(() => {
+        bpm && setBeatMs((60 / bpm) * 1000);
+    }, [bpm]);
+
     return (
         <>
             {telemetry?.past30 && <Title text={titleText} />}
@@ -1054,8 +1052,8 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 {/* <div style={{opacity:0.85, marginTop:6}}>
                     toggles: 1=strength, s/c/b, h, i, o=posterize, p=pixel, k=kaleid, r=rotate, l=scale, x/y=scroll, m, u=modHue, g=colorama
                 </div> */}
-                {/* <div style={{marginTop:6, fontWeight: 700, display:'flex', alignItems:'center', gap:6}}>
-                    <span style={{color: RED_CHANNEL}}>BPM:</span>
+                <div style={{marginTop:6, fontWeight: 700, display:'flex', alignItems:'center', gap:6}}>
+                    {/* <span style={{color: RED_CHANNEL}}>BPM:</span>
                     <input
                         type="number"
                         value={bpm}
@@ -1071,8 +1069,8 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                             borderRadius: 4,
                             padding: '2px 6px'
                         }}
-                    />
-                </div> */}
+                    /> */}
+                </div>
             </div>
         </>
     );

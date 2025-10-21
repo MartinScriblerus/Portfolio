@@ -1,12 +1,19 @@
 // app/page.tsx
 import React from 'react';
-import { BabylonCanvas, ChuckSetup, PhilosopherGuide, IntentDebugPanel } from '../src/components';
+import { 
+  BabylonCanvas, 
+  ChuckSetup, 
+  PhilosopherGuide, 
+  IntentDebugPanel, 
+} from '../src/components';
+import IntroDetails from '../src/components/IntroDetails';
 import DevtoolsHider from '../src/components/DevtoolsHider';
 import DevLogger from '../src/components/DevLogger';
 
 export default function Page() {
   return <>
     <BabylonCanvas />
+    <IntroDetails/>
     <ChuckSetup />
     <PhilosopherGuide />
     {process.env.NODE_ENV === 'development' && <DevtoolsHider />}
