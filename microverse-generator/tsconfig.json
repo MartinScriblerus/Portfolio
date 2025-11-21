@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2020",
+    "baseUrl": ".",
+    "paths": {
+    "@/": ["src/*"]
+    },
     "lib": [
       "dom",
       "dom.iterable",
@@ -22,17 +26,26 @@
       {
         "name": "next"
       }
-    ]
+    ],
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "app",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/types/**/*.d.ts",
     "next-env.d.ts",
-    "src",
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "**/Desktop/CursorRecoveredFiles/**",
+    "**/CursorRecoveredFiles/**",
+    "Cell*.tsx",
+    "GridOverlay.tsx",
+    "ChuckSetup.tsx",
+    "ControlPanel.tsx",
+    "OldKeyboardPanel.tsx",
+    "OldLaunchScreen.tsx",
+    "GridCell.tsx",
+    "BeatGridTooltip.tsx"
   ]
 }

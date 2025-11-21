@@ -1,0 +1,116 @@
+export const stkVariableMoog = "mog";
+export const stkIdentifierMoog = "Moog";
+
+const moogPresets = {
+    filterQ: {
+        name: "filterQ",
+        label: "Filter Q",
+        value: 0.8,
+        min: 0.01,
+        max: 1.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    },
+    filterSweepRate: {
+        name: "filterSweepRate",
+        label: "Filter Sweep Rate",
+        value: 0.5,
+        min: 0.01,
+        max: 1.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    },
+    vibratoFreq: {
+        name: "vibratoFreq",
+        label: "Vibr Freq",
+        value: 660,
+        min: 0,
+        max: 1000,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "int",
+    }, // freq in hZ
+    vibratoGain: {
+        name: "vibratoGain",
+        label: "Vibr Gain",
+        value: 0.14,
+        min: 0.01,
+        max: 1.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    },
+    afterTouch: {
+        name: "afterTouch",
+        label: "Aftertouch",
+        value: 0.5,
+        min: 0.01,
+        max: 1.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    },
+
+    lfoSpeed: {
+        name: "lfoSpeed",
+        label: "LFO Speed",
+        value: 0.31,
+        min: 0.01,
+        max: 1.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    },
+    lfoDepth: {
+        name: "lfoDepth",
+        label: "LFO Depth",
+        value: 0.35,
+        min: 0.01,
+        max: 1.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    },
+    modSpeed: {
+        name: "modSpeed",
+        label: "Mod Speed",
+        value: 0.20,
+        min: 0.01,
+        max: 1.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    },
+    modDepth: {
+        name: "modDepth",
+        label: "Mod Depth",
+        value: 0.09,
+        min: 0.01,
+        max: 1.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    },
+    gain: {
+        name: "gain",
+        label: "Gain",
+        value: 0.1845,
+        min: 0.01,
+        max: 2.0,
+        screenInterface: "knob",
+        fxType: "stk",
+        type: "float",
+    }
+    // reverb: {
+    //     name: "reverb",
+    //     label: "Reverb",
+    //     value: 5,
+    //     min: 0,
+    //     max: 100,
+    //     screenInterface: "knob",
+    // }, // reverb amount (0-100)
+};
+
+export default moogPresets;

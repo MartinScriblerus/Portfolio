@@ -1,5 +1,3 @@
-export {}
-
 declare module 'hydra-synth';
 
 declare global {

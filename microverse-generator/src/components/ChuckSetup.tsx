@@ -1,668 +1,821 @@
 'use client';
-import { use, useEffect, useRef, useState } from 'react';
-import { loadWebChugins } from './WebChuckRaf';
-import { useSignalBus } from '../store/useSignalBus';
-import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
+import { act, useEffect, useRef, useState } from 'react';
 import { Chuck } from 'webchuck';
-import { getAsymptoticChopperClass, getGrainStretchClass, getLisaTriggerClass, getMosaicSynthClass, getRandomReverseClass, getReichClass, getTapeClass } from '../utils/audioInSettingsHelper';
-import { useHudStore } from '../hooks/useHudStore';
+import { 
+    getAsymptoticChopperClass, 
+    getGrainStretchClass, 
+    getLisaTriggerClass, 
+    getMosaicSynthClass, 
+    getRandomReverseClass, 
+    getReichClass, 
+    getTapeClass 
+} from '../utils/audioInSettingsHelper';
 import { useTimingStore } from '../hooks/useTimingStore';
+import { useBeatGridStore } from '../store/useBeatGridStore';
 import '../../app/globals.css';
-
 import { useAudioInSettingsStore } from '../utils/audioInSettingsHelper';
-import { min } from '@xenova/transformers';
 import { audioInEffectSlidersHelper } from '../utils/utils';
+import {calculateDisplayDigits, loadWebChugins} from '../utils/audioClient';   
+import PlayCircleIcon from '@mui/icons-material/PlayCircle';
+import MicOffIcon from '@mui/icons-material/MicOff';
+import MicIcon from '@mui/icons-material/Mic';
+import StopCircleIcon from '@mui/icons-material/StopCircle';
+import { Box, Button, InputLabel, Select } from '@mui/material';
+import { filesToProcess, chuckRef as globalChuckRef } from '../../app/state/refs';
+import '../../app/globals.css';
+import OldParentMonolith from '../components/OldParentMonolith/OldParentMonolith';
 
-const EFFECTS = [
-    'Grain',
-    'Tape',
-    'Random Reverse',
-    'Clapping',
-    // TODO >>> fix these...
-    // 'Lisa Trigger', 
-    // 'Asymptotic Chopper',
-    // 'Mosaic Synth'
+// Put this near the top, inside component file (module scope or inside component before handlers):
+const SERVER_FILES_TO_PRELOAD: Array<{ serverFilename: string; virtualFilename: string }> = [
+  { serverFilename: "/Conga.wav",       virtualFilename: "Conga.wav" },
+  { serverFilename: "/DR-55Hat.wav",    virtualFilename: "DR-55Hat.wav" },
+  { serverFilename: "/DR-55Kick.wav",   virtualFilename: "DR-55Kick.wav" },
+  { serverFilename: "/DR-55Pop.wav",    virtualFilename: "DR-55Pop.wav" },
+  { serverFilename: "/DR-55Snare.wav",  virtualFilename: "DR-55Snare.wav" },
 ];
 
-type FxDropProps = {
-    chuckRef:any, 
-    updateSelectedAudioInSetting:any
+// -----------------------------
+// Effect Dropdown + Sliders
+// -----------------------------
+export type FxDropProps = {
+    chuckRef: any;
+    updateSelectedAudioInSetting: any;
+    showAudioInDropdown: boolean;
 };
 
-function EffectDropdown(props: FxDropProps) {
-    const { chuckRef, updateSelectedAudioInSetting } = props;
-    const [open, setOpen] = useState(false);
-    const [selected, setSelected] = useState<string | null>(null);
-    const [deviceOptions, setDeviceOptions] = useState<MediaDeviceInfo[]>([]);
-    const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
-    const [minimizeAudioInDropdown, setMinimizeAudioInDropdown] = useState(false);
+// function EffectDropdown({ chuckRef, updateSelectedAudioInSetting, showAudioInDropdown }: FxDropProps) {
+//     const [open, setOpen] = useState(false);
+//     const [selected, setSelected] = useState<string | null>(null);
+//     const [minimizeAudioInDropdown, setMinimizeAudioInDropdown] = useState(false);
 
-// setAudioInSetting('grain_stretch', 12.0);
+//     return (
+//         <div style={{ width: '100%' }}>
+//             <div
+//                 style={{
+//                     padding: '10px 12px',
+//                     cursor: 'pointer',
+//                     borderBottom: '1px solid rgba(255,255,255,0.12)',
+//                     userSelect: 'none',
+//                     background: 'royalblue'
+//                 }}
+//                 onClick={() => {
+//                     if (selected === '' && !minimizeAudioInDropdown) {
+//                         setMinimizeAudioInDropdown(true);
+//                     } else {
+//                         setMinimizeAudioInDropdown(false);
+//                     }
+//                     setSelected('');
+//                 }}
+//             >
+//                 {selected || 'Select Effect'}
+//                 <span
+//                     className="effects-dropdown-arrow"
+//                     style={{
+//                         rotate: selected ? '180deg' : '0deg',
+//                     }}
+//                 >
+//                     ▼
+//                 </span>
+//             </div>
 
-    useEffect(() => {
-        console.log("Selected Effect in Dropdown: " + selected);
-    }, [selected]);
+//             {!minimizeAudioInDropdown && (
+//                 <div className="effects-dropdown-wrapper">
+//                     {EFFECTS.map(effect => (
+//                         <div
+//                             key={effect}
+//                             className="effects-dropdown-item"
+//                             style={{
+//                                 background:
+//                                     selected === effect ? 'rgba(255,255,255,0.10)' : 'transparent',
+//                             }}
+//                             onClick={() => {
+//                                 // updateSelectedAudioInSetting
+//                                 setSelected(effect);
+//                                 setOpen(!open);
+//                                 updateSelectedAudioInSetting(effect);
+//                             }}
+//                         >
+//                             {effect}
+//                             {selected === effect && (
+//                                 <EffectSliders
+//                                     effect={selected}
+//                                     chuckRef={chuckRef}
+//                                     updateSelectedAudioInSetting={updateSelectedAudioInSetting}
+//                                 />
+//                             )}
+//                         </div>
+//                     ))}
+//                 </div>
+//             )}
+//         </div>
+//     );
+// }
 
-    return (
-        <div style={{ width: '100%' }}>           
-            <div
-                style={{
-                    padding: '10px 12px',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid rgba(255,255,255,0.12)',
-                    userSelect: 'none',
-                }}
-                // onClick={() => setOpen(o => !o)}
-                 onClick={() => {
-                    if (selected === '' && !minimizeAudioInDropdown) {
-                        setMinimizeAudioInDropdown(true)
-                    } else {
-                        setMinimizeAudioInDropdown(false)
-                    }
-                    setSelected('')
-                }}
-            >
-                {selected || 'Select Effect'}
-                <span 
-                    className="effects-dropdown-arrow"
-                    style={{ 
-                        rotate: selected ? '180deg' : '0deg', 
-                    }}
-                    >
-                    ▼
-                </span>
-            </div>
-            {/* {open && ( */}
-            {!minimizeAudioInDropdown && (
-                <div 
-                    className='effects-dropdown-wrapper'
-                >
-                    {EFFECTS.map(effect => (
-                        <div
-                            key={effect}
-                            className='effects-dropdown-item'
-                            style={{
-                                background: selected === effect ? 'rgba(255,255,255,0.10)' : 'transparent',
-                            }}
-                            onClick={() => {
-                                setSelected(effect);
-                                if (open) {
-                                    setOpen(false);
-                                    if (effect !== selected) {
-                                        setSelected('');
-                                    }
-                                }
-                                else {
-                                    setOpen(true);
-                                    setSelected(effect);
-                                }
-                            }}
-                        >
-                            {effect}
-                            {selected && 
-                            (selected === effect) && 
-                            <EffectSliders 
-                                effect={selected} 
-                                chuckRef={chuckRef} 
-                                updateSelectedAudioInSetting={updateSelectedAudioInSetting}
-                            />}
-                        </div>
-                    ))}
-                </div>
-            )}
-            {/* )} */}
-            {/* {selected && <EffectSliders effect={selected} chuckRef={chuckRef} />} */}
-        </div>
-    );
-}
+// function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: { 
+//     effect: string, 
+//     chuckRef: any, 
+//     updateSelectedAudioInSetting: any 
+// }) {
+//     const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
+//     const setAudioInSetting = useAudioInSettingsStore(s => s.setAudioInSetting);
+//     const sliderNames = audioInEffectSlidersHelper(effect);
+//     const transformedKeyNames: string[] = sliderNames.map(name =>
+//         `${effect.trim().toLowerCase().replace(' ', '_')}_${name.name.trim().toLowerCase().replace(' ', '')}`
+//     );
 
-function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: { effect: string, chuckRef: any, updateSelectedAudioInSetting: any }) {
+//     // Local state for slider values
+//     const [values, setValues] = useState(() => transformedKeyNames.map((n: any) => (audioInSettingsHelperHash as any)[n]));
 
-    updateSelectedAudioInSetting(effect);
-    
+//     // Sync local state to store when effect changes
+//     useEffect(() => {
+//         const valsForEffect: any = transformedKeyNames.map((n: any) => (audioInSettingsHelperHash as any)[n]);
+//         setValues(valsForEffect);
+//         updateSelectedAudioInSetting(effect);
+//     // eslint-disable-next-line react-hooks/exhaustive-deps
+//     }, [effect, audioInSettingsHelperHash]);
 
-    const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
+//     // Only update Zustand and ChucK when values change
+//     useEffect(() => {
+//         (async () => {
+//             let updated = false;
+//             for (let i = 0; i < sliderNames.length; i++) {
+//                 const key = transformedKeyNames[i];
+//                 const transformByThousandSliderArray = ['lisa_trigger_rate', 'grain_rate', 'random_reverse_rate'];
+//                 const value = values[i];
+//                 // Only update if value differs from store
+//                 if ((audioInSettingsHelperHash as any)[key] !== value) {
+//                     setAudioInSetting(key, value);
+//                     if (chuckRef.current) {
+//                         console.log("SANITY CHECK GOT KEY AND VALUE? ", key, value)
+//                         await chuckRef.current.setAssociativeFloatArrayValue("audioInSettingsHelperHash", key, transformByThousandSliderArray.includes(key) ? +((value * 1.0) / 1000).toFixed(3) : +(value * 1.0).toFixed(3));
+//                         await chuckRef.current.broadcastEvent("fxUpdate");
+//                         updated = true;
+//                     }
+//                 }
+//             }
+//         })();
+//     // Only run when values change, not when store changes
+//     // eslint-disable-next-line react-hooks/exhaustive-deps
+//     }, [values]);
 
-    const sliderNames = audioInEffectSlidersHelper(effect);
+//     return (
+//         <div style={{ padding: '12px 8px 8px 8px', background: 'rgba(0,0,0,0.10)', borderRadius: 4 }}>
+//             <div style={{ fontWeight: 600, marginBottom: 8 }}>{effect} Controls</div>
+//             {sliderNames.map((name, i) => (
+//                 <div key={name.name} style={{ marginBottom: 10 }}>
+//                     <label style={{ fontSize: 13, color: '#e9f1ff', marginBottom: 2, display: 'block' }}>
+//                         {name.name}
+//                     </label>
+//                     <input
+//                         type="range"
+//                         min={name.min}
+//                         max={name.max}
+//                         value={values[i]}
+//                         onChange={e => {
+//                             const v = Number(e.target.value);
+//                             setValues((vals: any) => {
+//                                 const newVals = vals.map((val: any, idx: number) => (idx === i ? v : val));
+//                                 console.log(`[EffectSliders] setValues: index ${vals[i]} changed to`, v, "New values:", newVals);
+//                                 return newVals;
+//                             });
+//                         }}
+//                         style={{ zIndex: 99999, width: 180, accentColor: '#6cf', height: 4 }}
+//                     />
+//                     <span style={{ marginLeft: 10, fontSize: 12, color: '#b7d6ff' }}>{values[i]}</span>
+//                 </div>
+//             ))}
+//         </div>
+//     );
+// }
 
-    const transformedKeyNames: string[] = sliderNames.map(name => `${effect.trim().toLowerCase().replace(' ','_')}_${name.name.trim().toLowerCase().replace(' ','')}`) 
-    
-    const valsForEffect: any = []; 
-
-    transformedKeyNames.map((n: any) => {
-        valsForEffect.push((audioInSettingsHelperHash as any)[n]);
-    }) 
-
-    const [values, setValues] = useState(valsForEffect);
-    const setAudioInSetting = useAudioInSettingsStore(s => s.setAudioInSetting);
-
-    useEffect(() => {
-        (async () => {
-            sliderNames.map(async(name, i) => {
-                setAudioInSetting(`${effect.trim().toLowerCase().replace(' ','_')}_${name.name.trim().toLowerCase().replace(' ','')}`, values[i]);
-                chuckRef.current && await chuckRef.current.setAssociativeFloatArrayValue("audioInSettingsHelperHash", `${effect.trim().toLowerCase().replace(' ','_')}_${name.name.trim().toLowerCase().replace(' ','')}`, values[i]);
-            })
-        })();
-        
-    }, [values]);
-
-    return (
-        <div style={{ padding: '12px 8px 8px 8px', background: 'rgba(0,0,0,0.10)', borderRadius: 4 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>{effect} Controls</div>
-            {sliderNames.map((name, i) => (
-                <div key={name.name} style={{ marginBottom: 10 }}>
-                    <label style={{ fontSize: 13, color: '#e9f1ff', marginBottom: 2, display: 'block' }}>{name.name}</label>
-                    <input
-                        type="range"
-                        min={name.min}
-                        max={name.max}
-                        value={name.type === "float" ? values[i] : name.type === "int" ? Math.floor(values[i]) : values[i]}
-                        onChange={e => {
-                            const v = Number(e.target.value);
-                            setValues((vals: any) => vals.map((val: any, idx: any) => idx === i ? v : val));
-                            
-                        }}
-                        style={{ zIndex: 99999, width: 180, accentColor: '#6cf', height: 4 }}
-                    />
-                    <span style={{ marginLeft: 10, fontSize: 12, color: '#b7d6ff' }}>{values[i]}</span>
-                </div>
-            ))}
-        </div>
-    );
-}
-
+// -----------------------------
+// Main Component
+// -----------------------------
 export default function ChuckSetup() {
-
-    const chuckRef = useRef<Chuck>(null);
-    const [audioInSelected, setAudioInSelected] = useState<string>('t');
-    const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
+    const chuckRef = useRef<Chuck | null>(null);
+    const [ready, setReady] = useState(false);
+    const [initializing, setInitializing] = useState(true);
+    const [audioInSelected, setAudioInSelected] = useState<string>('');
     const [deviceOptions, setDeviceOptions] = useState<MediaDeviceInfo[]>([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+    const [chuckHook, setChuckHook] = useState<Chuck | any>({});
 
+    const isRunning = useRef(false);
     const currentStreamRef = useRef<MediaStream | null>(null);
     const currentSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
-    const updateSelectedAudioInSetting = (newSetting: string) => {
-        setTimeout(() => {switch (newSetting.toLowerCase()) {
-            case 'grain':
-                console.log("Setting audioInSelected to 'grain'");
-                setAudioInSelected('grain');
-                break;
-            case 'tape':
-                console.log("Setting audioInSelected to 't'");
-                setAudioInSelected('t');
-                break;
-            case 'random reverse':
-                console.log("Setting audioInSelected to 'random reverse'");
-                setAudioInSelected('rr');
-                break;
-            case 'clapping':
-                console.log("Setting audioInSelected to 'clapping music'");
-                setAudioInSelected('rei');
-                break;
-            case 'lisa trigger':
-                setAudioInSelected('lisaTrigger');
-                break;
-            case 'asymptotic chopper':
-                setAudioInSelected('achop');
-                break;
-            // case 'mosaic synth':
-            //     setAudioInSelected('mosaic');
-            //     break;
-            default:
-                setAudioInSelected('');
-        }}, 20);
+    const beatMs = useTimingStore((s: any) => s.beatMs);
+    const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
+    const uploadedVFilesRef = useRef<string[]>([]); 
 
+    const globalAudioCtx = useRef<AudioContext | null>(null);
+    useEffect(() => {
+        if (!globalAudioCtx.current) {
+            globalAudioCtx.current = new AudioContext();
+        }
+        return () => {
+            globalAudioCtx.current?.close();
+            globalAudioCtx.current = null;
+        };
+    }, []);
+
+    const [showAudioInDropdown, setShowAudioInDropdown] = useState(false);
+
+
+
+    function defer() {
+        let res, rej;
+
+        let promise: any = new Promise((resolve, reject) => {
+            res = resolve;
+            rej = reject;
+        });
+
+        promise.resolve = res;
+        promise.reject = rej;
+
+        return promise;
     }
 
-
-
-    const chuckMicButton = async function ( selectedInput?: string ) {
-     
-        if (currentStreamRef.current) {
-            currentStreamRef.current.getTracks().forEach(track => track.stop());
-            currentStreamRef.current = null;
-        }
-        if (currentSourceRef.current) {
-            currentSourceRef.current.disconnect();
-            currentSourceRef.current = null;
-        }
-
-        if (deviceOptions?.length < 1) {
-            await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            
-            setDeviceOptions(devices.filter(device => device.kind === 'audioinput'));
-            if (!selectedDeviceId && devices.length > 0) {
-                setSelectedDeviceId(devices[0].deviceId);
-                
+    var readAsync = function( url: any, onload: any, onerror: any )
+    {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = 'arraybuffer';
+        xhr.onload = function xhr_onload() 
+        {
+            if (xhr.status == 200 || (xhr.status == 0 && xhr.response)) // file URLs can return 0
+            { 
+                onload(xhr.response);
+                return;
             }
+            onerror();
+        };
+        xhr.onerror = onerror;
+        xhr.send(null);
+    };
+
+
+    const asyncLoadFile = function( url: string, onload: any, onerror: any ) 
+        {
+        readAsync(url, function(arrayBuffer: any) {
+            onload(new Uint8Array(arrayBuffer));
+        }, function(event: any) {
+            if (onerror) {
+                onerror();
+            } else {
+                throw 'Loading data file "' + url + '" failed.';
+            }
+        });
+    }
+    const loadWasm = new Promise( function( resolve, reject )
+    {
+        asyncLoadFile( '/webchuck/webchuck.wasm', resolve, reject ); 
+    });
+
+    const filesArray = JSON.stringify(SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename));
+
+    const handleChuckMsg = (chuckMsg: string) => {
+        let isMounted = true;
+        if (chuckMsg.includes(""))
+        return () => {
+            isMounted = false;
         }
-        console.log('ChucK Mic Button Clicked');
-        if (typeof window === 'undefined') return;
-
-        navigator.mediaDevices
-            .getUserMedia({
-                video: false,
-                audio: {
-                    deviceId: { exact: selectedInput || selectedDeviceId || 'default' },
-                    echoCancellation: true,
-                    autoGainControl: false,
-                    noiseSuppression: false,
-                },
-            })
-            .then(async (stream: MediaStream) => {
-                console.log('aCHUCK after mediastream: ', chuckRef.current);
-                currentStreamRef.current = stream;
-                const ctx: any = chuckRef.current && chuckRef.current.context;
-                const adc = ctx.createMediaStreamSource(stream);
-                currentSourceRef.current = adc;
-                adc.connect(chuckRef.current);
-                micButton.disabled = true;
-            })
-        const micButton: any = document.querySelector(`#micStartRecordButton`);
-        micButton && (micButton.disabled = true);
     };
 
-    const isCameraOn = useHudStore((s: any) => s.isCameraOn);
-
-    const cameraOnButton = async function () {
-        const setIsCameraOn = useHudStore.getState().setIsCameraOn;
-         if (isCameraOn) {
-            setIsCameraOn(false);
-         } else {
-            setIsCameraOn(true);
-         }
+    const runNextEventDFSHelper = () => {
+        // const beatMs = useTimingStore.getState().beatMs;
+       chuckRef.current && chuckRef.current.setInt('BeatMsInts', beatMs || 4000); 
     };
 
-    const bus = useSignalBus.getState();
-    const metrics = useGuideMetricsStore(state => state.metrics);
-    console.log("@@@ Metrics from GuideMetricsStore in ChuckSetup: ", metrics);
+    let theWasm;
+    const chuckMicButton = async () => {
+        theWasm = await loadWasm;
+        console.log("here!")
+        globalAudioCtx.current && await globalAudioCtx.current.resume();
+        globalAudioCtx.current && await globalAudioCtx.current.audioWorklet.addModule('/webchuck/webchuck.js');
 
-    // const [beatMs, setBeatMs] = useState<number>(4000);
 
-    const beatMs = useTimingStore((s:any) => s.beatMs);
-    // const setBeatMs = useTimingStore((s:any) => s.setBeatMs);
-        
-    beatMs && chuckRef.current && chuckRef.current.setFloat('beatMs', beatMs);
-    // const bpm = useTimingStore(s => s.bpm);
-    const serverFilesToPreload = [{
-        serverFilename: "static/model.txt",
-        virtualFilename: "model.txt"
-    }];
-
-    useEffect(() => {
-        import('webchuck').then((mod) => {        
-            (async () => {
-
-                const audioContext = new AudioContext();
-                const sampleRate = audioContext.sampleRate;
-                // calculateDisplayDigits(sampleRate);
-
-                const LOCAL_CHUCK_SRC = "/webchuck/";
-                
-                const theChuck = await mod.Chuck.init(
-                    serverFilesToPreload,
-                    audioContext,
-                    audioContext.destination.maxChannelCount,
-                    // whereIsChuck
-                    LOCAL_CHUCK_SRC
-                );
-
-                const chugins: string[] = loadWebChugins();
-                chugins.forEach((chuginPath) => mod.Chuck.loadChugin(chuginPath));
-                // const DEV_CHUCK_SRC = "https://chuck.stanford.edu/webchuck/dev/"; // dev webchuck src
-                // const PROD_CHUCK_SRC = "https://chuck.stanford.edu/webchuck/src/"; // prod webchuck src
-                // let whereIsChuck: string =
-                //     localStorage.getItem("chuckVersion") === "dev"
-                //         ? DEV_CHUCK_SRC
-                //         : PROD_CHUCK_SRC;
-                chuckRef.current = theChuck;
-                
-                await chuckRef.current.connect(audioContext.destination);
-                
-                // Expose a one-shot resume function for user gesture
-                let resumed = false;
-                (window as any).__resumeChuck = async () => {
-                    if (resumed) return;
-                    try {
-                        await audioContext.resume();
-                    } catch {}
-                    try {
-                        const ctx: any = chuckRef.current?.context;
-                        if (ctx?.state === 'suspended') await ctx.resume();
-                    } catch {}
-                    resumed = true;
-                    console.log('[WebChucK] Audio resumed');
-                };
-                let chuckVersion = '';
-
-                chuckRef.current.getParamString("VERSION").then((value: string) => {
-                    chuckVersion = value;
-                    console.log("What is CHUCK VERSION?: ", chuckVersion)
+        if (globalAudioCtx.current && typeof AudioWorkletNode !== 'undefined') {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        deviceId: selectedDeviceId ? { exact: selectedDeviceId || 'default' } : undefined,
+                        echoCancellation: true,
+                        autoGainControl: false,
+                        noiseSuppression: false,
+                    },
+                    video: false
                 });
+                const audioTracks = stream.getAudioTracks();
+                
+                const source = (globalAudioCtx.current as AudioContext).createMediaStreamSource(stream);
+                if (chuckRef.current) {
+                    source.connect(chuckRef.current);
+                    chuckRef.current.chuckPrint = (message: string) => {
+                        // if (message.includes("TICK: ")) {
+                        //     const parsedMsg = message.split(":")[1].trim();
 
-                chuckRef.current.chuckPrint = (message: string) => {
-                    if (message.includes("TICK: ")) {
-                        const parsedMsg = message.split(":")[1].trim();
-                        // setChuckMsg(parsedMsg); 
-                        console.log("TICK MESSAGE FROM CHUCK: ", parsedMsg);
-                    } else {
-                        if (message.includes("SHREDCOUNT: ")) {
-                            console.log("SHREDCOUNT ", message)
-                        }
-                        // if (message.includes("updatedgain: ")) {
-                            
-                        //     console.log("updatedgain ", message)
-
-                        //     const energy: number = useSignalBus.getState().rgb.energy;
-                        //     const blue: number = useSignalBus.getState().rgb.b;
-                        //     const red: number = useSignalBus.getState().rgb.r;
-                        //     const green: number = useSignalBus.getState().rgb.g;
-
-                        //     if (chuckRef.current) {
-                        //         chuckRef.current.setFloat("energy", energy);
-                        //         chuckRef.current.setFloat("red", red);
-                        //         chuckRef.current.setFloat("green", green);
-                        //         chuckRef.current.setFloat("blue", blue);
-                        //     }
+                        //     // setChuckMsg(parsedMsg); 
+                        //     console.log(parsedMsg);
                         // }
+                        if (message.includes("CHUCK_UP_TO_DATE: ")) {
+                            // const parsedMsg = message.split(":")[1].trim();
+
+                            // setChuckMsg(parsedMsg); 
+                            runNextEventDFSHelper();
+                        }
                     }
                 }
+            } catch (err) {
+                console.error('Failed to construct AudioWorkletNode:', err);
+            }
+        } else {
+            console.error('AudioContext not ready or AudioWorkletNode not available');
+        }
+    }
 
-                console.log("THE CHUCK (current ref): ", chuckRef.current);
+    async function handleUpload(files: FileList | null) {
+    const list = Array.from(files || []);
+    if (!list.length || !chuckRef.current) return;
 
+    for (const file of list) {
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+        const vpath = `uploads/${Date.now()}_${safeName}`;
 
-                const audioInClasses = `
-                    ${getGrainStretchClass(
-                        beatMs,
-                    )}
-                    ${getTapeClass(
-                        beatMs,
-                    )}
-                    ${getRandomReverseClass(
-                        beatMs,
-                    )}
-                    ${getReichClass(
-                        beatMs,
-                    )}
-                    ${getLisaTriggerClass(
-                        beatMs,
-                    )}
-                    ${getAsymptoticChopperClass(
-                        beatMs,
-                    )}
-                    // ${getMosaicSynthClass(beatMs)}
-                `;
+        // Write into WebChucK FS
+        if (typeof (chuckRef.current as any).createFile === 'function') {
+        await (chuckRef.current as any).createFile(vpath, bytes);
+        } else if ((chuckRef.current as any).Module?.FS) {
+        (chuckRef.current as any).Module.FS.writeFile(vpath, bytes);
+        } else {
+        console.warn('No file API on WebChucK instance; cannot upload:', vpath);
+        continue;
+        }
 
-     
+        uploadedVFilesRef.current.push(vpath);
+    }
 
+    // Update ChucK global files[] and broadcast filesUpdated
+    const allVFiles = [
+        ...SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename),
+        ...uploadedVFilesRef.current
+    ];
+    const arrayLiteral = JSON.stringify(allVFiles);
+    try {
+        await chuckRef.current.runCode(`[${arrayLiteral}] @=> files; filesUpdated.broadcast();`);
+    } catch (err) {
+        console.warn('Failed to update files[] in ChucK', err);
+    }
 
-                const chuckInstructions = `
+    // e.target.value = '';
+    }
 
-                    global float audioInSettingsHelperHash[0];
-                    ${audioInSettingsHelperHash['grain_stretch']} => audioInSettingsHelperHash["grain_stretch"];
-                    ${audioInSettingsHelperHash['grain_rate']} => audioInSettingsHelperHash["grain_rate"];
-                    ${audioInSettingsHelperHash['grain_length']} => audioInSettingsHelperHash["grain_length"];
-                    ${audioInSettingsHelperHash['grain_grains']} => audioInSettingsHelperHash["grain_grains"];
-                    
-                    ${audioInSettingsHelperHash['tape_delaylength']} => audioInSettingsHelperHash["tape_delaylength"];
-                    ${audioInSettingsHelperHash['tape_loop']} => audioInSettingsHelperHash["tape_loop"];
-                    ${audioInSettingsHelperHash['tape_gain']} => audioInSettingsHelperHash["tape_gain"];
-
-                    ${audioInSettingsHelperHash['random_reverse_listen']} => audioInSettingsHelperHash["random_reverse_listen"];
-                    ${audioInSettingsHelperHash['random_reverse_influence']} => audioInSettingsHelperHash["random_reverse_influence"];
-                    ${audioInSettingsHelperHash['random_reverse_reversegain']} => audioInSettingsHelperHash["random_reverse_reversegain"];
-                    ${audioInSettingsHelperHash['random_reverse_maxbufferlength']} => audioInSettingsHelperHash["random_reverse_maxbufferlength"];
-                    ${audioInSettingsHelperHash['random_reverse_envelopeduration']} => audioInSettingsHelperHash["random_reverse_envelopeduration"];
-                    ${audioInSettingsHelperHash['random_reverse_maxtimebetween']} => audioInSettingsHelperHash["random_reverse_maxtimebetween"];
-
-                    ${audioInSettingsHelperHash["clapping_record"]} => audioInSettingsHelperHash["clapping_record"];
-                    ${audioInSettingsHelperHash["clapping_play"]} => audioInSettingsHelperHash["clapping_play"];
-                    ${audioInSettingsHelperHash["clapping_length"]} => audioInSettingsHelperHash["clapping_length"];
-                    ${audioInSettingsHelperHash["clapping_voices"]} => audioInSettingsHelperHash["clapping_voices"];
-                    ${audioInSettingsHelperHash["clapping_speed"]} => audioInSettingsHelperHash["clapping_speed"];
-                    ${audioInSettingsHelperHash["clapping_bi"]} => audioInSettingsHelperHash["clapping_bi"];
-                    ${audioInSettingsHelperHash["clapping_random"]} => audioInSettingsHelperHash["clapping_random"];
-                    ${audioInSettingsHelperHash["clapping_spread"]} => audioInSettingsHelperHash["clapping_spread"];
-                    ${audioInSettingsHelperHash["clapping_maxbuffermultiplier"]} => audioInSettingsHelperHash["clapping_maxbuffermultiplier"];
-
-                    ${audioInSettingsHelperHash["lisa_trigger_listen"]} => audioInSettingsHelperHash["lisa_trigger_listen"];
-                    ${audioInSettingsHelperHash["lisa_trigger_length"]} => audioInSettingsHelperHash["lisa_trigger_length"];
-                    ${audioInSettingsHelperHash["lisa_trigger_minlength"]} => audioInSettingsHelperHash["lisa_trigger_minlength"];
-                    ${audioInSettingsHelperHash["lisa_trigger_rampup"]} => audioInSettingsHelperHash["lisa_trigger_rampup"];
-                    ${audioInSettingsHelperHash["lisa_trigger_rampdown"]} => audioInSettingsHelperHash["lisa_trigger_rampdown"];
-                    ${audioInSettingsHelperHash["lisa_trigger_rate"]} => audioInSettingsHelperHash["lisa_trigger_rate"];
-                    ${audioInSettingsHelperHash["lisa_trigger_bufferwindow"]} => audioInSettingsHelperHash["lisa_trigger_bufferwindow"];
-                    ${audioInSettingsHelperHash["lisa_trigger_envwindow"]} => audioInSettingsHelperHash["lisa_trigger_envwindow"];
-
-                    ${audioInSettingsHelperHash["asymptotic_chopper_listen"]} => audioInSettingsHelperHash["asymptotic_chopper_listen"];
-                    ${audioInSettingsHelperHash["asymptotic_chopper_length"]} => audioInSettingsHelperHash["asymptotic_chopper_length"];
-                    ${audioInSettingsHelperHash["asymptotic_chopper_minlengthdivisor"]} => audioInSettingsHelperHash["asymptotic_chopper_minlengthdivisor"];
-                    ${audioInSettingsHelperHash["asymptotic_chopper_maxlengthmultiplier"]} => audioInSettingsHelperHash["asymptotic_chopper_maxlengthmultiplier"];
-                    ${audioInSettingsHelperHash["asymptotic_chopper_envwindow"]} => audioInSettingsHelperHash["asymptotic_chopper_envwindow"];
-                  
-                    ${beatMs}::ms => dur whole;
-                 
-                    ${beatMs} => global int BeatMsInts;
-
-                    0.0 => global float energy;
-                    0.0 => global float red;
-                    0.0 => global float green;
-                    0.0 => global float blue;
-                    float _m;
-
-                    class TheEvent extends Event
-                    {
-                        int pitch;
-                        float velocity;
-                    }
-                    
-                    global float theUpdatedGain;
-
-                    global float audioInAssociativeArr;
-                    
-                    ${audioInClasses}
-                    
-                    LisaTrigger lisaTrigger; 
-                    GrainStretch grain;
-                    Tape t;
-                    RandomReverse rr; 
-                    Reich rei;
-                    AsymptoticChopper achop;
-                    NRev rev_audioin;
+    const beatInMilliseconds = useTimingStore((s: any) => s.beatMs);
 
 
-                    class AudioIn_SpecialEffectsChain extends Chugraph
-                    {
-                        inlet => ${audioInSelected} => LPF lpf_audioin => outlet;
-                        
-                        0.6 => rev_audioin.mix;
+    const chuckInstructions = `
 
-                        "${audioInSelected}" => string currEffect;
+        ${filesArray} @=> string files[];
 
-                        if (currEffect == "t") {
-                            t.loop(1);
-                        }
 
-                        if (currEffect == "grain") {
-                            grain.stretch(Std.ftoi(audioInSettingsHelperHash["grain_stretch"]));
-                            grain.rate(audioInSettingsHelperHash["grain_rate"]);
-                            grain.length((BeatMsInts/2)::ms);
-                            grain.maxLength((BeatMsInts)::ms);
-                            grain.grains(Std.ftoi(audioInSettingsHelperHash["grain_grains"]));
-                        }
-           
-                        if (currEffect == "rr") {
-                            rr.setInfluence(1.0);
-                            rr.listen(1);
-                        }
+        // Global variables and events
+        global Event playNote;
+        global Event playSingleNote;
 
-                        if (currEffect == "rei") {
-                            rei.record(1);
-                            rei.play(1);
-                        }
-                    
+        global Event releaseSingleNote;
+        global Event playSTK;
+        global Event startMeasure;
+        global Event playAudioIn;
+        global Event fxUpdate;
+        global Event stkInstFxUpdate;
+        global float bpm; 
+        bpm => float bpmInit;
 
-                        if (currEffect == "lisaTrigger") {
-                            lisaTrigger.listen(1);
-                            lisaTrigger.length((BeatMsInts)::ms);
-                            lisaTrigger.minimumLength(((BeatMsInts)/4)::ms);
-                        }
-                        // if (currEffect == "achop") {
-                            achop.listen(1);
-                            achop.length((BeatMsInts)::ms);
-                            achop.minimumLength(((BeatMsInts)/4)::ms);
-                        // }   
-                    }
+        global float chuckNotes[0];
+        global float chuckNotesOff[0];
 
-                    AudioIn_SpecialEffectsChain audioin_SpecialFxChain;
-                                
-                    // adc => audioin_SpecialFxChain => Dyno audInDyno => dac;
-    
-                    fun void flipGain() { 
-                        while (true) { 
-                            0.6 => theUpdatedGain; 
-                            1::second => now; 
-                            0.0 => theUpdatedGain; 
-                            1::second => now; 
-                        } 
-                    }
-                    
-                    TheEvent e;
+        global float chuckVelocities[0];
 
-                    NRev reverb => dac;
-                    .17 => reverb.mix;
+        global float midiNotesArray[0];
+        global float midiFreqsArray[0];
+        global float midiLengthsArray[0];
+        global float midiVelocitiesArray[0];
 
-                    spork ~ flipGain();
+        global float moogGMDefaults[0]; 
+        global float effectsDefaults[0];  
+        global float stkEffectsDefaults[0];  
+        global int allFXDynamicInts[0];
+        global int allSTKFXDynamicInts[0];
+        global int stkInstsInUse;
+        global float allFXDynamicFloats[0];
+        global float allSTKFXDynamicFloats[0];
 
-                    fun void hi( TheEvent e, int id )
-                    {
-                        FrencHrn f => reverb;
+        // global int numeratorSignature;
+        // global int denominatorSignature;
+
+        // 0.5 => global float osc1MasterGain;
+        // 0.5 => global float samplerMasterGain;
+        // 0.5 => global float audioInMasterGain;
+        // 0.5 => global float stkMasterGain;
+
+        global float audioMixer_Osc1[0];
+        global float audioMixer_Stk1[0]; 
+        global float audioMixer_Sampler[0]; 
+        global float audioMixer_AudioIn[0];  
+
+
+
+        global int beatCount;
+        0 => beatCount;
+        global int stepCount;
+        0 => stepCount;
+        global int stepsPerBeat;
+        4 => stepsPerBeat;
+
+        global float audioInSettingsHelperHash[0];
         
-                        while( true )
-                        {
-                            e => now;
-                            <<< "shred", id, ":", e.pitch, e.velocity >>>;
-                
-                            e.pitch => Std.mtof => f.freq;
-                            theUpdatedGain => f.gain;
-                            e.velocity => f.noteOn;
-
-                            float _m;
-
-                            energy => reverb.mix;
-                            <<< "updatedgain: ", reverb.mix() >>>;
-                            300::ms => now;
-                            
-                            f.noteOff( 0 );
-                        }
-                    }
-
-                    spork ~ hi( e, 1 );
-
-                    me.yield();
+        global int BeatMsInts;
+        // ${beatMs} => BeatMsInts;
+        1 => BeatMsInts;
+        global int activeEffect;
+        2 => activeEffect;
+        -1 => int lastEffect; 
 
 
-                    while( true )
-                    {
-                        adc => audioin_SpecialFxChain => Dyno audInDyno => dac;
-                        Math.random2( 48, 60 ) => e.pitch;
-                        Math.random2f( .5,.65 ) => e.velocity;
-                        t.delayLength(audioInSettingsHelperHash["tape_delaylength"]::ms);
-                        t.gain(audioInSettingsHelperHash["tape_gain"]);
-                        e.signal();
-                        <<< "SHREDCOUNT: ", Machine.numShreds() >>>;
-                        4000::ms => now;
-                    }
+        ${getGrainStretchClass(
+            beatMs,
+        )}
+
+        ${getTapeClass(
+            beatMs,
+        )}
+
+        ${getRandomReverseClass(
+            beatMs,
+        )}
+        
+        ${getReichClass(
+            beatMs,
+        )}
 
 
-                `;
+        1 => audioInSettingsHelperHash["grain_stretch"];
+        ${audioInSettingsHelperHash['grain_rate']} / 1000 => audioInSettingsHelperHash["grain_rate"];
+        ${audioInSettingsHelperHash['grain_length']} => audioInSettingsHelperHash["grain_length"];
+        ${audioInSettingsHelperHash['grain_grains']} => audioInSettingsHelperHash["grain_grains"];
+        
+        ${audioInSettingsHelperHash['tape_delaylength']} => audioInSettingsHelperHash["tape_delaylength"];
+        ${audioInSettingsHelperHash['tape_loop']} => audioInSettingsHelperHash["tape_loop"];
+        1.0 => audioInSettingsHelperHash["tape_gain"];
 
-                console.log("CHUCK DEBUG: ", chuckInstructions);
+        ${audioInSettingsHelperHash['random_reverse_influence']} => audioInSettingsHelperHash["random_reverse_influence"];
+        ${audioInSettingsHelperHash['random_reverse_rate']} / 1000 => audioInSettingsHelperHash["random_reverse_rate"];
+        ${audioInSettingsHelperHash['random_reverse_maxbufferlength']} / 1000 => audioInSettingsHelperHash["random_reverse_maxbufferlength"];
+        ${audioInSettingsHelperHash['random_reverse_envelopeduration']} / 1000 => audioInSettingsHelperHash["random_reverse_envelopeduration"];
 
-                chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
-                chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
-                chuckRef.current.runCode(chuckInstructions)
-                    .then(() => {
-                        Object.entries(audioInSettingsHelperHash).map((k, v) => {
-                            chuckRef.current && chuckRef.current.setAssociativeFloatArrayValue("audioInSettingsHelperHash", `${k}`, v);
-                        });
-                    })
-            })();
-        });
-    }, [selectedDeviceId]);
 
+        ${audioInSettingsHelperHash["clapping_length"]} => audioInSettingsHelperHash["clapping_length"];
+        ${audioInSettingsHelperHash["clapping_voices"]} => audioInSettingsHelperHash["clapping_voices"];
+        ${audioInSettingsHelperHash["clapping_speed"]} => audioInSettingsHelperHash["clapping_speed"];
+        ${audioInSettingsHelperHash["clapping_maxbuffer"]} => audioInSettingsHelperHash["clapping_maxbuffer"];
+
+
+        GrainStretch grain;
+        Tape tape;
+        RandomReverse rr;
+        Reich rei;
+        // LisaTrigger lisaTrigger;
+
+
+        fun void fxUpdateHandler(Event e) {
+            while (true) {
+                e => now;
+                if (activeEffect == 0) {
+                    // grain.stretch(audioInSettingsHelperHash["grain_stretch"]);
+                    grain.rate(audioInSettingsHelperHash["grain_rate"]);
+                    grain.length(Std.ftoi(audioInSettingsHelperHash["grain_length"])::ms);
+                    grain.grains(Std.ftoi(audioInSettingsHelperHash["grain_grains"]));
+                } else if (activeEffect == 1) {
+                 if (audioInSettingsHelperHash["tape_delaylength"] > 600.0) {
+                    600.0 => audioInSettingsHelperHash["tape_delaylength"];
+                 }
+                    tape.delayLength(Std.ftoi(audioInSettingsHelperHash["tape_delaylength"])::ms);
+                    tape.loop(Std.ftoi(audioInSettingsHelperHash["tape_loop"]));
+                } else if (activeEffect == 2) {
+                    rr.setInfluence(audioInSettingsHelperHash["random_reverse_influence"]);
+                    rr.setReverseGain(audioInSettingsHelperHash["random_reverse_rate"]);
+                    rr.setMaxBufferLength(Std.ftoi(audioInSettingsHelperHash["random_reverse_maxbufferlength"])::ms);
+                } else if (activeEffect == 3) {
+                    rei.speed(audioInSettingsHelperHash["clapping_speed"]);
+                    // rei.length(Std.ftoi(audioInSettingsHelperHash["clapping_length"])::ms);
+                    rei.voices(Std.ftoi(audioInSettingsHelperHash["clapping_voices"]));
+                    // rei.maxBuffer(Std.ftoi(audioInSettingsHelperHash["clapping_maxbuffer"]));
+                } 
+                // else if (activeEffect == 4) {
+                // } 
+                else {
+                }
+            }
+        }
+
+        // spork ~fxUpdateHandler(fxUpdate);
+
+
+        while (true) {      
+            // if (activeEffect == 0) {
+            //     adc => grain => dac;
+            // } else if (activeEffect == 1) {
+            //     adc => tape => dac;
+            // } else if (activeEffect == 2) {
+            //     adc => rr => dac;
+            //     rr.setInfluence(1.0);
+            //     rr.listen(1);
+            // } else if (activeEffect == 3) {            
+            //     adc => rei => dac;
+            // } else {
+            //     adc =< tape;
+            //     adc =< rr;
+            //     adc =< rei;
+            //     adc =< grain;
+            // }
+
+            // activeEffect => int lastActiveEffect;
+            // while ( activeEffect == lastActiveEffect) {
+    
+
+            // if (activeEffect != lastActiveEffect) {
+            //     Machine.removeAllShreds();
+            //     Machine.resetShredID();
+            // }
+
+            <<< "ACTIVE_EFFECT: ", activeEffect >>>;
+            <<< "SHREDCOUNT: ", Machine.numShreds() >>>;
+
+
+            (BeatMsInts)::ms => now;
+            // 1000::ms => now;
+            <<< "CHUCK_UP_TO_DATE: ", BeatMsInts >>>;
+            stepCount++;
+
+            if (stepCount % stepsPerBeat == 0) {
+                beatCount++;
+                0 => stepCount;    
+            }
+
+
+
+        // }
+        1::samp => now;
+    }
+    `;
+    
+    
+    useEffect(() => {
+        // Don't do anything until WebChucK is ready
+        // if (!ready || !chuckRef.current || !audioInSelected) return;
+
+        // Map dropdown text to numeric effect index
+        const effectIndex = (() => {
+            console.log("guess audio! ", audioInSelected.toLowerCase());
+            switch (audioInSelected.toLowerCase()) {
+                case 'grain': return 0;
+                case 'tape': return 1;
+                case 'random reverse': return 2;
+                case 'clapping': return 3;
+                case 'lisa trigger': return 4;
+                default: return 0;
+            }
+        })();
+
+        try {
+            console.log("Setting activeEffect to index: ", effectIndex);
+            chuckRef.current && chuckRef.current.setInt('activeEffect', effectIndex);
+            console.log(`🎛️ Switched to effect #${effectIndex} (${audioInSelected})`);
+        } catch (err) {
+            console.error('Failed to set activeEffect:', err);
+        }
+    }, [audioInSelected]);
+    
+    type ServerFileToPreload = {
+        serverFilename: string;
+        virtualFilename: string;
+    };
+
+    useEffect(() => {
+        console.log("SEL DEVICE ID ", selectedDeviceId);
+        (async () => {
+            chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
+            chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
+        })();
+    }, [audioInSelected]);
 
     const updateAudioInputDevice = async (e: any) => {
-        setSelectedDeviceId(e.target.value);
-        const devices = await navigator.mediaDevices.enumerateDevices();
-            
-        // setDeviceOptions(devices.filter(device => device.kind === 'audioinput'));
-        // if (!selectedDeviceId && devices.length > 0) {
-        //     setSelectedDeviceId(devices[0].deviceId);
-        chuckMicButton(e.target.value);
-        // }
+        const id = e?.target?.value;
+        if (!id) return;
+        console.log("UPDATING AUDIO INPUT DEVICE TO ID: ", id);
+        setSelectedDeviceId(id);
+        // if (ready) chuckMicButton(id);
+    };
+
+    const updateSelectedAudioInSetting = (newSetting: string) => {
+        setAudioInSelected(newSetting);
+        const defaultAudioInSetting = 1;
+        let activeEffect = defaultAudioInSetting; 
+        console.log("NEW SETTING SELECTED: ", newSetting);
+        switch(newSetting.toLowerCase()) {
+            case 'grain': 
+                activeEffect = 0;
+            case ('tape'):
+                activeEffect = 1;
+            case ('random reverse'): 
+                activeEffect = 2;
+            case ('clapping'): 
+                activeEffect = 3;
+            case ('lisa trigger'): 
+                activeEffect = 4;
+            case ('asymptotic chopper'): 
+                activeEffect = 5;
+            case ('mosaic synth'): 
+                activeEffect = 6;
+            default: 
+                return activeEffect | defaultAudioInSetting;
+        }
+    };
+
+    useEffect(() => {
+        setReady(true);
+        setInitializing(false);
+        (async () => {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                console.log("yo devices: ", devices);
+                const audioInputs = devices.filter(d => d.kind === 'audioinput');
+                setDeviceOptions(audioInputs);
+                if (!selectedDeviceId && audioInputs.length > 0) {
+                    setSelectedDeviceId(audioInputs[0].deviceId);
+                }
+            } catch (err) {
+                console.error('Device enumeration failed:', err);
+            }
+        })();
+    }, []);
+
+    useEffect(() => {
+        console.log("chuck ref about to be hook??? ", chuckRef.current);
+        setChuckHook(chuckRef.current);
+    }, [initializing]);
+
+    let sampleRate: number = 0;
+    
+    // Listen for near-global beatgrid updates at the audio layer.
+    // This is the ideal place to immediately set ChucK globals (setInt, etc.) without racing renders.
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent)?.detail;
+            try {
+                console.log("BOP!", { detail });
+                // If needed later: wire to ChucK immediately (example)
+                // NOTE (future effects/STK): when rhythm structure should update audio,
+                // set values here atomically to avoid UI races.
+                // if (chuckRef.current) {
+                //     // Example: await chuckRef.current.setInt('gridVersion', Number(detail?.gridVersion || 0));
+                //     // Example: await chuckRef.current.broadcastEvent('fxUpdate');
+                // }
+            } catch {
+                console.log("BOP!");
+            }
+        };
+        try { window.addEventListener('beatgrid:updated', handler as EventListener); } catch {}
+        return () => {
+            try { window.removeEventListener('beatgrid:updated', handler as EventListener); } catch {}
+        };
+    }, []);
+    
+    // On load: ensure a first pass happens so the graph/cache is built before first ChucK run.
+    // We emit a synthetic event if no update has been fired yet.
+    useEffect(() => {
+        try {
+            const gv = useBeatGridStore.getState().gridVersion;
+            // Fire once on mount with the current version snapshot
+            window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, source: 'bootstrap' } }));
+        } catch {}
+    }, []);
+    
+     const runChuckCode = async() => {
+         let sampleRate = globalAudioCtx.current && globalAudioCtx.current.sampleRate || 44100;
+        calculateDisplayDigits(sampleRate);
+        if (isRunning.current) return;
+        const chugins: string[] = loadWebChugins();
+        chugins.forEach((path) => Chuck.loadChugin(path));
+        setShowAudioInDropdown(true);
+        const LOCAL_CHUCK_SRC = '/webchuck/';
+        // const serverFilesToPreload = [{ serverFilename: '/model.txt', virtualFilename: 'model.txt' }];
+        const serverFilesToPreload: any = [
+            {
+                serverFilename: "/Conga.wav",
+                virtualFilename: "Conga.wav"
+            },
+            {
+                serverFilename: "/DR-55Hat.wav",
+                virtualFilename: "DR-55Hat.wav"
+            },
+            {
+                serverFilename: "/DR-55Kick.wav",
+                virtualFilename: "DR-55Kick.wav"
+            },
+            {
+                serverFilename: "/DR-55Pop.wav",
+                virtualFilename: "DR-55Pop.wav"
+            },
+            {
+                serverFilename: "/DR-55Snare.wav",
+                virtualFilename: "DR-55Snare.wav"
+            },
+        ];
+        const whereIsChuck = LOCAL_CHUCK_SRC;
+
+        chuckRef.current = globalAudioCtx.current && await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
+        // Expose the running ChucK instance globally for Old-* components
+        if (chuckRef.current) {
+            globalChuckRef.current = chuckRef.current as any;
+        }
+        chuckRef.current && globalAudioCtx.current && await chuckRef.current.connect(globalAudioCtx.current.destination);
+
+
+
+        console.log("WebChucK initialized with live mic input ", chuckRef.current); 
+
+        setInitializing(true);
+
+        console.log("SANITY CHUCK DEBUG: ", chuckInstructions);
+        chuckRef.current && filesArray?.length > 0 && await chuckRef.current.runCode(chuckInstructions);
+        isRunning.current = true;
+
     }
+
+    console.log("What are device options? ", deviceOptions);
 
     return (
         <>
-            <div style={{ position: 'absolute', top: '80px', padding: '0px', margin: '0px', left: '10px' }}>
-                {/* <label style={{ color: '#e9f1ff', fontSize: 13 }}>Audio Input Device:</label> */}
-                <select
-                    value={selectedDeviceId}
-                    onChange={e => updateAudioInputDevice(e)}
-                    style={{
-                        marginLeft: 8, 
-                        padding: 4, 
-                        borderRadius: 4,
-                        cursor: 'pointer',
-                        zIndex: 9998 
+            <Box
+                id='chuckSetupContainer' 
+                sx={{
+                    position: 'absolute',
+                    top: 8,
+                    left: 8,
+                    display:'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    backgroundColor: 'transparent',
+                    zIndex: 10000,
+                    pointerEvents: 'auto',
+                }}>
+                {initializing && (
+                    <Button
+                        id='chuckMicButtonWrapper'
+                        sx={{
+                            cursor: ready ? 'pointer' : 'not-allowed',
+                            minWidth: '48px',
+                            minHeight: '48px',
+                            padding: '8px',
+                            pointerEvents: 'auto',
+                        }}
+                        onClick={chuckMicButton}
+                    >
+                        <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} />
+                    </Button>
+                )}
+
+                <Button
+                    id='runChuckCodeButton'
+                    sx={{
+                        minWidth: '48px',
+                        minHeight: '48px',
+                        padding: '8px',
+                        cursor: ready ? 'pointer' : 'not-allowed',
+                        pointerEvents: 'auto',
                     }}
+                    onClick={runChuckCode}
                 >
-                     <option value="" style={{ color: '#e9f1ff', fontSize: 13 }}>Audio Input Device:</option>
-                    {deviceOptions.map(device => (
-                        <option key={device.deviceId} value={device.deviceId}>
-                            {device.label || `Device ${device.deviceId}`}
-                        </option>
-                    ))}
-                </select>
-            </div>
-            <button 
-                disabled={false}
-                style={{
-                    position: 'absolute',
-                    top: '120px',
-                    left: '20px',
-                    border: '1px solid rgba(255,255,255,0.18)',
-                    background: 'rgba(255,255,255,0.25)',
-                    color: '#e9f1ff',
-                    cursor: 'pointer'
-                }}
-                id="micStartRecordButton" 
-                onClick={() => chuckMicButton()}
-            >
-                Enable Microphone (use headphones for default device)
-            </button>
-            {/* Dropdown for selecting effects */}
-            <div
-                style={{
-                    position: 'absolute',
-                    top: '150px',
-                    left: '20px',
-                    border: '1px solid rgba(255,255,255,0.18)',
-                    background: 'rgba(255,255,255,0.25)',
-                    color: '#e9f1ff',
-                    borderRadius: 4,
-                    width: 220,
-                    zIndex: 10
-                }}
-            >
-                <EffectDropdown 
-                    chuckRef={chuckRef} 
-                    updateSelectedAudioInSetting={(e:any) => updateSelectedAudioInSetting(e)} 
-                />
-            </div>
+                    {!isRunning.current ?
+                        <PlayCircleIcon sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
+                        <StopCircleIcon sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
+                    }
+                </Button>
+            </Box>
+
+            <OldParentMonolith 
+                onUpload={handleUpload}
+                chuckHook={chuckHook || {}}
+                selectedDeviceId={selectedDeviceId}
+                updateAudioInputDevice={updateAudioInputDevice} 
+                deviceOptions={deviceOptions}
+                showAudioInDropdown={showAudioInDropdown}
+                updateSelectedAudioInSetting={updateSelectedAudioInSetting}
+            />
         </>
     );
 }

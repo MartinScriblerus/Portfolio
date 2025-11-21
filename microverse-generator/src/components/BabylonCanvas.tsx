@@ -6,19 +6,28 @@ declare global {
 
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSignalBus } from '../store/useSignalBus';
 import * as BABYLON from '@babylonjs/core';
-import { tryGetAudio } from '../utils/utils';
+import { createHexMesh, generateHexGridAxial, formatNoteLabel, formatNoteNameWithOctave, noteToFreq, makeLetterOverlay } from '../utils/utils';
 import { useVisStore } from '../store/useVisStore';
-import { BLUE_CHANNEL, GREEN_CHANNEL, RED_CHANNEL } from '../constants';
+import { BLUE_CHANNEL, GREEN_CHANNEL, LAYOUTS, RED_CHANNEL } from '../constants';
 import Title from './Title';
 import { useAgentStore } from '../agent/useAgentStore';
 import { DECAY_PER_SEC, ENERGY_THRESHOLD, ENTROPY_COOLDOWN_MS, INCREMENT, NEIGHBOR_FACTOR } from './constants';
 import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
 import { useHudStore } from '../hooks/useHudStore';
 import { useTimingStore } from '../hooks/useTimingStore';
-
+import MicrotonesWrapper from './MicrotonesWrapper';
+import MingusPopup from './BeatGrid/MingusPopup';
+import { Tune } from "../tune";
+import { useMicrotonalStore } from '../store/useMicrotonalStore';
+import { useLayoutStore } from '../store/useLayoutStore';
+import ControlPanel from './ControlPanel';
+import HexKeyboard from './HexKeyboard';
+import { useOldMonolithStore } from '../store/useOldMonolithStore';
+import { Box } from '@mui/material';
+import { useBeatGridStore } from '../store/useBeatGridStore';
 
 export default function BabylonHydraCanvas() {
             // const metrics = useGuideMetricsStore(state => state.metrics);
@@ -27,10 +36,40 @@ export default function BabylonHydraCanvas() {
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const hydraCanvasRef = useRef<HTMLCanvasElement>(null);
+    const hexScrollRef = useRef<HTMLDivElement>(null);
+    const [hexVisible, setHexVisible] = useState(false);
+    const previewCtxRef = useRef<AudioContext | null>(null);
     
     const [titleText, setTitleText] = useState("Find a cube and click it!");
     const [hud, setHud] = useState({ r:0, g:0, b:0, energy:0, impact:0, pulse:0 });
     const [bpm, setBpm] = useState<number>(120);
+
+    // Microtonal state
+    const [tune, setTune] = useState<Tune | any>(null);
+    const selectedChordScaleOctaveRange = useRef<any>({
+        key: 'C',
+        scale: 'Diatonic',
+        midi: [],
+        notes: [],
+        freqs: [],
+        octaveMin: '1',
+        octaveMax: '4',
+        chord: 'Major Triad',
+    });
+    const [mTScaleLength, setMTScaleLength] = useState<number>(0);
+  
+    // Hextiles
+    // Hex keyboard config (dynamically configurable)
+    const [showNoteLabels, setShowNoteLabels] = useState<boolean>(true);
+    const [tileScale, setTileScale] = useState<number>(2.0); // 2x size as requested
+    const stepsPerOctave = useMicrotonalStore(s => s.stepsPerOctave);
+    const useSharps = useMicrotonalStore(s => s.useSharps);
+    const showFraction = useMicrotonalStore(s => s.showFraction);
+    const category = useLayoutStore(s => s.category);
+    const layoutIndex = useLayoutStore(s => s.layoutIndex);
+    const cycleLayout = useLayoutStore(s => s.cycleLayout);
+    
+    // Beats
     const [clicksTotal, setClicksTotal] = useState<number>(0);
     const setBeatMs = useTimingStore((s:any) => s.setBeatMs);
     const setRGB = useSignalBus(s => s.setRGB);
@@ -45,20 +84,38 @@ export default function BabylonHydraCanvas() {
     //     try { useAgentStore.getState().setTelemetry({ vtime: 0, past30: false }); } catch {}
     // }, []);
 
-    function makeLetterOverlay(scene: BABYLON.Scene, text: string, color: string) {
-        const size = 256;
-        const letterDT = new BABYLON.DynamicTexture(`letter-${text}-${color}-${Date.now()}`, { width: size, height: size }, scene, false);
-        const lctx = letterDT.getContext();
-        lctx.clearRect(0,0,size,size);
-        lctx.font = 'bold 140px sans-serif';
-        (lctx as CanvasRenderingContext2D).textAlign = 'center';
-        (lctx as CanvasRenderingContext2D).textBaseline = 'middle';
-        lctx.fillStyle = color;
-        lctx.fillText(text, size/2, size/2);
-        letterDT.hasAlpha = true;
-        letterDT.update();
-        return letterDT;
-    }
+    // Simple keyboard controls for quick config tweaks
+    useEffect(() => {
+
+        if (!tune && Tune) {
+            const getTune = new Tune();
+            setTune(getTune);
+        }
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'l' || e.key === 'L') setShowNoteLabels(v => !v);
+            if (e.key === '[') cycleLayout(-1);
+            if (e.key === ']') cycleLayout(1);
+            if (e.key === '+' || e.key === '=') setTileScale(s => Math.min(4, s + 0.25));
+            if (e.key === '-') setTileScale(s => Math.max(0.5, s - 0.25));
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [cycleLayout]);
+
+    // function makeLetterOverlay(scene: BABYLON.Scene, text: string, color: string) {
+    //     const size = 256;
+    //     const letterDT = new BABYLON.DynamicTexture(`letter-${text}-${color}-${Date.now()}`, { width: size, height: size }, scene, false);
+    //     const lctx = letterDT.getContext();
+    //     lctx.clearRect(0,0,size,size);
+    //     lctx.font = 'bold 140px sans-serif';
+    //     (lctx as CanvasRenderingContext2D).textAlign = 'center';
+    //     (lctx as CanvasRenderingContext2D).textBaseline = 'middle';
+    //     lctx.fillStyle = color;
+    //     lctx.fillText(text, size/2, size/2);
+    //     letterDT.hasAlpha = true;
+    //     letterDT.update();
+    //     return letterDT;
+    // }
 
     type CubeMeta = {
         mesh: BABYLON.Mesh;
@@ -67,8 +124,6 @@ export default function BabylonHydraCanvas() {
         lastUpdate: number;
         pulse: number;
     };
-
-    // const chuckRef = useRef<any>(null);
 
     class CubeManager {
         private static _instance: CubeManager | null = null;
@@ -138,9 +193,98 @@ export default function BabylonHydraCanvas() {
         }
     }
 
+    const currentMicroTonalScale = (scale: any) => {
+        // Guard: need a valid Tune instance and a scale descriptor with a name
+        if (!tune) { console.warn('[microtonal] Tune not initialized yet'); return; }
+        if (!scale || !scale.name) { console.warn('[microtonal] Invalid scale payload', scale); return; }
 
+        try {
+            // Load/retune
+            tune.loadScale(scale.name);
+            // Use A4=440 as baseline, then retune by selected key/octave max
+            tune.tonicize(440);
+            const getFreqVals: any = noteToFreq(selectedChordScaleOctaveRange.current.key, Number(+selectedChordScaleOctaveRange.current.octaveMax));
+            tune.tonicize(getFreqVals);
+        } catch (e) {
+            console.warn('[microtonal] tune.loadScale/tonicize failed', e);
+        }
+
+        // If scale isn't available, abort before doing any work
+        if (!tune.scale || !Array.isArray(tune.scale)) { console.warn('[microtonal] tune.scale not ready'); return; }
+        setMTScaleLength(tune.scale.length);
+
+        // Reset arrays before populating
+        selectedChordScaleOctaveRange.current.freqs = [];
+        selectedChordScaleOctaveRange.current.midi = [];
+        selectedChordScaleOctaveRange.current.notes = [];
+
+        // Build nested octave->degree map for optional flattening later
+        const microFreqsObj: Record<number, Record<number, number>> = {};
+
+        for (let i = -3; i < 6; i++) {
+            for (let j = 0; j < tune.scale.length; j++) {
+                // Frequency
+                try {
+                    (tune as any).mode.output = 'frequency';
+                } catch {}
+                const fRaw = Number(tune.note(j, i));
+                const f = Number.isFinite(fRaw) ? Number(fRaw.toFixed(2)) : fRaw;
+                selectedChordScaleOctaveRange.current.freqs.push(f);
+                if (!microFreqsObj[i]) microFreqsObj[i] = {};
+                microFreqsObj[i][j] = fRaw;
+
+                // MIDI number (if supported). If not, leave as frequency-derived MIDI with helper if desired
+                try { (tune as any).mode.output = 'MIDI'; } catch {}
+                const mRaw = Number(tune.note(j, i));
+                const m = Number.isFinite(mRaw) ? Number(mRaw.toFixed(4)) : mRaw;
+                selectedChordScaleOctaveRange.current.midi.push(m);
+
+                // Simple note label: For 12-TET, derive familiar name; else degree/octave
+                const absStep = i * tune.scale.length + j;
+                const label = (stepsPerOctave === 12)
+                    ? formatNoteNameWithOctave(absStep, 12, { baseMidi: 60, sharps: useSharps })
+                    : `${j}/${tune.scale.length}@${i >= 0 ? '+'+i : i}`;
+                selectedChordScaleOctaveRange.current.notes.push(label);
+            }
+        }
+        console.log('[microtonal] collected', {
+            len: tune.scale.length,
+            freqsCount: selectedChordScaleOctaveRange.current.freqs.length,
+            midiCount: selectedChordScaleOctaveRange.current.midi.length,
+            notesCount: selectedChordScaleOctaveRange.current.notes.length,
+        });
+        console.log('[microtonal] microFreqsObj sample', microFreqsObj[-1] || microFreqsObj[0] || {});
+        const flattenFreqsInRange = (
+            obj: Record<number, Record<number, number>>,
+            minOctave: number,
+            maxOctave: number
+        ): number[] => {
+            const result: number[] = [];
+
+            for (let octave = minOctave; octave <= maxOctave; octave++) {
+                const scale = obj[octave];
+                if (!scale) continue;
+
+                const positions = Object.keys(scale).map(Number).sort((a, b) => a - b);
+                for (const pos of positions) {
+                    result.push(scale[pos]);
+                }
+            }
+
+            return result;
+        };
+        // finalMicroToneNotesRef.current = 
+        console.log("WHAT ARE FLATTENED FREQS IN RANGE? : ", flattenFreqsInRange(microFreqsObj, +selectedChordScaleOctaveRange.current.octaveMin, +selectedChordScaleOctaveRange.current.octaveMax));
+        // setMTFreqs([]);
+        // setMTFreqs(finalMicroToneNotesRef.current.sort((a: any, b: any) => a - b).length > 0 ? finalMicroToneNotesRef.current.sort((a: any, b: any) => a - b).map((i: any) => Number(1.0 * (i).toFixed(2))) : '9999.2');
+
+    // masterPatternsRef.current = {};
+
+      
+
+    };
     
- const isCameraOn = useHudStore((s: any) => s.isCameraOn);
+    const isCameraOn = useHudStore((s: any) => s.isCameraOn);
 
     useEffect(() => {
         if (!busMetrics) return;
@@ -150,6 +294,8 @@ export default function BabylonHydraCanvas() {
 
     useEffect(() => {
         if (!canvasRef.current) return;
+        let disposer: (() => void) | undefined;
+        // run async setup; capture a cleanup function into `disposer` and return it from the effect
         (async () => {
             const isIntro = true;
             const HydraModule = await import('hydra-synth');
@@ -488,9 +634,14 @@ export default function BabylonHydraCanvas() {
                 }
                 return chain;
             }
+            const getAudioAmp = () => {
+              const v = (window as any).__audioAmp;
+              return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+            };
             function buildHydraPipeline(pattern: number) {
                 hydraState.pattern = pattern;
                 const gAny: any = globalThis as any;
+                const amp = getAudioAmp();
                 // color with optional target bias mixing
                 const mix = (a:number, b:number, t:number)=> a*(1-t) + b*t;
                 const biasW = targetBias ? Math.max(0, Math.min(1, colorBiasWeight)) : 0.0;
@@ -506,8 +657,10 @@ export default function BabylonHydraCanvas() {
                 const minRep = (useAgentStore.getState().telemetry.clicks < 1) ? 4 : 1;
 
                 let base = osc(
-                        () => 1.0 + smoothAvg.energy*0.5,
-                        0.05,
+                        // () => 1.0 + smoothAvg.energy*0.5,
+                        // 0.05,
+                        () => 1.0 + smoothAvg.energy*0.5 + amp*0.4,
+                        () => 0.05 + amp*0.02,
                         0
                     )
                     .color(
@@ -516,8 +669,8 @@ export default function BabylonHydraCanvas() {
                         () => mix(0.055 + smoothAvg.b*0.35, targetBias?.b ?? 0, biasW)
                     )
                     .rotate(
-                        () => hydraState.hRotSpeed % (2*Math.PI) * -hydraState.impact,
-                        () => hydraState.hRotSpeed % (2*Math.PI) * hydraState.impact
+                        () => hydraState.hRotSpeed % (2*Math.PI) * -(hydraState.impact + amp*0.3),
+                        () => hydraState.hRotSpeed % (2*Math.PI) *  (hydraState.impact + amp*0.3)
                     )
                     .scale(hydraState.impact + 1.0)
                     // Kaleid sides increase as kaleidRamp grows (gradual strengthening)
@@ -550,7 +703,7 @@ export default function BabylonHydraCanvas() {
                 if (hydraCamReady && typeof gAny.src === 'function' && gAny.s0) {
                     // Output ONLY the video/camera source, with stained glass effect, no blend/add with procedural texture
                     try {
-                        let camLuma = src(s0).color(1,1,1);
+                        let camLuma = gAny.src(gAny.s0).color(1,1,1);
                         // Always apply stained glass effect for first 30s
                         camLuma = camLuma
                             .pixelate(() => PX_HEAVY, () => PX_HEAVY)
@@ -581,7 +734,7 @@ export default function BabylonHydraCanvas() {
                     // if (!isCameraOn) {
                     hydraVideoEl = await g.s0.initVideo("https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4");
                     // } else {
-                        // hydraVideoEl = await g.s0.initCam();
+                        // StateVideoEl = await g.s0.initCam();
                     // } 
                     videoStartMs = performance.now();
                     hydraCamReady = true;
@@ -590,12 +743,13 @@ export default function BabylonHydraCanvas() {
                         if (hydraVideoEl) {
                             // Improve autoplay chances
                             hydraVideoEl.muted = true;
+                             hydraVideoEl.volume = 0;
                             await hydraVideoEl.play();
                         }
                     } catch {}
                     // Build pipeline now that camera/video is ready
                     buildHydraPipeline(hydraState.pattern);
-                    tryGetAudio();
+                    // tryGetAudio();
                 } catch (err) {
                     console.warn('Failed to init cam on s0:', err);
                 }
@@ -650,7 +804,7 @@ export default function BabylonHydraCanvas() {
             const scene = new BABYLON.Scene(engine);
             // Lighten baseline background so cubes are discoverable
             // scene.clearColor = new BABYLON.Color4(0.06, 0.07, 0.085, 1);
-scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
+            scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
             // Locked camera inside sphere
             const camera = new BABYLON.ArcRotateCamera('camera', Math.PI/2, Math.PI/2, 10, BABYLON.Vector3.Zero(), scene);
             camera.lowerRadiusLimit = 6;
@@ -704,9 +858,6 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
             innerSphere.isPickable = true;
 
             const cubeCount = 2;
-
-            // tryStartChucKIntro?.(bpm);
-
             // ------------------------------
             // CubeManager-based multi cube layout
             function incrementChannel(meta: CubeMeta, faceIndex: number) {
@@ -770,7 +921,6 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 if (mesh === innerSphere) {
                     registerUserClick();
                     sphereClickCount += 1;
-     
                     return;
                 }
                 const meta = manager.cubes.find(m=>m.mesh === mesh);
@@ -791,9 +941,6 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 // Use functional updater to avoid stale closures
                 setClicksTotal((c) => c + 1);
             });
-
-
-
             // add some rotation animation
             scene.registerBeforeRender(() => {
                 const now = performance.now();
@@ -927,6 +1074,33 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 }
             });
 
+
+
+
+
+
+
+
+
+
+
+            // Determine selected layout name from UI for the 2D HexKeyboard overlay
+            const numNotes = 57;
+            const namesByCategory: Record<'isomorphic'|'tonnetz', string[]> = {
+                isomorphic: ['Wicki-Hayden', 'Harmonic Table'],
+                tonnetz: ['Tonnetz (P5 vs M3)', 'Tonnetz (P5 vs m3)'],
+            } as const;
+            const nameList = namesByCategory[category as 'isomorphic'|'tonnetz'] ?? [];
+            const chosenName = nameList[(layoutIndex % nameList.length + nameList.length) % nameList.length] || 'Wicki-Hayden';
+
+
+
+
+
+
+
+
+            
             // ------------------------------
             // Render loop
             // ------------------------------
@@ -960,6 +1134,7 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                     // Force video play if paused (browser may pause it)
                     if (typeof hydraVideoEl !== 'undefined' && hydraVideoEl && hydraVideoEl.paused) {
                         hydraVideoEl.muted = true;
+                        hydraVideoEl.volume = 0;
                         hydraVideoEl.play().catch(()=>{});
                     }
                 }
@@ -990,15 +1165,16 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 engine.resize();
             };
             window.addEventListener('resize', handleResize);
-
-            return () => {
+            // expose cleanup to the outer effect
+            disposer = () => {
                 window.removeEventListener('resize', handleResize);
                 window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
-                engine.dispose();
+                try { engine.dispose(); } catch {}
             };
         })();
-    }, []);
+        return () => { if (typeof disposer === 'function') disposer(); };
+    }, [category, layoutIndex, stepsPerOctave, showNoteLabels, tileScale, useSharps, showFraction]);
 
     useEffect(() => {
         if (clicksTotal === 1) {
@@ -1019,18 +1195,250 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
         bpm && setBeatMs((60 / bpm) * 1000);
     }, [bpm]);
 
-    return (
+    
+
+    const updateMicroTonalScale = (scale: any) => {
+        console.log("OY SCALE! ", scale)
+        // setCurrentMicroTonalScale(scale.value);
+    };
+
+    // Compute layout name for the 2D overlay from current dropdown selection
+    const namesByCategory: Record<'isomorphic'|'tonnetz', string[]> = {
+        isomorphic: ['Wicki-Hayden', 'Harmonic Table', 'Janko'],
+        tonnetz: ['Tonnetz (P5 vs M3)', 'Tonnetz (P5 vs m3)'],
+    } as const;
+    const overlayList = namesByCategory[category as 'isomorphic'|'tonnetz'] ?? [];
+    const chosenOverlayName = overlayList.length
+        ? overlayList[(layoutIndex % overlayList.length + overlayList.length) % overlayList.length]
+        : 'Wicki-Hayden';
+
+    // Memoized helpers for HexKeyboard to reduce prop churn and re-renders
+    const Nloc = useMemo(() => mTScaleLength || stepsPerOctave || 12, [mTScaleLength, stepsPerOctave]);
+    const resolveHexLabel = useCallback((absStep: number, _pitchIndex: number, octave: number) => {
+        try {
+            if (!tune || !Nloc) return undefined;
+            // Frequency from Tune
+            try { (tune as any).mode.output = 'frequency'; } catch {}
+            const k = ((absStep % Nloc) + Nloc) % Nloc;
+            const oClamp = Math.max(-8, Math.min(8, octave));
+            const f = Number(tune.note(k, oClamp));
+            const hasF = Number.isFinite(f);
+            const fTxt = hasF ? `${f.toFixed(2)} Hz` : undefined;
+            // Always show both letters and degree number
+            const name12 = formatNoteNameWithOctave(absStep, 12, { baseMidi: 60, sharps: useSharps });
+            const main = `${name12} · ${k}`;
+            return { main, sub: fTxt };
+        } catch { return undefined; }
+    }, [tune, Nloc, useSharps]);
+
+    const handleHexTileClick = useCallback(({ absStep }: { absStep: number }) => {
+        try {
+            const k = ((absStep % Nloc) + Nloc) % Nloc;
+            const o = Math.floor(absStep / Nloc);
+            try { (tune as any).mode.output = 'frequency'; } catch {}
+            const f = Number(tune?.note?.(k, o));
+            console.log('Hex click', { absStep, degree: k, octave: o, freq: f });
+
+            // Format note name (e.g., "C-4" format to match beat grid options)
+            const noteName = formatNoteNameWithOctave(absStep, Nloc, { baseMidi: 60, sharps: useSharps });
+            // Convert to format used in beat grid (e.g., "C-4" or "C4")
+            const noteNameFormatted = noteName.replace(/([A-G][#b]?)(\d+)/, '$1-$2');
+            console.log('[HexTileClick] Formatted note name:', noteNameFormatted);
+
+            // Update beat grid store if a cell is currently selected AND isEditing is on
+            const beatGridState = useBeatGridStore.getState();
+            const selectedCell = beatGridState.currentSelectedCell;
+            if (selectedCell && beatGridState.isEditing) {
+                // Get current notes for this cell
+                const cell = beatGridState.masterPatternsHashHook?.[String(selectedCell.y)]?.[String(selectedCell.x)];
+                const currentNotes: string[] = cell?.noteName ? Array.from(cell.noteName).filter((n): n is string => typeof n === 'string') : [];
+                // Add the new note if it's not already there
+                if (!currentNotes.includes(noteNameFormatted)) {
+                    const updatedNotes = [...currentNotes, noteNameFormatted];
+                    useBeatGridStore.getState().updateCellNotes(updatedNotes, selectedCell.x, selectedCell.y);
+                    console.log('[HexTileClick] Added note to cell', selectedCell, 'notes:', updatedNotes);
+                } else {
+                    console.log('[HexTileClick] Note already in cell, removing');
+                    // Toggle: remove if already present
+                    const updatedNotes = currentNotes.filter(n => n !== noteNameFormatted);
+                    useBeatGridStore.getState().updateCellNotes(updatedNotes, selectedCell.x, selectedCell.y);
+                }
+            } else {
+                console.log('[HexTileClick] No cell selected in beat grid');
+            }
+
+            // Lightweight tone preview via WebAudio (optional, isolated from WebChucK)
+            if (Number.isFinite(f) && typeof window !== 'undefined') {
+                if (!previewCtxRef.current) previewCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const ctx = previewCtxRef.current!;
+                if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                try { osc.frequency.setValueAtTime(f, ctx.currentTime); } catch {}
+                gain.gain.setValueAtTime(0, ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.005);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+                osc.connect(gain).connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.2);
+            }
+        } catch (e) { console.log('Hex click err', e); }
+    }, [Nloc, tune, useSharps]);
+
+    // Center the scrollable hex area on first render and when dimensions/layout change
+    useEffect(() => {
+        const el = hexScrollRef.current;
+        if (!el) return;
+        // next tick to let children layout
+        const id = requestAnimationFrame(() => {
+            try {
+                el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2);
+                el.scrollTop = Math.max(0, (el.scrollHeight - el.clientHeight) / 2);
+                setHexVisible(true);
+            } catch {}
+        });
+        return () => cancelAnimationFrame(id);
+    }, [chosenOverlayName, mTScaleLength, stepsPerOctave]);
+
+    // Cleanup preview audio context on unmount
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        let ctx: AudioContext | null = null;
+        let stream: MediaStream | null = null;
+        let source: MediaStreamAudioSourceNode | null = null;
+        let node: any | null = null;
+
+        (async () => {
+          const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+          ctx = (window as any).__audioCtx ?? new AC();
+          (window as any).__audioCtx = ctx;
+          try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
+
+          const { default: MeydaNode } = await import('../audio/AudioAnalysisNode.js');
+          await MeydaNode.ensureModule(ctx, '/audio/meyda-audio-processor.js');
+
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+            video: false
+          });
+          await ctx;
+          source = ctx && ctx.createMediaStreamSource(stream);
+          node = new MeydaNode(ctx, { processorName: 'meyda-audio-processor' });
+
+          node.ondata = (msg: any) => {
+            const rms = typeof msg?.rms === 'number' ? msg.rms : 0;
+            const prev = (window as any).__audioAmp ?? 0;
+            (window as any).__audioAmp = prev + (Math.min(1, rms * 3) - prev) * 0.2;
+          };
+
+          // connect mic -> worklet only (no destination = no feedback)
+          await source;
+          source && source.connect(node);
+        })().catch(err => console.warn('Audio analysis init failed', err));
+
+        if (typeof window === 'undefined') return;
+        let midiNode: any | null = null;
+
+        (async () => {
+          const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+          ctx = (window as any).__audioCtx ?? new AC();
+          (window as any).__audioCtx = ctx;
+          try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
+
+          const { default: MidiAudioNode } = await import('../audio/MidiAudioNode.js');
+          await MidiAudioNode.ensureModule(ctx, '/audio/midi-audio-processor.js'); // public/audio/...
+          midiNode = new MidiAudioNode(ctx);
+          // connect only if your processor outputs audio; otherwise keep it unconnected
+        })().catch(err => console.warn('Midi worklet init failed', err));
+
+        hexScrollRef.current && hexScrollRef.current.scrollTo({ left: Math.max(0, (hexScrollRef.current.scrollWidth - hexScrollRef.current.clientWidth) / 2), top: Math.max(0, (hexScrollRef.current.scrollHeight - hexScrollRef.current.clientHeight) / 2), behavior: 'smooth' });
+        return () => {
+          try { previewCtxRef.current?.close(); } catch {}
+          try { source?.disconnect(); } catch {}
+          try { node?.disconnect?.(); } catch {}
+          try { stream?.getTracks().forEach(t => t.stop()); } catch {}
+          try { midiNode?.disconnect?.(); } catch {}
+        };
+    }, []);
+    
+        return (
         <>
+            {/* Bottom-left clickable hex keyboard in a fixed square, SSR-safe (no window refs) */}
+            <div
+                style={{
+                    position: 'absolute',
+                    left: 0,
+                    bottom: 0,
+                    width: 800, //512
+                    height: 450, //512
+                    zIndex: 5,
+                    overflow: 'auto',
+                    pointerEvents: 'none',
+                    // Make this a containing block so HexKeyboard's absolute inset fills this box
+                    // and allow it to capture pointer events for clicks
+                    // pointerEvents: 'auto',
+                }}
+                ref={hexScrollRef}
+            >
+                {/* Ensure this container is the positioned ancestor */}
+                <div 
+                style={{ 
+                    position: 'relative', 
+                    width: '100%', 
+                    height: '100%', 
+                    opacity: hexVisible ? 1 : 0, 
+                    transition: 'opacity 240ms ease' }}>
+                    {(() => {
+                        const N = mTScaleLength || stepsPerOctave || 12;
+                        const oMin = Number(selectedChordScaleOctaveRange.current?.octaveMin ?? -3);
+                        const oMax = Number(selectedChordScaleOctaveRange.current?.octaveMax ?? 5);
+                        const overlayNotes = Math.max(1, (oMax - oMin + 1) * N);
+                        const keyboardMode = useOldMonolithStore.getState().keyboardMode;
+                        return (
+                   tune?.scale?.length > 0 && keyboardMode === 'hex' && <HexKeyboard
+                        width={800}
+                        height={450}
+                        tileRadius={40}
+                        numNotes={overlayNotes}
+                        stepsPerOctave={N}
+                        presetName={chosenOverlayName as any}
+                        useSharps={useSharps}
+                        showFraction={showFraction}
+                        paddingR={0.2}
+                        interactive={true}
+                        resolveLabel={resolveHexLabel}
+                        onTileClick={handleHexTileClick}
+                    />
+                        );
+                    })()}
+                </div>
+            </div>
+            <Box sx={{ display: 'flex', flexDirection: 'row', gap: '8px', position: 'absolute', top: '104px', left: '8px', zIndex: 9999 }}>
+                <MicrotonesWrapper 
+                    tune={tune}
+                    currentMicroTonalScale={currentMicroTonalScale}
+                    updateMicroTonalScale={updateMicroTonalScale}
+                />
+        
+            </Box>
             {telemetry?.past30 && <Title text={titleText} />}
             <canvas
                 ref={canvasRef}
                 id="babylonCanvas"
                 style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
                     width: '100vw',
                     height: '100vh',
                     display: 'block',
+                    zIndex: 1,
+                    pointerEvents: 'auto',
                 }}
             />
+            <ControlPanel />
             <div style={{
                 position:'absolute', 
                 top:8, 
@@ -1043,7 +1451,8 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
                 lineHeight:1.3, 
                 border:'1px solid rgba(255,255,255,0.1)', 
                 borderRadius:4, 
-                pointerEvents:'none'
+                pointerEvents:'none',
+                zIndex:9999
             }}>
                 <div>r: {hud.r.toFixed(2)} g: {hud.g.toFixed(2)} b: {hud.b.toFixed(2)}</div>
                 <div>energy: {hud.energy.toFixed(2)}</div>
@@ -1075,3 +1484,4 @@ scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
         </>
     );
 }
+
