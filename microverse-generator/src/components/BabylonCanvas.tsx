@@ -768,9 +768,10 @@ export default function BabylonHydraCanvas() {
             // Use WRAP so the texture maps naturally around the sphere and avoids the "zoomed" CLAMP effect
             (hydraMat.diffuseTexture as BABYLON.Texture).wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
             (hydraMat.diffuseTexture as BABYLON.Texture).wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
-            // Flip U to correct orientation on inside sphere
-            (hydraMat.diffuseTexture as BABYLON.Texture).uScale = -1;
-            (hydraMat.diffuseTexture as BABYLON.Texture).vScale = 1;
+            // Flip only V to correct upside-down orientation on inside sphere (BACKSIDE)
+            // Keep U at 1 to prevent text from reading backwards
+            (hydraMat.diffuseTexture as BABYLON.Texture).uScale = 1;
+            (hydraMat.diffuseTexture as BABYLON.Texture).vScale = -1;
             hydraMat.emissiveColor = new BABYLON.Color3(0.95,0.98,1.0);
             hydraMat.diffuseColor = new BABYLON.Color3(0.55,0.56,0.58);
             hydraMat.alpha = 1;
@@ -1054,12 +1055,16 @@ export default function BabylonHydraCanvas() {
             engine.runRenderLoop(() => {
                 const ctx = dynamicTexture.getContext();
                 if (hydraCanvasRef.current && ctx) {
+                    // Clear the texture context before drawing to prevent artifacts
+                    const texSize = dynamicTexture.getSize();
+                    ctx.clearRect(0, 0, texSize.width, texSize.height);
+                    // Draw the current Hydra canvas frame
                     ctx.drawImage(
                         hydraCanvasRef.current,
                         0,
                         0,
-                        dynamicTexture.getSize().width,
-                        dynamicTexture.getSize().height
+                        texSize.width,
+                        texSize.height
                     );
                     dynamicTexture.update();
                     // Debug: log a frame update every 2 seconds
@@ -1107,6 +1112,8 @@ export default function BabylonHydraCanvas() {
             const handleResize = () => {
                 hydraCanvas.width = window.innerWidth;
                 hydraCanvas.height = window.innerHeight;
+                // Update dynamic texture size to match Hydra canvas
+                dynamicTexture.scaleTo(hydraCanvas.width, hydraCanvas.height);
                 engine.resize();
             };
             window.addEventListener('resize', handleResize);

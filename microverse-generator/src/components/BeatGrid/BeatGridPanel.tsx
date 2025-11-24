@@ -191,7 +191,25 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
 
     // Build rhythm DFS/next-event cache on load and on grid updates
     // Ensures cache is constructed before first audio run
-    useRhythmCache();
+    const { cacheRef, version } = useRhythmCache();
+
+    // Safely capture and expose rhythm events when cache updates
+    useEffect(() => {
+        const cache = cacheRef.current;
+        if (cache.version === -1 || cache.events.length === 0) {
+            // Cache not yet built
+            return;
+        }
+
+        // Cache is ready - events are available at cache.events
+        // This is a linear/flattened array sorted by time (t)
+        // Each event has: { y, x, t, length, velocity, fileIdxs?, noteNames? }
+        console.log(`[RhythmCache] Cache updated (v${cache.version}), ${cache.events.length} events ready`);
+        
+        // TODO: Schedule audio events here or dispatch to audio system
+        // Example: cache.events.forEach(evt => scheduleNote(evt));
+        
+    }, [version, cacheRef]);
 
     useEffect(() => {
         try {
