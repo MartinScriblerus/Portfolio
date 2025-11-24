@@ -1,6 +1,6 @@
 import { OBERHEIM_TEAL } from '../../constants';
 import { Box, FormControl, TextField, useTheme } from '@mui/material';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useBeatGridStore } from '../../store/useBeatGridStore';
 
 interface SubdivisionsPickerProps {
@@ -41,11 +41,13 @@ const SubdivisionsPicker = (props: SubdivisionsPickerProps) => {
     
     const lastCellRef = useRef<string>(`${xVal}_${yVal}`);
     const isUserEditingRef = useRef<boolean>(false);
+    const lastStoreValueRef = useRef<number>(cellSubdivisions); // Track what's in the store
+    const updateInProgressRef = useRef<boolean>(false); // Prevent duplicate store updates
     
     // Update local state when cell coordinates change OR when this cell's value changes externally
     useEffect(() => {
-        // Don't update if user is currently editing
-        if (isUserEditingRef.current) {
+        // Don't update if user is currently editing OR if we're in the middle of an update
+        if (isUserEditingRef.current || updateInProgressRef.current) {
             return;
         }
         
@@ -54,13 +56,16 @@ const SubdivisionsPicker = (props: SubdivisionsPickerProps) => {
         // Cell changed - reset to new cell's value
         if (currentCell !== lastCellRef.current) {
             lastCellRef.current = currentCell;
+            lastStoreValueRef.current = cellSubdivisions;
             setLocalValue(cellSubdivisions);
         }
-        // Same cell but value changed externally (e.g., from another control)
-        else if (cellSubdivisions !== localValue) {
+        // Same cell but value changed externally - sync from store
+        // Only sync if the store value actually changed (not just a re-render)
+        else if (cellSubdivisions !== lastStoreValueRef.current) {
+            lastStoreValueRef.current = cellSubdivisions;
             setLocalValue(cellSubdivisions);
         }
-    }, [xVal, yVal, cellSubdivisions, localValue]);
+    }, [xVal, yVal, cellSubdivisions]); // Removed localValue from deps - only react to store changes
     
     return (
         <Box 
@@ -93,26 +98,43 @@ const SubdivisionsPicker = (props: SubdivisionsPickerProps) => {
                         width: '100%',
                     },
                 }}
-                onChange={(event) => {
+                onFocus={() => {
                     isUserEditingRef.current = true;
+                }}
+                onChange={(event) => {
+                    event.stopPropagation();
                     const val = Math.max(1, Math.floor(Number(event.target.value) || 1));
-                    if (val !== localValue) {
-                        setLocalValue(val);
+                    // Update UI immediately
+                    setLocalValue(val);
+                    // Update store immediately, but guard against duplicate calls
+                    if (!updateInProgressRef.current && val !== lastStoreValueRef.current) {
+                        updateInProgressRef.current = true;
+                        lastStoreValueRef.current = val;
                         handleChangeCellSubdivisions(val, xVal, yVal);
+                        // Clear flag after store update completes
+                        requestAnimationFrame(() => {
+                            updateInProgressRef.current = false;
+                        });
                     }
-                    // Reset editing flag after a short delay
-                    setTimeout(() => {
-                        isUserEditingRef.current = false;
-                    }, 100);
                 }}
                 onBlur={() => {
                     isUserEditingRef.current = false;
+                    // Final sync check
+                    if (localValue !== lastStoreValueRef.current && !updateInProgressRef.current) {
+                        updateInProgressRef.current = true;
+                        lastStoreValueRef.current = localValue;
+                        handleChangeCellSubdivisions(localValue, xVal, yVal);
+                        requestAnimationFrame(() => {
+                            updateInProgressRef.current = false;
+                        });
+                    }
                 }}
                 sx={{
                     input: { color: 'primary.contrastText' },
                     backgroundColor: OBERHEIM_TEAL,
-                    maxWidth: "6rem",
+                    maxWidth: '6rem',
                     width: '72px',
+                    padding: '0px',
                 }}
             />
             </FormControl>

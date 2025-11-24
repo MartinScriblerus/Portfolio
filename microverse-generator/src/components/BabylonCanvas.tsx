@@ -9,7 +9,7 @@ declare global {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSignalBus } from '../store/useSignalBus';
 import * as BABYLON from '@babylonjs/core';
-import { createHexMesh, generateHexGridAxial, formatNoteLabel, formatNoteNameWithOctave, noteToFreq, makeLetterOverlay } from '../utils/utils';
+import { formatNoteNameWithOctave, noteToFreq, makeLetterOverlay } from '../utils/utils';
 import { useVisStore } from '../store/useVisStore';
 import { BLUE_CHANNEL, GREEN_CHANNEL, LAYOUTS, RED_CHANNEL } from '../constants';
 import Title from './Title';
@@ -19,7 +19,6 @@ import { useGuideMetricsStore } from '../store/useGuideMetricsStore';
 import { useHudStore } from '../hooks/useHudStore';
 import { useTimingStore } from '../hooks/useTimingStore';
 import MicrotonesWrapper from './MicrotonesWrapper';
-import MingusPopup from './BeatGrid/MingusPopup';
 import { Tune } from "../tune";
 import { useMicrotonalStore } from '../store/useMicrotonalStore';
 import { useLayoutStore } from '../store/useLayoutStore';
@@ -28,6 +27,7 @@ import HexKeyboard from './HexKeyboard';
 import { useOldMonolithStore } from '../store/useOldMonolithStore';
 import { Box } from '@mui/material';
 import { useBeatGridStore } from '../store/useBeatGridStore';
+import { useHydraControlsStore } from '../store/useHydraControlsStore';
 
 export default function BabylonHydraCanvas() {
             // const metrics = useGuideMetricsStore(state => state.metrics);
@@ -43,6 +43,14 @@ export default function BabylonHydraCanvas() {
     const [titleText, setTitleText] = useState("Find a cube and click it!");
     const [hud, setHud] = useState({ r:0, g:0, b:0, energy:0, impact:0, pulse:0 });
     const [bpm, setBpm] = useState<number>(120);
+
+    // Initialize window variables for music variable access
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            (window as any).__clickCount = 0;
+            (window as any).__bpm = bpm;
+        }
+    }, []);
 
     // Microtonal state
     const [tune, setTune] = useState<Tune | any>(null);
@@ -102,20 +110,6 @@ export default function BabylonHydraCanvas() {
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [cycleLayout]);
 
-    // function makeLetterOverlay(scene: BABYLON.Scene, text: string, color: string) {
-    //     const size = 256;
-    //     const letterDT = new BABYLON.DynamicTexture(`letter-${text}-${color}-${Date.now()}`, { width: size, height: size }, scene, false);
-    //     const lctx = letterDT.getContext();
-    //     lctx.clearRect(0,0,size,size);
-    //     lctx.font = 'bold 140px sans-serif';
-    //     (lctx as CanvasRenderingContext2D).textAlign = 'center';
-    //     (lctx as CanvasRenderingContext2D).textBaseline = 'middle';
-    //     lctx.fillStyle = color;
-    //     lctx.fillText(text, size/2, size/2);
-    //     letterDT.hasAlpha = true;
-    //     letterDT.update();
-    //     return letterDT;
-    // }
 
     type CubeMeta = {
         mesh: BABYLON.Mesh;
@@ -193,105 +187,6 @@ export default function BabylonHydraCanvas() {
         }
     }
 
-    const currentMicroTonalScale = (scale: any) => {
-        // Guard: need a valid Tune instance and a scale descriptor with a name
-        if (!tune) { console.warn('[microtonal] Tune not initialized yet'); return; }
-        if (!scale || !scale.name) { console.warn('[microtonal] Invalid scale payload', scale); return; }
-
-        try {
-            // Load/retune
-            tune.loadScale(scale.name);
-            // Use A4=440 as baseline, then retune by selected key/octave max
-            tune.tonicize(440);
-            const getFreqVals: any = noteToFreq(selectedChordScaleOctaveRange.current.key, Number(+selectedChordScaleOctaveRange.current.octaveMax));
-            tune.tonicize(getFreqVals);
-        } catch (e) {
-            console.warn('[microtonal] tune.loadScale/tonicize failed', e);
-        }
-
-        // If scale isn't available, abort before doing any work
-        if (!tune.scale || !Array.isArray(tune.scale)) { console.warn('[microtonal] tune.scale not ready'); return; }
-        setMTScaleLength(tune.scale.length);
-
-        // Reset arrays before populating
-        selectedChordScaleOctaveRange.current.freqs = [];
-        selectedChordScaleOctaveRange.current.midi = [];
-        selectedChordScaleOctaveRange.current.notes = [];
-
-        // Build nested octave->degree map for optional flattening later
-        const microFreqsObj: Record<number, Record<number, number>> = {};
-
-        for (let i = -3; i < 6; i++) {
-            for (let j = 0; j < tune.scale.length; j++) {
-                // Frequency
-                try {
-                    (tune as any).mode.output = 'frequency';
-                } catch {}
-                const fRaw = Number(tune.note(j, i));
-                const f = Number.isFinite(fRaw) ? Number(fRaw.toFixed(2)) : fRaw;
-                selectedChordScaleOctaveRange.current.freqs.push(f);
-                if (!microFreqsObj[i]) microFreqsObj[i] = {};
-                microFreqsObj[i][j] = fRaw;
-
-                // MIDI number (if supported). If not, leave as frequency-derived MIDI with helper if desired
-                try { (tune as any).mode.output = 'MIDI'; } catch {}
-                const mRaw = Number(tune.note(j, i));
-                const m = Number.isFinite(mRaw) ? Number(mRaw.toFixed(4)) : mRaw;
-                selectedChordScaleOctaveRange.current.midi.push(m);
-
-                // Simple note label: For 12-TET, derive familiar name; else degree/octave
-                const absStep = i * tune.scale.length + j;
-                const label = (stepsPerOctave === 12)
-                    ? formatNoteNameWithOctave(absStep, 12, { baseMidi: 60, sharps: useSharps })
-                    : `${j}/${tune.scale.length}@${i >= 0 ? '+'+i : i}`;
-                selectedChordScaleOctaveRange.current.notes.push(label);
-            }
-        }
-        console.log('[microtonal] collected', {
-            len: tune.scale.length,
-            freqsCount: selectedChordScaleOctaveRange.current.freqs.length,
-            midiCount: selectedChordScaleOctaveRange.current.midi.length,
-            notesCount: selectedChordScaleOctaveRange.current.notes.length,
-        });
-        console.log('[microtonal] microFreqsObj sample', microFreqsObj[-1] || microFreqsObj[0] || {});
-        const flattenFreqsInRange = (
-            obj: Record<number, Record<number, number>>,
-            minOctave: number,
-            maxOctave: number
-        ): number[] => {
-            const result: number[] = [];
-
-            for (let octave = minOctave; octave <= maxOctave; octave++) {
-                const scale = obj[octave];
-                if (!scale) continue;
-
-                const positions = Object.keys(scale).map(Number).sort((a, b) => a - b);
-                for (const pos of positions) {
-                    result.push(scale[pos]);
-                }
-            }
-
-            return result;
-        };
-        // finalMicroToneNotesRef.current = 
-        console.log("WHAT ARE FLATTENED FREQS IN RANGE? : ", flattenFreqsInRange(microFreqsObj, +selectedChordScaleOctaveRange.current.octaveMin, +selectedChordScaleOctaveRange.current.octaveMax));
-        // setMTFreqs([]);
-        // setMTFreqs(finalMicroToneNotesRef.current.sort((a: any, b: any) => a - b).length > 0 ? finalMicroToneNotesRef.current.sort((a: any, b: any) => a - b).map((i: any) => Number(1.0 * (i).toFixed(2))) : '9999.2');
-
-    // masterPatternsRef.current = {};
-
-      
-
-    };
-    
-    const isCameraOn = useHudStore((s: any) => s.isCameraOn);
-
-    useEffect(() => {
-        if (!busMetrics) return;
-        const { echo, tension, drift, cache } = busMetrics;
-        console.log(`[guide] echo=${echo.toFixed(2)} tension=${tension.toFixed(2)} drift=${drift.toFixed(2)}${cache ? ` cache=${cache}` : ''}`);
-    }, [busMetrics]);
-
     useEffect(() => {
         if (!canvasRef.current) return;
         let disposer: (() => void) | undefined;
@@ -326,7 +221,7 @@ export default function BabylonHydraCanvas() {
                     hydraState.kaleidRamp = 1 - 0.7 * (elapsed / 3);
                     requestAnimationFrame(animateKaleidRamp);
                 } else {
-                    hydraState.kaleidRamp = 0.3;
+                    hydraState.kaleidRamp = 10.3;
                 }
             }
             animateKaleidRamp();
@@ -340,7 +235,7 @@ export default function BabylonHydraCanvas() {
             let videoStartMs: number | null = null; // fallback when currentTime is unavailable
             // Exponential moving average for smoothing Hydra inputs
             const smoothAvg = { r:0, g:0, b:0, energy:0 };
-            const SMOOTH_ALPHA = 0.08; // lower = smoother (more temporal damping for calmer background)
+            const SMOOTH_ALPHA = 0.18; // lower = smoother (more temporal damping for calmer background)
             // Environment sphere radius (read by Hydra rotate speed); start small and expand later
             let environSphereRadius = 25.0;
             function applySmoothing() {
@@ -371,6 +266,11 @@ export default function BabylonHydraCanvas() {
                     colorBiasWeight = state.colorBiasWeight;
                     buildHydraPipeline(hydraState.pattern);
                 }
+            });
+
+            // Subscribe to Hydra controls store changes and rebuild pipeline
+            const unsubscribeHydraControls = useHydraControlsStore.subscribe(() => {
+                buildHydraPipeline(hydraState.pattern);
             });
 
             // ------------------------------
@@ -489,7 +389,7 @@ export default function BabylonHydraCanvas() {
                             }
                             case 'pixelate': {
                                 if (cfg.on) {
-                                    const px = 2 + Math.floor(s * 180);
+                                    const px = (bpm / 120) * (2 + Math.floor(s * 180));
                                     chain = chain.pixelate(px, px);
                                 }
                                 break;
@@ -656,6 +556,8 @@ export default function BabylonHydraCanvas() {
 
                 const minRep = (useAgentStore.getState().telemetry.clicks < 1) ? 4 : 1;
 
+                const clicks = useAgentStore.getState().telemetry.clicks || 0;
+
                 let base = osc(
                         // () => 1.0 + smoothAvg.energy*0.5,
                         // 0.05,
@@ -682,7 +584,7 @@ export default function BabylonHydraCanvas() {
                         .repeat(
                             () => {
                                 try {
-                                    const clicks = useAgentStore.getState().telemetry.clicks || 0;
+                                    // const clicks = useAgentStore.getState().telemetry.clicks || 0;
                                     const past30 = useAgentStore.getState().telemetry.past30;
                                     const base = (clicks < 1 && !past30) ? 4 : 1;
                                     return Math.max(base, getRepeatCount());
@@ -704,13 +606,52 @@ export default function BabylonHydraCanvas() {
                     // Output ONLY the video/camera source, with stained glass effect, no blend/add with procedural texture
                     try {
                         let camLuma = gAny.src(gAny.s0).color(1,1,1);
-                        // Always apply stained glass effect for first 30s
-                        camLuma = camLuma
-                            .pixelate(() => PX_HEAVY, () => PX_HEAVY)
-                            .modulateHue(noise(10), 0.1)
-                            .invert(0.2)
-                            .kaleid(6)
-                            .repeat(16);
+                        // ENTER NEW HYDRA CONTROLLER LOGS HERE!!!
+                        // try {
+                        const hydraControls = useHydraControlsStore.getState();
+                        const meydaData = (window as any).__meydaData;
+                            // console.log('[HydraControls] Getting effect values:', {
+                            //     pixelate: hydraControls.getEffectValue('pixelate', 'amount', meydaData),
+                            //     modulateHue: hydraControls.getEffectValue('modulateHue', 'amount', meydaData),
+                            //     invert: hydraControls.getEffectValue('invert', 'amount', meydaData),
+                            //     kaleidSides: hydraControls.getEffectValue('kaleid', 'sides', meydaData),
+                            //     kaleidSegments: hydraControls.getEffectValue('kaleid', 'segments', meydaData),
+                            //     repeatX: hydraControls.getEffectValue('repeat', 'x', meydaData),
+                            //     repeatY: hydraControls.getEffectValue('repeat', 'y', meydaData),
+                            //     saturate: hydraControls.getEffectValue('saturate', 'amount', meydaData),
+                            //     contrast: hydraControls.getEffectValue('contrast', 'amount', meydaData),
+                            //     brightness: hydraControls.getEffectValue('brightness', 'amount', meydaData),
+                            //     hue: hydraControls.getEffectValue('hue', 'amount', meydaData),
+                            //     posterize: hydraControls.getEffectValue('posterize', 'levels', meydaData),
+                            //     modulate: hydraControls.getEffectValue('modulate', 'amount', meydaData),
+                            //     luma: hydraControls.getEffectValue('luma', 'threshold', meydaData),
+                            // });
+                        // } catch (e) {
+                        //     console.warn('[HydraControls] Error getting values:', e);
+                        // }
+                        // Apply Hydra controls from store
+                        const pixelateVal = hydraControls.getEffectValue('pixelate', 'amount', meydaData);
+                        const modulateHueVal = hydraControls.getEffectValue('modulateHue', 'amount', meydaData);
+                        const invertVal = hydraControls.getEffectValue('invert', 'amount', meydaData);
+                        const kaleidSides = hydraControls.getEffectValue('kaleid', 'sides', meydaData);
+                        const repeatX = hydraControls.getEffectValue('repeat', 'x', meydaData);
+                        const repeatY = hydraControls.getEffectValue('repeat', 'y', meydaData);
+                        
+                        if (hydraControls.effects.pixelate.enabled) {
+                            camLuma = camLuma.pixelate(() => pixelateVal, () => pixelateVal);
+                        }
+                        if (hydraControls.effects.modulateHue.enabled) {
+                            camLuma = camLuma.modulateHue(noise(10), () => modulateHueVal);
+                        }
+                        if (hydraControls.effects.invert.enabled) {
+                            camLuma = camLuma.invert(() => invertVal);
+                        }
+                        if (hydraControls.effects.kaleid.enabled) {
+                            camLuma = camLuma.kaleid(() => kaleidSides);
+                        }
+                        if (hydraControls.effects.repeat.enabled) {
+                            camLuma = camLuma.repeat(() => repeatX, () => repeatY);
+                        }
                         // Always apply camera ops
                         camLuma = applyOps(camLuma, ['saturate','contrast','brightness','hue','posterize','invert','modulateHue','luma']);
                         // Output only the video/camera branch
@@ -939,7 +880,11 @@ export default function BabylonHydraCanvas() {
                 const avg = manager.getAverageChannels();
                 console.log('[Click] meta channels', meta.channels, 'avg', avg);
                 // Use functional updater to avoid stale closures
-                setClicksTotal((c) => c + 1);
+                setClicksTotal((c) => {
+                    const newCount = c + 1;
+                    (window as any).__clickCount = newCount;
+                    return newCount;
+                });
             });
             // add some rotation animation
             scene.registerBeforeRender(() => {
@@ -1170,11 +1115,113 @@ export default function BabylonHydraCanvas() {
                 window.removeEventListener('resize', handleResize);
                 window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
+                try { unsubscribeHydraControls(); } catch {}
                 try { engine.dispose(); } catch {}
             };
         })();
         return () => { if (typeof disposer === 'function') disposer(); };
     }, [category, layoutIndex, stepsPerOctave, showNoteLabels, tileScale, useSharps, showFraction]);
+
+
+    const currentMicroTonalScale = (scale: any) => {
+        // Guard: need a valid Tune instance and a scale descriptor with a name
+        if (!tune) { console.warn('[microtonal] Tune not initialized yet'); return; }
+        if (!scale || !scale.name) { console.warn('[microtonal] Invalid scale payload', scale); return; }
+
+        try {
+            // Load/retune
+            tune.loadScale(scale.name);
+            // Use A4=440 as baseline, then retune by selected key/octave max
+            tune.tonicize(440);
+            const getFreqVals: any = noteToFreq(selectedChordScaleOctaveRange.current.key, Number(+selectedChordScaleOctaveRange.current.octaveMax));
+            tune.tonicize(getFreqVals);
+        } catch (e) {
+            console.warn('[microtonal] tune.loadScale/tonicize failed', e);
+        }
+
+        // If scale isn't available, abort before doing any work
+        if (!tune.scale || !Array.isArray(tune.scale)) { console.warn('[microtonal] tune.scale not ready'); return; }
+        setMTScaleLength(tune.scale.length);
+
+        // Reset arrays before populating
+        selectedChordScaleOctaveRange.current.freqs = [];
+        selectedChordScaleOctaveRange.current.midi = [];
+        selectedChordScaleOctaveRange.current.notes = [];
+
+        // Build nested octave->degree map for optional flattening later
+        const microFreqsObj: Record<number, Record<number, number>> = {};
+
+        for (let i = -3; i < 6; i++) {
+            for (let j = 0; j < tune.scale.length; j++) {
+                // Frequency
+                try {
+                    (tune as any).mode.output = 'frequency';
+                } catch {}
+                const fRaw = Number(tune.note(j, i));
+                const f = Number.isFinite(fRaw) ? Number(fRaw.toFixed(2)) : fRaw;
+                selectedChordScaleOctaveRange.current.freqs.push(f);
+                if (!microFreqsObj[i]) microFreqsObj[i] = {};
+                microFreqsObj[i][j] = fRaw;
+
+                // MIDI number (if supported). If not, leave as frequency-derived MIDI with helper if desired
+                try { (tune as any).mode.output = 'MIDI'; } catch {}
+                const mRaw = Number(tune.note(j, i));
+                const m = Number.isFinite(mRaw) ? Number(mRaw.toFixed(4)) : mRaw;
+                selectedChordScaleOctaveRange.current.midi.push(m);
+
+                // Simple note label: For 12-TET, derive familiar name; else degree/octave
+                const absStep = i * tune.scale.length + j;
+                const label = (stepsPerOctave === 12)
+                    ? formatNoteNameWithOctave(absStep, 12, { baseMidi: 60, sharps: useSharps })
+                    : `${j}/${tune.scale.length}@${i >= 0 ? '+'+i : i}`;
+                selectedChordScaleOctaveRange.current.notes.push(label);
+            }
+        }
+        console.log('[microtonal] collected', {
+            len: tune.scale.length,
+            freqsCount: selectedChordScaleOctaveRange.current.freqs.length,
+            midiCount: selectedChordScaleOctaveRange.current.midi.length,
+            notesCount: selectedChordScaleOctaveRange.current.notes.length,
+        });
+        console.log('[microtonal] microFreqsObj sample', microFreqsObj[-1] || microFreqsObj[0] || {});
+        const flattenFreqsInRange = (
+            obj: Record<number, Record<number, number>>,
+            minOctave: number,
+            maxOctave: number
+        ): number[] => {
+            const result: number[] = [];
+
+            for (let octave = minOctave; octave <= maxOctave; octave++) {
+                const scale = obj[octave];
+                if (!scale) continue;
+
+                const positions = Object.keys(scale).map(Number).sort((a, b) => a - b);
+                for (const pos of positions) {
+                    result.push(scale[pos]);
+                }
+            }
+
+            return result;
+        };
+        // finalMicroToneNotesRef.current = 
+        console.log("WHAT ARE FLATTENED FREQS IN RANGE? : ", flattenFreqsInRange(microFreqsObj, +selectedChordScaleOctaveRange.current.octaveMin, +selectedChordScaleOctaveRange.current.octaveMax));
+        // setMTFreqs([]);
+        // setMTFreqs(finalMicroToneNotesRef.current.sort((a: any, b: any) => a - b).length > 0 ? finalMicroToneNotesRef.current.sort((a: any, b: any) => a - b).map((i: any) => Number(1.0 * (i).toFixed(2))) : '9999.2');
+
+    // masterPatternsRef.current = {};
+
+      
+
+    };
+    
+    const isCameraOn = useHudStore((s: any) => s.isCameraOn);
+
+    useEffect(() => {
+        if (!busMetrics) return;
+        const { echo, tension, drift, cache } = busMetrics;
+        console.log(`[guide] echo=${echo.toFixed(2)} tension=${tension.toFixed(2)} drift=${drift.toFixed(2)}${cache ? ` cache=${cache}` : ''}`);
+    }, [busMetrics]);
+
 
     useEffect(() => {
         if (clicksTotal === 1) {
@@ -1193,6 +1240,7 @@ export default function BabylonHydraCanvas() {
 
     useEffect(() => {
         bpm && setBeatMs((60 / bpm) * 1000);
+        (window as any).__bpm = bpm;
     }, [bpm]);
 
     
@@ -1331,6 +1379,8 @@ export default function BabylonHydraCanvas() {
             const rms = typeof msg?.rms === 'number' ? msg.rms : 0;
             const prev = (window as any).__audioAmp ?? 0;
             (window as any).__audioAmp = prev + (Math.min(1, rms * 3) - prev) * 0.2;
+            // Expose Meyda data globally for Hydra controls
+            (window as any).__meydaData = msg;
           };
 
           // connect mic -> worklet only (no destination = no feedback)
@@ -1439,6 +1489,7 @@ export default function BabylonHydraCanvas() {
                 }}
             />
             <ControlPanel />
+            {/* <HydraControlsPopup open={hydraControlsOpen} onClose={() => setHydraControlsOpen(false)} /> */}
             <div style={{
                 position:'absolute', 
                 top:8, 
@@ -1462,23 +1513,6 @@ export default function BabylonHydraCanvas() {
                     toggles: 1=strength, s/c/b, h, i, o=posterize, p=pixel, k=kaleid, r=rotate, l=scale, x/y=scroll, m, u=modHue, g=colorama
                 </div> */}
                 <div style={{marginTop:6, fontWeight: 700, display:'flex', alignItems:'center', gap:6}}>
-                    {/* <span style={{color: RED_CHANNEL}}>BPM:</span>
-                    <input
-                        type="number"
-                        value={bpm}
-                        min={40}
-                        max={240}
-                        step={1}
-                        onChange={(e)=> setBpm(Number(e.target.value) || 0)}
-                        style={{
-                            width: 64,
-                            background: 'rgba(0,0,0,0.35)',
-                            color: '#fff',
-                            border: `1px solid ${BLUE_CHANNEL}`,
-                            borderRadius: 4,
-                            padding: '2px 6px'
-                        }}
-                    /> */}
                 </div>
             </div>
         </>

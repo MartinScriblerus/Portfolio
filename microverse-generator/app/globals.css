@@ -314,6 +314,9 @@ svg {
 .MuiPaper-root {
   margin: 0px 0px;
 }
+.MuiInputBase-input-MuiOutlinedInput-input {
+  padding: 2.5px 14px !important;
+}
 
 /* Enable hover only on non-touch devices */
 @media (hover: hover) and (pointer: fine) {

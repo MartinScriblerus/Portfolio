@@ -1,11 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import { useLayoutStore } from '../store/useLayoutStore';
+import HydraControlsPopup from './HydraControlsPopup';
 
 export default function ControlPanel() {
   const category = useLayoutStore(s => s.category);
   const layoutIndex = useLayoutStore(s => s.layoutIndex);
   const setCategory = useLayoutStore(s => s.setCategory);
   const setLayoutIndex = useLayoutStore(s => s.setLayoutIndex);
+  const [hydraControlsOpen, setHydraControlsOpen] = useState(false);
 
   const categories: Array<{ value: 'isomorphic'|'tonnetz'; label: string }> = [
     { value: 'isomorphic', label: 'Isomorphic' },
@@ -54,6 +56,23 @@ export default function ControlPanel() {
           {options.map((name, i) => <option key={name} value={i}>{name}</option>)}
         </select>
       </div>
+      <div style={{ marginTop: 8, display:'flex', gap:8, alignItems:'center' }}>
+        <button
+          onClick={() => setHydraControlsOpen(true)}
+          style={{
+            background:'#333',
+            color:'#fff',
+            border:'1px solid #555',
+            padding:'6px 12px',
+            borderRadius:4,
+            cursor:'pointer',
+            fontSize: 12,
+          }}
+        >
+          Hydra Controls
+        </button>
+      </div>
+      <HydraControlsPopup open={hydraControlsOpen} onClose={() => setHydraControlsOpen(false)} />
     </div>
   );
 }

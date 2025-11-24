@@ -8,7 +8,7 @@ import { WaveformCanvas } from '../WaveformCanvas';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import dynamic from 'next/dynamic';
 import EffectDropdown from '../EffectsDropdown';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Box, Select, Button } from '@mui/material';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 
@@ -560,9 +560,9 @@ export default function OldParentMonolith(
   }, [numeratorSignature, denominatorSignature, setMasterPatternsHashHook]);
   const selectFileForAssignment = () => {};
   const updateCellSubdivisions = useBeatGridStore((s) => s.updateCellSubdivisions);
-  const handleChangeCellSubdivisions = (num: number, x: number, y: number) => {
+  const handleChangeCellSubdivisions = useCallback((num: number, x: number, y: number) => {
     updateCellSubdivisions(num, x, y);
-  };
+  }, [updateCellSubdivisions]);
   const cellSubdivisions = {} as any;
   const resetCellSubdivisionsCounter = () => {};
   const handleClickUploadedFiles = () => {};
