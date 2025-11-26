@@ -25,7 +25,7 @@ export default function ControlPanel() {
       style={{ 
         position:'absolute', 
         top: 8, 
-        left: 224, 
+        left: 232, 
         zIndex: 10000, 
         background: 'rgba(0,0,0,0.6)', 
         color: '#eee', 

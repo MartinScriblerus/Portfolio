@@ -834,8 +834,25 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                     <Box key={`wrapnewvals__${currentBeatCountToDisplay}_${currentNumerCountColToDisplay}_${currentDenomCount}_${currentPatternCount}`} sx={{ display: "flex", flexDirection: "column", fontFamily: 'monospace', fontWeight: "100", textAlign: 'left', position: 'relative', zIndex: 10000, padding: '0px', overflow: 'visible' }}>
                                         <Box style={{ fontFamily: 'monospace', fontWeight: '100', color: 'rgba(245,245,245,0.78)', paddingLeft: '8px', width: '100%', height: '100%', background: 'rgba(245,245,245,0.078)', display: 'inline-block', whiteSpace: 'nowrap', border: `1px solid rgba(0,0,0,0.78)` }}>
                                             <span style={{ marginRight: "12px" }}>Cell: {`${currentXVal.current} | ${currentYVal.current}`}</span>
-                                            <Box sx={{ display: "inline-flex", flexDirection: "row", justifyContent: "stretch", alignItems: "center", paddingTop: "8px", padding: "4px", fontSize: '16px', borderRadius: '5px', blur: "8px", maxHeight: "24px" }}>
-                                                Subdivs: <SubdivisionsPicker xVal={currentXVal.current} yVal={currentYVal.current} masterPatternsHashHook={masterPatternsHashHook} handleChangeCellSubdivisions={handleChangeCellSubdivisions} cellSubdivisions={cellSubdivisions} />
+                                            <Box sx={{ 
+                                                display: "inline-flex", 
+                                                flexDirection: "row", 
+                                                justifyContent: "stretch", 
+                                                alignItems: "center", 
+                                                paddingTop: "8px", 
+                                                padding: "4px", 
+                                                fontSize: '16px', 
+                                                borderRadius: '5px', 
+                                                blur: "8px", 
+                                                maxHeight: "24px" 
+                                            }}>
+                                                Subdivs: <SubdivisionsPicker 
+                                                    xVal={currentXVal.current} 
+                                                    yVal={currentYVal.current} 
+                                                    masterPatternsHashHook={masterPatternsHashHook} 
+                                                    handleChangeCellSubdivisions={handleChangeCellSubdivisions} 
+                                                    cellSubdivisions={cellSubdivisions} 
+                                                />
                                             </Box>
                                         </Box>
                                         {/* Main Grid SVG - Always visible */}

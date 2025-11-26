@@ -96,6 +96,7 @@ const SubdivisionsPicker = (props: SubdivisionsPickerProps) => {
                         fontFamily: 'monospace',
                         fontSize: '16px',
                         width: '100%',
+                        padding: "1.5px 14px"
                     },
                 }}
                 onFocus={() => {

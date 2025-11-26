@@ -168,14 +168,14 @@ export default function BabylonHydraCanvas() {
             const mm = new BABYLON.MultiMaterial(`${c.name}-mm`, this.scene);
             mm.subMaterials.push(...mats);
             c.material = mm;
+            // Ensure all 6 faces have materials - create subMeshes for each face
             const vC = c.getTotalVertices();
             c.subMeshes = [];
-            c.subMeshes.push(new BABYLON.SubMesh(0, 0, vC, 0, 6, c));
-            c.subMeshes.push(new BABYLON.SubMesh(1, 0, vC, 6, 6, c));
-            c.subMeshes.push(new BABYLON.SubMesh(2, 0, vC, 12, 6, c));
-            c.subMeshes.push(new BABYLON.SubMesh(3, 0, vC, 18, 6, c));
-            c.subMeshes.push(new BABYLON.SubMesh(4, 0, vC, 24, 6, c));
-            c.subMeshes.push(new BABYLON.SubMesh(5, 0, vC, 30, 6, c));
+            // Create subMeshes for all 6 faces (2 triangles per face = 12 triangles total, 6 vertices per face)
+            for (let i = 0; i < 6; i++) {
+                const subMesh = new BABYLON.SubMesh(i, 0, vC, i * 6, 6, c);
+                c.subMeshes.push(subMesh);
+            }
         }
         getAverageChannels() {
             if (!this.cubes.length) return { r: 0, g: 0, b: 0, energy: 0 };
@@ -268,8 +268,41 @@ export default function BabylonHydraCanvas() {
                 }
             });
 
+            // Cache for built chains to avoid infinite loops and improve performance
+            // Limit cache size aggressively to prevent memory leaks
+            const MAX_CACHE_SIZE = 20; // Reduced from 50
+            const chainCache = new Map<string, any>();
+            let lastChainHash = '';
+            let cacheAccessCount = 0;
+            let lastCacheCleanup = performance.now();
+            
+            // Helper to limit cache size - called more frequently
+            const limitCacheSize = () => {
+                if (chainCache.size > MAX_CACHE_SIZE) {
+                    // Clear entire cache when over limit (more aggressive)
+                    chainCache.clear();
+                }
+            };
+            
+            // Periodic cache cleanup to prevent memory leaks
+            const cleanupCache = () => {
+                const now = performance.now();
+                if (now - lastCacheCleanup > 5000) { // Every 5 seconds
+                    limitCacheSize();
+                    lastCacheCleanup = now;
+                }
+            };
+            
             // Subscribe to Hydra controls store changes and rebuild pipeline
             const unsubscribeHydraControls = useHydraControlsStore.subscribe(() => {
+                // Invalidate cache when chains change
+                const currentChains = useHydraControlsStore.getState().chains;
+                const currentHash = JSON.stringify(currentChains.map(c => ({ id: c.id, enabled: c.enabled, parentId: c.parentId, innerSourceId: c.innerSourceId, order: c.order })));
+                if (currentHash !== lastChainHash) {
+                    chainCache.clear();
+                    lastChainHash = currentHash;
+                }
+                // Rebuild the pipeline whenever chains change
                 buildHydraPipeline(hydraState.pattern);
             });
 
@@ -605,57 +638,513 @@ export default function BabylonHydraCanvas() {
                 if (hydraCamReady && typeof gAny.src === 'function' && gAny.s0) {
                     // Output ONLY the video/camera source, with stained glass effect, no blend/add with procedural texture
                     try {
-                        let camLuma = gAny.src(gAny.s0).color(1,1,1);
-                        // ENTER NEW HYDRA CONTROLLER LOGS HERE!!!
-                        // try {
                         const hydraControls = useHydraControlsStore.getState();
                         const meydaData = (window as any).__meydaData;
-                            // console.log('[HydraControls] Getting effect values:', {
-                            //     pixelate: hydraControls.getEffectValue('pixelate', 'amount', meydaData),
-                            //     modulateHue: hydraControls.getEffectValue('modulateHue', 'amount', meydaData),
-                            //     invert: hydraControls.getEffectValue('invert', 'amount', meydaData),
-                            //     kaleidSides: hydraControls.getEffectValue('kaleid', 'sides', meydaData),
-                            //     kaleidSegments: hydraControls.getEffectValue('kaleid', 'segments', meydaData),
-                            //     repeatX: hydraControls.getEffectValue('repeat', 'x', meydaData),
-                            //     repeatY: hydraControls.getEffectValue('repeat', 'y', meydaData),
-                            //     saturate: hydraControls.getEffectValue('saturate', 'amount', meydaData),
-                            //     contrast: hydraControls.getEffectValue('contrast', 'amount', meydaData),
-                            //     brightness: hydraControls.getEffectValue('brightness', 'amount', meydaData),
-                            //     hue: hydraControls.getEffectValue('hue', 'amount', meydaData),
-                            //     posterize: hydraControls.getEffectValue('posterize', 'levels', meydaData),
-                            //     modulate: hydraControls.getEffectValue('modulate', 'amount', meydaData),
-                            //     luma: hydraControls.getEffectValue('luma', 'threshold', meydaData),
-                            // });
-                        // } catch (e) {
-                        //     console.warn('[HydraControls] Error getting values:', e);
-                        // }
-                        // Apply Hydra controls from store
-                        const pixelateVal = hydraControls.getEffectValue('pixelate', 'amount', meydaData);
-                        const modulateHueVal = hydraControls.getEffectValue('modulateHue', 'amount', meydaData);
-                        const invertVal = hydraControls.getEffectValue('invert', 'amount', meydaData);
-                        const kaleidSides = hydraControls.getEffectValue('kaleid', 'sides', meydaData);
-                        const repeatX = hydraControls.getEffectValue('repeat', 'x', meydaData);
-                        const repeatY = hydraControls.getEffectValue('repeat', 'y', meydaData);
                         
-                        if (hydraControls.effects.pixelate.enabled) {
-                            camLuma = camLuma.pixelate(() => pixelateVal, () => pixelateVal);
+                        // Helper function to apply a single chain operation to a base chain
+                        function applyRootChainOperation(
+                            baseChain: any,
+                            chain: any,
+                            allChains: any[],
+                            hydraControls: any,
+                            meydaData: any
+                        ): any {
+                            if (!baseChain || !chain.enabled) return baseChain;
+                            
+                            const getParamValue = (param: string) => {
+                                return hydraControls.getChainValue(chain.id, param, meydaData);
+                            };
+                            
+                            if (chain.type === 'transform') {
+                                switch (chain.operation) {
+                                    case 'repeat':
+                                        return baseChain.repeat(
+                                            () => getParamValue('x'),
+                                            () => getParamValue('y')
+                                        );
+                                    case 'kaleid':
+                                        return baseChain.kaleid(() => getParamValue('sides'));
+                                    case 'pixelate':
+                                        const px = getParamValue('amount');
+                                        return baseChain.pixelate(() => px, () => px);
+                                    case 'rotate':
+                                        return baseChain.rotate(
+                                            () => getParamValue('angle'),
+                                            () => getParamValue('speed')
+                                        );
+                                    case 'scale':
+                                        return baseChain.scale(() => getParamValue('amount'));
+                                    case 'scrollX':
+                                        return baseChain.scrollX(
+                                            () => getParamValue('amount'),
+                                            () => getParamValue('speed')
+                                        );
+                                    case 'scrollY':
+                                        return baseChain.scrollY(
+                                            () => getParamValue('amount'),
+                                            () => getParamValue('speed')
+                                        );
+                                    case 'colorama':
+                                        return baseChain.colorama(() => getParamValue('amount'));
+                                    case 'saturate':
+                                        return baseChain.saturate(() => getParamValue('amount'));
+                                    case 'contrast':
+                                        return baseChain.contrast(() => getParamValue('amount'));
+                                    case 'brightness':
+                                        return baseChain.brightness(() => getParamValue('amount'));
+                                    case 'hue':
+                                        return baseChain.hue(() => getParamValue('amount'));
+                                    case 'posterize':
+                                        return baseChain.posterize(() => getParamValue('levels'));
+                                    case 'invert':
+                                        return baseChain.invert(() => getParamValue('amount'));
+                                    case 'luma':
+                                        return baseChain.luma(() => getParamValue('threshold'));
+                                    default:
+                                        return baseChain;
+                                }
+                            } else if (chain.type === 'compositor') {
+                                let innerSource: any = null;
+                                
+                                if (chain.innerSourceId) {
+                                    const innerChain = allChains.find(c => c.id === chain.innerSourceId);
+                                    if (innerChain && innerChain.enabled) {
+                                        // Build the inner source chain recursively
+                                        // Start from null to build a new source chain
+                                        innerSource = buildChainFromNested(allChains, innerChain.id, null, new Set(), `inner_${chain.innerSourceId}`);
+                                    }
+                                }
+                                
+                                // If no inner source was built, use noise as default
+                                if (!innerSource) {
+                                    innerSource = noise(() => 0.6 + smoothAvg.energy * 0.8);
+                                }
+                                
+                                // Apply the compositor operation
+                                switch (chain.operation) {
+                                    case 'modulate':
+                                        return baseChain.modulate(innerSource, () => getParamValue('amount'));
+                                    case 'modulateHue':
+                                        return baseChain.modulateHue(innerSource, () => getParamValue('amount'));
+                                    case 'modulateScale':
+                                        return baseChain.modulateScale(innerSource, () => getParamValue('amount'));
+                                    case 'modulateRotate':
+                                        return baseChain.modulateRotate(innerSource, () => getParamValue('amount'));
+                                    case 'blend':
+                                        return baseChain.blend(innerSource, () => getParamValue('amount'));
+                                    case 'add':
+                                        return baseChain.add(innerSource);
+                                    case 'mult':
+                                        return baseChain.mult(innerSource);
+                                    case 'diff':
+                                        return baseChain.diff(innerSource);
+                                    case 'layer':
+                                        return baseChain.layer(innerSource, () => getParamValue('amount'));
+                                    case 'mask':
+                                        return baseChain.mask(innerSource);
+                                    default:
+                                        return baseChain;
+                                }
+                            }
+                            
+                            return baseChain;
                         }
-                        if (hydraControls.effects.modulateHue.enabled) {
-                            camLuma = camLuma.modulateHue(noise(10), () => modulateHueVal);
+                        
+                        // Build Hydra chain from nested structure with caching and cycle detection
+                        function buildChainFromNested(
+                            chains: any[], 
+                            parentId: string | undefined, 
+                            baseChain: any,
+                            visited: Set<string> = new Set(),
+                            cacheKey?: string
+                        ): any {
+                            // Create cache key for this specific build
+                            const key = cacheKey || `chain_${parentId || 'root'}_${baseChain ? 'withBase' : 'noBase'}`;
+                            
+                            // Check cache first (but limit cache size to prevent memory leaks)
+                            cacheAccessCount++;
+                            cleanupCache(); // Check for cleanup every access
+                            if (cacheAccessCount % 50 === 0) {
+                                limitCacheSize(); // More frequent cleanup
+                            }
+                            if (chainCache.has(key)) {
+                                return chainCache.get(key);
+                            }
+                            
+                            // Get chains that belong to this parent, sorted by order
+                            const childChains = chains
+                                .filter(c => c.enabled && c.parentId === parentId)
+                                .sort((a, b) => a.order - b.order);
+                            
+                            let result = baseChain;
+                            
+                            for (const chain of childChains) {
+                                // Cycle detection: if we've already visited this chain, skip it
+                                if (visited.has(chain.id)) {
+                                    console.warn(`[Hydra] Circular reference detected for chain ${chain.id}, skipping`);
+                                    continue;
+                                }
+                                
+                                // Mark as visited
+                                visited.add(chain.id);
+                                
+                                const getParamValue = (param: string) => {
+                                    return hydraControls.getChainValue(chain.id, param, meydaData);
+                                };
+                                
+                                // Apply the operation based on type
+                                if (chain.type === 'source') {
+                                    // If source is nested under video (baseChain exists), add it to video
+                                    if (baseChain && chain.operation !== 'src') {
+                                        // Build the nested source with its children
+                                        const nestedSourceChain = buildChainFromNested(chains, chain.id, null, new Set(visited), `nested_source_${chain.id}`);
+                                        if (nestedSourceChain) {
+                                            // Add the nested source to the base chain (video)
+                                            result = baseChain.add(nestedSourceChain);
+                                            visited.delete(chain.id);
+                                            continue;
+                                        }
+                                    }
+                                    
+                                    // If no baseChain, create a new source chain (root level or inner source)
+                                    if (!baseChain) {
+                                        // Check cache for this source chain
+                                        const sourceCacheKey = `source_${chain.id}`;
+                                        if (chainCache.has(sourceCacheKey)) {
+                                            result = chainCache.get(sourceCacheKey);
+                                            visited.delete(chain.id);
+                                            continue;
+                                        }
+                                        
+                                        let sourceChain: any = null;
+                                        
+                                        switch (chain.operation) {
+                                            case 'osc':
+                                                // osc(freq, sync, offset) - all can be dynamic
+                                                sourceChain = gAny.osc(
+                                                    () => getParamValue('freq'),
+                                                    () => getParamValue('sync'),
+                                                    () => getParamValue('offset')
+                                                );
+                                                break;
+                                            case 'noise':
+                                                sourceChain = gAny.noise(() => getParamValue('scale'));
+                                                break;
+                                            case 'shape':
+                                                sourceChain = gAny.shape(
+                                                    () => getParamValue('sides'),
+                                                    () => getParamValue('radius')
+                                                );
+                                                break;
+                                            case 'gradient':
+                                                // gradient() can take a speed parameter
+                                                const gradSpeed = getParamValue('speed') ?? 1;
+                                                sourceChain = gAny.gradient(() => gradSpeed);
+                                                break;
+                                            case 'voronoi':
+                                                // voronoi(scale, speed)
+                                                sourceChain = gAny.voronoi(
+                                                    () => getParamValue('scale'),
+                                                    () => getParamValue('speed')
+                                                );
+                                                break;
+                                            case 'src':
+                                                // src() references the video source (s0)
+                                                // Ensure s0 exists and has video
+                                                if (gAny.s0) {
+                                                    sourceChain = gAny.src(gAny.s0);
+                                                } else {
+                                                    // Fallback: try to get video from hydra synth
+                                                    const hydraSynth = (window as any).hydra?.synth;
+                                                    if (hydraSynth?.s0) {
+                                                        sourceChain = hydraSynth.src(hydraSynth.s0);
+                                                    } else {
+                                                        // Last resort: create a solid color
+                                                        sourceChain = gAny.solid(0.1, 0.1, 0.1);
+                                                    }
+                                                }
+                                                break;
+                                        }
+                                        
+                                        if (sourceChain) {
+                                            // Recursively build children of this source
+                                            result = buildChainFromNested(chains, chain.id, sourceChain, new Set(visited), sourceCacheKey);
+                                            // Cache the source chain
+                                            chainCache.set(sourceCacheKey, result);
+                                        }
+                                    }
+                                } else if (chain.type === 'transform') {
+                                    // Transforms chain onto the current result
+                                    if (!result) {
+                                        visited.delete(chain.id);
+                                        continue; // Need a base chain to transform
+                                    }
+                                    
+                                    // Check cache for this transform
+                                    const transformCacheKey = `transform_${chain.id}_${result ? 'hasBase' : 'noBase'}`;
+                                    if (chainCache.has(transformCacheKey)) {
+                                        result = chainCache.get(transformCacheKey);
+                                        visited.delete(chain.id);
+                                        continue;
+                                    }
+                                    
+                                    const beforeTransform = result;
+                                    
+                                    switch (chain.operation) {
+                                        case 'repeat':
+                                            result = result.repeat(
+                                                () => getParamValue('x'),
+                                                () => getParamValue('y')
+                                            );
+                                            break;
+                                    case 'kaleid':
+                                        // kaleid(sides) - segments parameter not used in basic kaleid
+                                        result = result.kaleid(() => getParamValue('sides'));
+                                        break;
+                                    case 'rotate':
+                                        result = result.rotate(
+                                            () => getParamValue('angle'),
+                                            () => getParamValue('speed')
+                                        );
+                                        break;
+                                    case 'scale':
+                                        result = result.scale(() => getParamValue('amount'));
+                                        break;
+                                    case 'scrollX':
+                                        result = result.scrollX(
+                                            () => getParamValue('amount'),
+                                            () => getParamValue('speed')
+                                        );
+                                        break;
+                                    case 'scrollY':
+                                        result = result.scrollY(
+                                            () => getParamValue('amount'),
+                                            () => getParamValue('speed')
+                                        );
+                                        break;
+                                    case 'colorama':
+                                        result = result.colorama(() => getParamValue('amount'));
+                                        break;
+                                    case 'pixelate':
+                                        const px = getParamValue('amount');
+                                        result = result.pixelate(() => px, () => px);
+                                        break;
+                                    case 'saturate':
+                                            result = result.saturate(() => getParamValue('amount'));
+                                            break;
+                                        case 'contrast':
+                                            result = result.contrast(() => getParamValue('amount'));
+                                            break;
+                                        case 'brightness':
+                                            result = result.brightness(() => getParamValue('amount'));
+                                            break;
+                                        case 'hue':
+                                            result = result.hue(() => getParamValue('amount'));
+                                            break;
+                                        case 'posterize':
+                                            result = result.posterize(() => getParamValue('levels'));
+                                            break;
+                                        case 'invert':
+                                            result = result.invert(() => getParamValue('amount'));
+                                            break;
+                                        case 'luma':
+                                            result = result.luma(() => getParamValue('threshold'));
+                                            break;
+                                    }
+                                    
+                                    // Recursively build children of this transform
+                                    result = buildChainFromNested(chains, chain.id, result, new Set(visited), transformCacheKey);
+                                    
+                                    // Cache the transform result
+                                    if (result !== beforeTransform) {
+                                        chainCache.set(transformCacheKey, result);
+                                    }
+                                } else if (chain.type === 'compositor') {
+                                    // Compositors need inner sources
+                                    if (!result) {
+                                        visited.delete(chain.id);
+                                        continue; // Need a base chain to composite
+                                    }
+                                    
+                                    // Check cache for this compositor
+                                    const compositorCacheKey = `compositor_${chain.id}_${chain.innerSourceId || 'noInner'}`;
+                                    if (chainCache.has(compositorCacheKey)) {
+                                        result = chainCache.get(compositorCacheKey);
+                                        visited.delete(chain.id);
+                                        continue;
+                                    }
+                                    
+                                    let innerSource: any = null;
+                                    
+                                    if (chain.innerSourceId) {
+                                        const innerChain = chains.find(c => c.id === chain.innerSourceId);
+                                        if (innerChain && innerChain.enabled) {
+                                            // Build the inner source chain recursively (start from null to build a new source)
+                                            // Use a separate visited set for inner source to avoid false cycle detection
+                                            innerSource = buildChainFromNested(chains, innerChain.id, null, new Set(), `inner_${chain.innerSourceId}`);
+                                        }
+                                    }
+                                    
+                                    // If no inner source, use noise as default
+                                    if (!innerSource) {
+                                        innerSource = noise(() => 0.6 + smoothAvg.energy * 0.8);
+                                    }
+                                    
+                                    const beforeCompositor = result;
+                                    
+                                    switch (chain.operation) {
+                                        case 'modulate':
+                                            result = result.modulate(innerSource, () => getParamValue('amount'));
+                                            break;
+                                        case 'modulateHue':
+                                            result = result.modulateHue(innerSource, () => getParamValue('amount'));
+                                            break;
+                                        case 'modulateScale':
+                                            result = result.modulateScale(innerSource, () => getParamValue('amount'));
+                                            break;
+                                        case 'modulateRotate':
+                                            result = result.modulateRotate(innerSource, () => getParamValue('amount'));
+                                            break;
+                                        case 'blend':
+                                            result = result.blend(innerSource, () => getParamValue('amount'));
+                                            break;
+                                        case 'add':
+                                            result = result.add(innerSource);
+                                            break;
+                                        case 'mult':
+                                            result = result.mult(innerSource);
+                                            break;
+                                        case 'diff':
+                                            result = result.diff(innerSource);
+                                            break;
+                                        case 'layer':
+                                            result = result.layer(innerSource, () => getParamValue('amount'));
+                                            break;
+                                        case 'mask':
+                                            result = result.mask(innerSource);
+                                            break;
+                                    }
+                                    
+                                    // Recursively build children of this compositor
+                                    result = buildChainFromNested(chains, chain.id, result, new Set(visited), compositorCacheKey);
+                                    
+                                    // Cache the compositor result
+                                    if (result !== beforeCompositor) {
+                                        chainCache.set(compositorCacheKey, result);
+                                    }
+                                }
+                                
+                                // Remove from visited set after processing
+                                visited.delete(chain.id);
+                            }
+                            
+                            // Cache the final result
+                            if (result && result !== baseChain) {
+                                chainCache.set(key, result);
+                            }
+                            
+                            return result;
                         }
-                        if (hydraControls.effects.invert.enabled) {
-                            camLuma = camLuma.invert(() => invertVal);
-                        }
-                        if (hydraControls.effects.kaleid.enabled) {
-                            camLuma = camLuma.kaleid(() => kaleidSides);
-                        }
-                        if (hydraControls.effects.repeat.enabled) {
-                            camLuma = camLuma.repeat(() => repeatX, () => repeatY);
-                        }
+                        
+                        // Build chain from root chains (no parent)
+                        // Use chains directly from store instead of getChainTree() to avoid creating new arrays
+                        const allChains = hydraControls.chains;
+                        const rootChains = allChains.filter(c => !c.parentId && c.enabled).sort((a, b) => a.order - b.order);
+                        
+                        let finalChain: any = null;
+                        
+                        // If chains exist, use them; otherwise use legacy system
+                        if (rootChains.length > 0) {
+                            // Separate root chains by type
+                            const rootSources = rootChains.filter(c => c.type === 'source').sort((a, b) => a.order - b.order);
+                            const rootTransforms = rootChains.filter(c => c.type === 'transform').sort((a, b) => a.order - b.order);
+                            const rootCompositors = rootChains.filter(c => c.type === 'compositor').sort((a, b) => a.order - b.order);
+                            
+                            // ALWAYS start with video as base - it should never disappear
+                            // Video is the foundation, procedural sources enhance it
+                            // Check if s0 exists, if not create a fallback
+                            if (gAny.s0) {
+                                finalChain = gAny.src(gAny.s0).color(1, 1, 1);
+                            } else {
+                                // Fallback: use solid color if video not ready
+                                console.warn('[Hydra] s0 not available, using solid fallback');
+                                finalChain = gAny.solid(0.1, 0.1, 0.1);
+                            }
+                            
+                            // Find video node (src) - it may be root or have children nested under it
+                            const videoNode = rootSources.find(s => s.operation === 'src');
+                            
+                            if (videoNode) {
+                                // Build video node with all its nested children (sources, transforms, compositors)
+                                // This handles the case where sources are nested under video
+                                finalChain = buildChainFromNested(allChains, videoNode.id, finalChain);
+                            }
+                            
+                            // Also handle any procedural sources that are still at root level (for backward compatibility)
+                            // But prefer nested sources under video node
+                            for (const source of rootSources) {
+                                if (source.operation !== 'src' && source.enabled && !videoNode) {
+                                    // Only process root-level sources if there's no video node
+                                    // (video node children are already processed above)
+                                    const sourceChain = buildChainFromNested(allChains, source.id, null);
+                                    if (sourceChain) {
+                                        console.log(`[Hydra] Adding root-level ${source.operation}() source to video`);
+                                        finalChain = finalChain.add(sourceChain);
+                                    }
+                                }
+                            }
+                            
+                            // Apply root-level transforms to video (if not already applied via video node)
+                            if (!videoNode) {
+                                for (const transform of rootTransforms) {
+                                    finalChain = applyRootChainOperation(finalChain, transform, allChains, hydraControls, meydaData);
+                                    finalChain = buildChainFromNested(allChains, transform.id, finalChain);
+                                }
+                            }
+                            
+                            // Apply compositors to the final chain (these combine the chain with inner sources)
+                            for (const compositor of rootCompositors) {
+                                finalChain = applyRootChainOperation(finalChain, compositor, allChains, hydraControls, meydaData);
+                                finalChain = buildChainFromNested(allChains, compositor.id, finalChain);
+                            }
+                            
+                            // Output the final chain
+                            if (finalChain) {
+                                finalChain.out();
+                            } else {
+                                base.out();
+                            }
+                        } else {
+                            // Legacy system: apply effects to camera
+                            let camLuma = gAny.src(gAny.s0).color(1, 1, 1);
+                            
+                            const pixelateVal = hydraControls.getEffectValue('pixelate', 'amount', meydaData);
+                            const modulateHueVal = hydraControls.getEffectValue('modulateHue', 'amount', meydaData);
+                            const invertVal = hydraControls.getEffectValue('invert', 'amount', meydaData);
+                            const kaleidSides = hydraControls.getEffectValue('kaleid', 'sides', meydaData);
+                            const repeatX = hydraControls.getEffectValue('repeat', 'x', meydaData);
+                            const repeatY = hydraControls.getEffectValue('repeat', 'y', meydaData);
+                            
+                            if (hydraControls.effects.pixelate.enabled) {
+                                camLuma = camLuma.pixelate(() => pixelateVal, () => pixelateVal);
+                            }
+                            if (hydraControls.effects.modulateHue.enabled) {
+                                camLuma = camLuma.modulateHue(noise(10), () => modulateHueVal);
+                            }
+                            if (hydraControls.effects.invert.enabled) {
+                                camLuma = camLuma.invert(() => invertVal);
+                            }
+                            if (hydraControls.effects.kaleid.enabled) {
+                                camLuma = camLuma.kaleid(() => kaleidSides);
+                            }
+                            if (hydraControls.effects.repeat.enabled) {
+                                camLuma = camLuma.repeat(() => repeatX, () => repeatY);
+                            }
+                            
                         // Always apply camera ops
                         camLuma = applyOps(camLuma, ['saturate','contrast','brightness','hue','posterize','invert','modulateHue','luma']);
-                        // Output only the video/camera branch
                         camLuma.out();
+                        }
                     } catch (err) {
                         console.warn('[Hydra] camera branch error; falling back to base', err);
                         base.out();
@@ -673,12 +1162,30 @@ export default function BabylonHydraCanvas() {
                     // await g.s0.initCam();
                    
                     // if (!isCameraOn) {
-                    hydraVideoEl = await g.s0.initVideo("https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4");
+                    // Load video - use proxy directly (more reliable for CORS)
+                    const videoUrl = "https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4";
+                    const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
+                    
+                    try {
+                        // Use proxy first (handles CORS properly)
+                        hydraVideoEl = await g.s0.initVideo(proxyUrl);
+                        console.log('[Hydra] Video loaded via proxy');
+                    } catch (proxyErr: any) {
+                        // If proxy fails, try direct (might work in some browsers)
+                        try {
+                            console.log('[Hydra] Proxy failed, trying direct load...');
+                            hydraVideoEl = await g.s0.initVideo(videoUrl);
+                            console.log('[Hydra] Video loaded directly');
+                        } catch (directErr: any) {
+                            console.error('[Hydra] Both proxy and direct load failed:', directErr);
+                            hydraVideoEl = null;
+                        }
+                    }
                     // } else {
                         // StateVideoEl = await g.s0.initCam();
                     // } 
                     videoStartMs = performance.now();
-                    hydraCamReady = true;
+                    hydraCamReady = hydraVideoEl !== null;
                     console.log('Hydra webcam started --> now for Audio');
                     try {
                         if (hydraVideoEl) {
@@ -755,13 +1262,15 @@ export default function BabylonHydraCanvas() {
 
             new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0, 1, 0), scene);
 
-            // Dynamic texture from Hydra
+            // Dynamic texture from Hydra - ensure it matches canvas size exactly
             const dynamicTexture = new BABYLON.DynamicTexture(
                 'hydraTex',
                 { width: hydraCanvas.width, height: hydraCanvas.height },
                 scene,
                 false
             );
+            // Ensure texture size matches canvas initially
+            dynamicTexture.scaleTo(hydraCanvas.width, hydraCanvas.height);
             const hydraMat = new BABYLON.StandardMaterial('hydraMat', scene);
             hydraMat.diffuseTexture = dynamicTexture;
             hydraMat.backFaceCulling = false;
@@ -1052,20 +1561,47 @@ export default function BabylonHydraCanvas() {
             // ------------------------------
             let lastHudUpdate = 0;
             let frameCount = 0;
+            let lastRenderTime = 0;
+            const RENDER_THROTTLE_MS = 16; // ~60fps max to reduce CPU usage
+            
             engine.runRenderLoop(() => {
+                const now = performance.now();
+                if (now - lastRenderTime < RENDER_THROTTLE_MS) {
+                    return; // Skip frame if too soon to prevent excessive CPU usage
+                }
+                lastRenderTime = now;
+                
                 const ctx = dynamicTexture.getContext();
                 if (hydraCanvasRef.current && ctx) {
-                    // Clear the texture context before drawing to prevent artifacts
+                    const canvasWidth = hydraCanvasRef.current.width;
+                    const canvasHeight = hydraCanvasRef.current.height;
                     const texSize = dynamicTexture.getSize();
-                    ctx.clearRect(0, 0, texSize.width, texSize.height);
-                    // Draw the current Hydra canvas frame
+                    
+                    // Ensure texture size matches canvas size exactly (only check/resize when needed)
+                    if (texSize.width !== canvasWidth || texSize.height !== canvasHeight) {
+                        dynamicTexture.scaleTo(canvasWidth, canvasHeight);
+                        // Get updated size after scaling
+                        const newTexSize = dynamicTexture.getSize();
+                        // Clear with the new size
+                        ctx.clearRect(0, 0, newTexSize.width, newTexSize.height);
+                    } else {
+                        // Clear the entire texture context before drawing to prevent artifacts
+                        ctx.clearRect(0, 0, texSize.width, texSize.height);
+                    }
+                    
+                    // Draw the current Hydra canvas frame directly (no scaling needed if sizes match)
+                    const finalTexSize = dynamicTexture.getSize();
+                    if (finalTexSize.width === canvasWidth && finalTexSize.height === canvasHeight) {
+                        // Direct copy when sizes match exactly
+                        ctx.drawImage(hydraCanvasRef.current, 0, 0);
+                    } else {
+                        // Scale if sizes don't match
                     ctx.drawImage(
                         hydraCanvasRef.current,
-                        0,
-                        0,
-                        texSize.width,
-                        texSize.height
-                    );
+                            0, 0, canvasWidth, canvasHeight,
+                            0, 0, finalTexSize.width, finalTexSize.height
+                        );
+                    }
                     dynamicTexture.update();
                     // Debug: log a frame update every 2 seconds
                     if (typeof window !== 'undefined') {
@@ -1123,6 +1659,8 @@ export default function BabylonHydraCanvas() {
                 window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
                 try { unsubscribeHydraControls(); } catch {}
+                // Clear cache to prevent memory leaks
+                chainCache.clear();
                 try { engine.dispose(); } catch {}
             };
         })();
