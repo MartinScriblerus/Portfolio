@@ -23,7 +23,10 @@ export default class MeydaAudioWorkletNode extends BaseWorkletNode {
     if (!context || !context.audioWorklet || typeof globalThis.AudioWorkletNode === 'undefined') {
       throw new Error('AudioWorklet not available; create this node only in the browser after a user gesture (HTTPS).');
     }
-    super(context, options.processorName || 'meyda-audio-processor', options);
+    // Extract processorName from options and remove it before passing to super
+    const processorName = options.processorName || 'meyda-audio-processor';
+    const { processorName: _, ...workletOptions } = options;
+    super(context, processorName, workletOptions);
     this.data = [];
     this.port.onmessage = (e) => {
       this.data.push(e.data);

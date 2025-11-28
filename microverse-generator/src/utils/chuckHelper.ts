@@ -1100,7 +1100,7 @@ export const getChuckCode = (
 
         if (now >= startTimeMeasureLoop + step) {
             
-            <<< "TICK:", fastestTickCounter >>>; 
+            <<< "TICK: ", fastestTickCounter >>>; 
 
             spork ~ updateAudioMixerLevels();
        

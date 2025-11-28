@@ -9,7 +9,8 @@ import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import dynamic from 'next/dynamic';
 import EffectDropdown from '../EffectsDropdown';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Box, Select, Button } from '@mui/material';
+import { Box, Select, Button, Typography } from '@mui/material';
+import { OBERHEIM_TEAL, HERITAGE_GOLD } from '../../constants';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
@@ -32,6 +33,12 @@ import { useKnobModel } from './useKnobModel';
 import { useFileUploads } from './useFileUploads';
 import { useOldMonolithStore } from '../../store/useOldMonolithStore';
 import { useBeatGridStore } from '../../store/useBeatGridStore';
+import STKManagerDropdown from './OldStkManagerDropdown';
+import AudioMixer from './OldAudioMixer';
+import FXRouting from './OldFXRouting';
+import useAudioAnalysisAndMIDI from './useAudioAnalysisAndMIDI';
+// import Streamgraph from '../VizxHelpers/Steamgraph'; // Temporarily disabled - data format mismatch
+// import BrushChart from '../VizxHelpers/BrushChart'; // Available if needed
 import { Chuck } from 'webchuck';
 
   
@@ -99,41 +106,98 @@ type RightDrawerProps = {
   clickedFileRef: any;
   globalChuckRef: any;
   setDetectedBpm: (bpm: number | null) => void;
+  selectedDeviceId: string;
+  updateAudioInputDevice: (deviceId: string) => void;
+  deviceOptions: MediaDeviceInfo[];
+  showAudioInDropdown: boolean;
+  updateSelectedAudioInSetting: (deviceId: string) => void;
+  chuckHook: any;
 };
 
 // Editing Mode Toggle Component - Fixed to prevent re-renders
-const EditingModeToggle = React.memo(() => {
-  const isEditing = useBeatGridStore((s) => s.isEditing);
-  const setIsEditing = useBeatGridStore((s) => s.setIsEditing);
+// const EditingModeToggle = React.memo(() => {
+//   const isEditing = useBeatGridStore((s) => s.isEditing);
+//   const setIsEditing = useBeatGridStore((s) => s.setIsEditing);
   
-  return (
-    <Box sx={{ padding: '8px', borderTop: '1px solid #333', borderBottom: '1px solid #333' }}>
-      <button
-        onClick={() => setIsEditing(!isEditing)}
-        style={{
-          width: '100%',
-          padding: '10px',
-          background: isEditing ? 'rgba(98, 245, 255, 0.3)' : 'rgba(40, 40, 40, 0.8)',
-          border: `2px solid ${isEditing ? '#62f5ff' : '#666'}`,
-          borderRadius: '6px',
-          color: '#e0e0e0',
-          cursor: 'pointer',
-          fontSize: '14px',
-          fontWeight: 'bold',
-          transition: 'all 0.2s',
-        }}
-      >
-        {isEditing ? '✓ Editing Mode ON' : '✗ Editing Mode OFF'}
-      </button>
-    </Box>
-  );
-});
-EditingModeToggle.displayName = 'EditingModeToggle';
+//   return (
+//     <Box sx={{ padding: '8px', borderTop: '1px solid #333', borderBottom: '1px solid #333' }}>
+//       <button
+//         onClick={() => setIsEditing(!isEditing)}
+//         style={{
+//           width: '100%',
+//           padding: '10px',
+//           background: isEditing ? 'rgba(98, 245, 255, 0.3)' : 'rgba(40, 40, 40, 0.8)',
+//           border: `2px solid ${isEditing ? '#62f5ff' : '#666'}`,
+//           borderRadius: '6px',
+//           color: '#e0e0e0',
+//           cursor: 'pointer',
+//           fontSize: '14px',
+//           fontWeight: 'bold',
+//           transition: 'all 0.2s',
+//         }}
+//       >
+//         {isEditing ? '✓ Editing Mode ON' : '✗ Editing Mode OFF'}
+//       </button>
+//     </Box>
+//   );
+// });
+// EditingModeToggle.displayName = 'EditingModeToggle';
 
 function RightDrawer(props: RightDrawerProps) {
   const [tab, setTab] = useState<'grid' | 'mixer' | 'fx'>('grid');
   const [open, setOpen] = useState(true);
   const latestTimeDomainRef = useRef<Float32Array | null>(null);
+  
+  // Extract device-related props
+  const {
+    selectedDeviceId,
+    updateAudioInputDevice,
+    deviceOptions,
+    showAudioInDropdown,
+    updateSelectedAudioInSetting,
+    chuckHook,
+    globalChuckRef
+  } = props;
+  
+  // Use globalChuckRef for EffectDropdown (imported chuckRef is module-level, use prop instead)
+  const chuckRefForEffect = globalChuckRef;
+  
+  // Get Meyda audio analysis data for visualizations
+  const chuckHookRefForMeyda = useRef(chuckHook);
+  useEffect(() => {
+    chuckHookRefForMeyda.current = chuckHook;
+  }, [chuckHook]);
+  const { meydaData } = useAudioAnalysisAndMIDI(chuckHookRefForMeyda as any, [chuckHook]);
+  
+  // Get clickedBegin from store
+  const clickedBegin = useOldMonolithStore(s => s.clickedBegin);
+  
+  // Get other needed values from store or props
+  const universalSourcesCurrent = props.universalSources || {};
+  const [expandedMixerSource, setExpandedMixerSource] = useState('');
+  
+  // Stub functions for mixer controls (these should ideally be passed as props or use store)
+  const handleUpdateVolumes = (_: string, __: number) => {};
+  const handleUpdatePans = (_: string, __: number) => {};
+  const handleToggleMutes = (_: string) => {};
+  const handleToggleSolos = (_: string) => {};
+  
+  // FX tab related variables and functions
+  const fxRadioValue = props.fxRadioValue || 'osc1';
+  const [stkValues, setStkValues] = useState<any[]>([]);
+  const updateStkKnobs = () => {}; // Stub function - should be implemented or passed as prop
+  const [clickFXChain, setClickFXChain] = useState('');
+  const handleClickName = () => {};
+  const updateFXInputRadio = () => {};
+  const handleUpdateCheckedFXList = () => {};
+  const handleCheckedFXToShow = () => {};
+  const [checkedEffectsListHook, setCheckedEffectsListHook] = useState<any[]>([]);
+  const universalSourcesRef = props.universalSourcesRef || { current: props.universalSources || {} };
+  const currentChain = universalSourcesRef.current?.[fxRadioValue]?.effects || {};
+  const getNewFX = () => {};
+  const playUploadedFile = () => {};
+  const lastFileUpload = useRef(null);
+  const updateFileUploads = () => {};
 
   // Debug: Log when drawer mounts/updates - REMOVED masterPatternsHashHook from deps to prevent loops
   useEffect(() => {
@@ -244,24 +308,26 @@ function RightDrawer(props: RightDrawerProps) {
               zIndex: 99999,
             }} onClick={() => { setOpen(true); setTab('fx'); }} aria-pressed={tab === 'fx'}>FX</Button>
           </Box>
-          <Box sx={{ maxHeight: '200px', overflowY: 'auto' }}>
+          <Box sx={{ maxHeight: '200px', overflowY: 'auto'}}>
             <TimingControls />
           </Box>
           {/* isEditing Toggle - Fixed to use hook properly */}
-          <EditingModeToggle />
+          {/* <EditingModeToggle /> */}
           {/* <div style={{ marginTop: 8 }}> */}
-           {props.fxRadioValue === "sample" && <WaveformCanvas
+           {/* {props.fxRadioValue === "sample" &&  */}
+           <WaveformCanvas
               getSamples={() => latestTimeDomainRef.current}
               height={56}
               color="#62f5ff"
-            />}
+            />
+            {/* } */}
           {/* </div> */}
         </header>
 
       <main style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {tab === 'grid' && (
           <div style={{ padding: 4, zIndex: 999999, minHeight: '100%' }}>
-            <Box sx={{ mt: 2, minHeight: 400, border: '1px solid #333', backgroundColor: 'rgba(0,0,0,0.3)' }}>
+            <Box sx={{ mt: 2, marginTop: 0, minHeight: 400, border: '1px solid #333', backgroundColor: 'rgba(0,0,0,0.3)' }}>
               <BeatGridPanel
                 bpm={bpm}
                 beatsPerMeasure={derivedBeatsPerMeasure}
@@ -345,8 +411,260 @@ function RightDrawer(props: RightDrawerProps) {
             </div>
           </div>
         )}
-        {tab === 'mixer' && <div style={{ padding: 12 }}>Mixer content…</div>}
-        {tab === 'fx' && <div style={{ padding: 12 }}>FX content…</div>}
+        {tab === 'mixer' && (
+          <div style={{ padding: 12 }}>
+            {/* Device Selector */}
+            <Box className='select-device-id-wrapper' sx={{ marginBottom: '16px' }}>
+              <Select
+                className='select-device-id-dropdown'
+                value={selectedDeviceId}
+                onChange={(e: any) => updateAudioInputDevice(e.target.value)}
+                native
+                sx={{ 
+                  cursor: 'pointer',
+                  width: '100%',
+                }}
+                disabled={!chuckHook}
+              >
+                <option value="">Select Audio Input Device</option>
+                {deviceOptions.map(device => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Device ${device.deviceId}`}
+                  </option>
+                ))}
+              </Select>
+            </Box>
+
+            {/* Audio In Effect Dropdown */}
+            <Box
+              id='effect-dropdown-container'
+              sx={{
+                pointerEvents: showAudioInDropdown ? 'auto' : 'none',
+                opacity: showAudioInDropdown ? 1 : 0.5,
+                marginBottom: '16px',
+              }}
+            >
+              <EffectDropdown
+                chuckRef={chuckRefForEffect}
+                updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
+                showAudioInDropdown={showAudioInDropdown}
+              />
+            </Box>
+
+            {/* Meyda Visualizations */}
+            {meydaData && typeof meydaData === 'object' && (
+              <Box sx={{ marginBottom: '16px', backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px', borderRadius: '4px' }}>
+                <Typography variant="h6" sx={{ color: OBERHEIM_TEAL, mb: 1, fontSize: '14px' }}>
+                  Audio Analysis
+                </Typography>
+                
+                {/* Spectral Analysis - Streamgraph */}
+                {/* Temporarily disabled - Streamgraph expects different data format */}
+                {/* {meydaData.amplitudeSpectrum && Array.isArray(meydaData.amplitudeSpectrum) && meydaData.amplitudeSpectrum.length > 0 && (
+                  <Box sx={{ marginBottom: '16px' }}>
+                    <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)', display: 'block', mb: 1 }}>
+                      Amplitude Spectrum
+                    </Typography>
+                    <Streamgraph
+                      width={400}
+                      height={150}
+                      meydaData={meydaData.amplitudeSpectrum}
+                      animate={true}
+                    />
+                  </Box>
+                )} */}
+                
+                {/* Simple Amplitude Spectrum Bar Chart */}
+                {meydaData.amplitudeSpectrum && Array.isArray(meydaData.amplitudeSpectrum) && meydaData.amplitudeSpectrum.length > 0 && (
+                  <Box sx={{ marginBottom: '16px' }}>
+                    <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)', display: 'block', mb: 1 }}>
+                      Amplitude Spectrum
+                    </Typography>
+                    <Box sx={{ 
+                      display: 'flex', 
+                      alignItems: 'flex-end', 
+                      height: '100px', 
+                      gap: '1px',
+                      backgroundColor: 'rgba(0,0,0,0.3)',
+                      padding: '4px',
+                      borderRadius: '2px'
+                    }}>
+                      {meydaData.amplitudeSpectrum.slice(0, 100).map((amp: number, i: number) => (
+                        <Box
+                          key={i}
+                          sx={{
+                            flex: 1,
+                            height: `${Math.min(100, Math.max(1, (amp * 1000)))}%`,
+                            background: `linear-gradient(to top, ${OBERHEIM_TEAL}, ${HERITAGE_GOLD})`,
+                            minHeight: '1px',
+                            transition: 'height 0.1s ease-out'
+                          }}
+                          title={`Freq bin ${i}: ${amp.toFixed(4)}`}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+
+                {/* MFCC Visualization */}
+                {meydaData.mfcc && Array.isArray(meydaData.mfcc) && meydaData.mfcc.length > 0 && (
+                  <Box sx={{ marginBottom: '16px' }}>
+                    <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)', display: 'block', mb: 1 }}>
+                      MFCC (Mel-Frequency Cepstral Coefficients)
+                    </Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(13, 1fr)', gap: 0.5, height: '60px' }}>
+                      {meydaData.mfcc.slice(0, 13).map((v: number, i: number) => (
+                        <Box 
+                          key={i} 
+                          sx={{ 
+                            height: '100%', 
+                            background: `linear-gradient(to top, ${OBERHEIM_TEAL} ${Math.min(100, Math.max(0, (v + 50) * 2))}%, transparent ${Math.min(100, Math.max(0, (v + 50) * 2))}%)`,
+                            border: `1px solid ${OBERHEIM_TEAL}`,
+                            borderRadius: '2px'
+                          }} 
+                          title={`MFCC${i+1}: ${v.toFixed(2)}`} 
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+
+                {/* Chroma Visualization */}
+                {meydaData.chroma && Array.isArray(meydaData.chroma) && meydaData.chroma.length > 0 && (
+                  <Box sx={{ marginBottom: '16px' }}>
+                    <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)', display: 'block', mb: 1 }}>
+                      Chroma (Pitch Class)
+                    </Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 0.5, height: '40px' }}>
+                      {meydaData.chroma.slice(0, 12).map((v: number, i: number) => {
+                        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                        return (
+                          <Box 
+                            key={i} 
+                            sx={{ 
+                              height: '100%', 
+                              background: `linear-gradient(to top, ${HERITAGE_GOLD} ${Math.min(100, Math.max(0, v * 100))}%, transparent ${Math.min(100, Math.max(0, v * 100))}%)`,
+                              border: `1px solid ${HERITAGE_GOLD}`,
+                              borderRadius: '2px',
+                              display: 'flex',
+                              alignItems: 'flex-end',
+                              justifyContent: 'center',
+                              paddingBottom: '2px'
+                            }} 
+                            title={`${noteNames[i]}: ${v.toFixed(3)}`}
+                          >
+                            <Typography variant="caption" sx={{ fontSize: '8px', color: 'rgba(245,245,245,0.9)' }}>
+                              {noteNames[i]}
+                            </Typography>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  </Box>
+                )}
+
+                {/* Real-time Metrics */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 2 }}>
+                  <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                    {typeof meydaData.rms === 'number' && (
+                      <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)' }}>
+                        RMS: {(meydaData.rms * 100).toFixed(1)}%
+                      </Typography>
+                    )}
+                    {typeof meydaData.spectralCentroid === 'number' && (
+                      <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)' }}>
+                        Centroid: {Math.round(meydaData.spectralCentroid)} Hz
+                      </Typography>
+                    )}
+                    {typeof meydaData.spectralRolloff === 'number' && (
+                      <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)' }}>
+                        Rolloff: {Math.round(meydaData.spectralRolloff)} Hz
+                      </Typography>
+                    )}
+                    {typeof meydaData.zcr === 'number' && (
+                      <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)' }}>
+                        ZCR: {meydaData.zcr.toFixed(3)}
+                      </Typography>
+                    )}
+                    {typeof meydaData.energy === 'number' && (
+                      <Typography variant="caption" sx={{ color: 'rgba(245,245,245,0.78)' }}>
+                        Energy: {meydaData.energy.toFixed(3)}
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
+              </Box>
+            )}
+
+            {/* Audio Mixer */}
+            {clickedBegin && chuckHook && (
+              <Box sx={{ position: 'relative', width: '100%' }}>
+                <AudioMixer
+                  universalSources={universalSourcesCurrent}
+                  handleUpdateVolumes={handleUpdateVolumes}
+                  handleUpdatePans={handleUpdatePans}
+                  handleToggleMutes={handleToggleMutes}
+                  handleToggleSolos={handleToggleSolos}
+                  expandedMixerSource={expandedMixerSource}
+                  setExpandedMixerSource={setExpandedMixerSource}
+                />
+              </Box>
+            )}
+          </div>
+        )}
+        {tab === 'fx' && (
+          <div style={{ padding: 12 }}>
+            {/* STK Manager */}
+            <Box sx={{ padding: '8px', backgroundColor: 'rgba(28,28,28,0.78)', marginBottom: '16px' }}>
+              <STKManagerDropdown 
+                updateStkKnobs={updateStkKnobs} 
+                stkValues={stkValues} 
+                setStkValues={setStkValues} 
+              />
+            </Box>
+
+            {/* FX Routing (General Effects) */}
+            <Box sx={{ position: 'relative', color: 'rgba(255,255,255,0.78)', marginBottom: '16px' }}>
+              <FXRouting
+                key={`fx_${fxRadioValue}` + fxRadioValue}
+                fxData={universalSourcesRef?.current?.[fxRadioValue]?.effects || {}}
+                width={440}
+                height={440}
+                updateCheckedFXList={handleUpdateCheckedFXList}
+                fxGroupsArrayList={[]}
+                checkedFXList={[]}
+                fxFX={[]}
+                handleClickName={handleClickName}
+                setClickFXChain={setClickFXChain}
+                clickFXChain={clickFXChain}
+                updateFXInputRadio={updateFXInputRadio}
+                fxRadioValue={fxRadioValue}
+                setStkValues={setStkValues}
+                stkValues={stkValues}
+                currentScreen={'synth'}
+                playUploadedFile={playUploadedFile}
+                lastFileUpload={lastFileUpload.current}
+                updateFileUploads={updateFileUploads}
+                handleCheckedFXToShow={handleCheckedFXToShow}
+                checkedEffectsListHook={checkedEffectsListHook}
+                setCheckedEffectsListHook={setCheckedEffectsListHook}
+              />
+            </Box>
+
+            {/* Pedalboard */}
+            <Box sx={{ marginTop: '16px' }}>
+              <ReactDiagramsPedalboard
+                universalSources={universalSourcesRef}
+                currentChain={currentChain}
+                sourceName={fxRadioValue}
+                width={440}
+                height={200}
+                handleCheckedEffectsToShow={handleCheckedFXToShow}
+                getNewFX={getNewFX}
+              />
+            </Box>
+          </div>
+        )}
       </main>
     </aside>
     </>
@@ -376,6 +694,14 @@ export default function OldParentMonolith(
     showAudioInDropdown,
     updateSelectedAudioInSetting 
   } = props;
+  // Get Meyda audio analysis data - only if chuckHook is available
+  const chuckHookRef = useRef(chuckHook);
+  useEffect(() => {
+    chuckHookRef.current = chuckHook;
+  }, [chuckHook]);
+  
+  const { meydaData } = useAudioAnalysisAndMIDI(chuckHookRef as any, [chuckHook]);
+  
   // App state (safe defaults)
   const clickedBegin = useOldMonolithStore(s => s.clickedBegin);
   const setClickedBegin = useOldMonolithStore(s => s.setClickedBegin);
@@ -594,7 +920,8 @@ export default function OldParentMonolith(
   const handleNoteLengthUpdate = (_e: any, _cellData: any, _newVal: any) => {};
   const handleNoteVelocityUpdate = (_e: any, _cellData: any) => {};
   const [currentSelectedCell] = useState({ x: 0, y: 0 });
-  const [octaveMax] = useState(8);
+  // Original range restored - MIDI 0-127 allows wider range but keeping original working values
+  const [octaveMax] = useState(4);
   const [octaveMin] = useState(1);
   const clickedFileRef = useRef<string | null>(null);
   const getMeydaData = async (_ab: ArrayBuffer) => ({});
@@ -635,6 +962,11 @@ export default function OldParentMonolith(
         </>
       )}
 
+{/* STK Manager moved to FX tab in RightDrawer */}
+      {/* <Box sx={{ padding: '8px', backgroundColor: 'rgba(28,28,28,0.78)' }}>
+        <STKManagerDropdown updateStkKnobs={updateStkKnobs} stkValues={stkValues} setStkValues={setStkValues} />
+      </Box> */}
+
       {/* Right Column */}
       <Box sx={{ 
         position: 'fixed', 
@@ -648,7 +980,8 @@ export default function OldParentMonolith(
         borderLeft: '1px solid rgba(255,255,255,0.1)',
         pointerEvents: 'auto'
       }}>
-        <Box sx={{ padding: '8px' }}>
+        {/* Device Selector and Audio In EffectDropdown moved to Mixer tab in RightDrawer */}
+        {/* <Box sx={{ padding: '8px' }}>
           <Box className='select-device-id-wrapper' sx={{ marginBottom: '16px' }}>
 
                 <Select
@@ -684,8 +1017,9 @@ export default function OldParentMonolith(
                     showAudioInDropdown={showAudioInDropdown}
                 />
             </Box>
-        </Box>
-        <OldLeftColumn
+        </Box> */}
+        {/* FXRouting moved to FX tab in RightDrawer */}
+        {/* <OldLeftColumn
           onUpload={onUpload} 
           onSubmit={onSubmit}
           chuckHook={chuckHook}
@@ -718,7 +1052,7 @@ export default function OldParentMonolith(
           handleCheckedFXToShow={handleCheckedFXToShow}
           checkedEffectsListHook={checkedEffectsListHook}
           setCheckedEffectsListHook={setCheckedEffectsListHook}
-        />
+        /> */}
       </Box>
 
       {/* Middle/Knobs (pointer transparent) */}
@@ -730,7 +1064,7 @@ export default function OldParentMonolith(
 
       </Box>
 
-      {/* Pedalboard Preview */}
+      {/* Pedalboard moved to FX tab in RightDrawer */}
       {/* <Box sx={{ position: 'absolute', right: 16, top: 64 }}>
         <ReactDiagramsPedalboard
           universalSources={universalSourcesRef}
@@ -816,6 +1150,12 @@ export default function OldParentMonolith(
         currentPatternCount={currentPatternCount}
         clickHeatmapCell={clickHeatmapCell}
         handleLatestSamples={handleLatestSamples}
+        selectedDeviceId={selectedDeviceId}
+        updateAudioInputDevice={updateAudioInputDevice}
+        deviceOptions={deviceOptions}
+        showAudioInDropdown={showAudioInDropdown}
+        updateSelectedAudioInSetting={updateSelectedAudioInSetting}
+        chuckHook={chuckHook}
         handleLatestNotes={handleLatestNotes}
         mTFreqs={mTFreqs}
         mTMidiNums={mTMidiNums}

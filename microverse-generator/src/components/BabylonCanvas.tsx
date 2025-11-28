@@ -60,8 +60,8 @@ export default function BabylonHydraCanvas() {
         midi: [],
         notes: [],
         freqs: [],
-        octaveMin: '1',
-        octaveMax: '4',
+        octaveMin: '0',  // Original range restored
+        octaveMax: '4',  // Original range restored (MIDI 0-127 allows up to octave 9, but keeping original working range)
         chord: 'Major Triad',
     });
     const [mTScaleLength, setMTScaleLength] = useState<number>(0);
@@ -73,6 +73,7 @@ export default function BabylonHydraCanvas() {
     const stepsPerOctave = useMicrotonalStore(s => s.stepsPerOctave);
     const useSharps = useMicrotonalStore(s => s.useSharps);
     const showFraction = useMicrotonalStore(s => s.showFraction);
+    const selectedScale = useMicrotonalStore(s => s.selected);
     const category = useLayoutStore(s => s.category);
     const layoutIndex = useLayoutStore(s => s.layoutIndex);
     const cycleLayout = useLayoutStore(s => s.cycleLayout);
@@ -131,6 +132,7 @@ export default function BabylonHydraCanvas() {
         }
         spawn(position: BABYLON.Vector3) {
             if (this.cubes.length >= this.maxCubes) return null;
+            // Create box - Babylon.js will auto-create 12 subMeshes (2 per face)
             const mesh = BABYLON.MeshBuilder.CreateBox(`rgbCube${this.cubes.length}`, { size: 1 }, this.scene);
             mesh.position = position.clone();
             this.applyFaceMaterials(mesh);
@@ -149,6 +151,12 @@ export default function BabylonHydraCanvas() {
             faceDefs.forEach(([letter, col], idx) => {
                 const m = new BABYLON.StandardMaterial(`mat-${c.name}-${idx}`, this.scene);
                 m.backFaceCulling = true;
+                // Ensure material is fully opaque and visible
+                m.alpha = 1;
+                m.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+                m.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                m.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Add some diffuse so faces are visible
+                
                 if (idx === 2 && hydraCanvasRef.current) {
                     // Show the Hydra/video canvas on one face (e.g., face 2)
                     m.emissiveTexture = new BABYLON.DynamicTexture(
@@ -161,20 +169,120 @@ export default function BabylonHydraCanvas() {
                     const letterDT = makeLetterOverlay(this.scene, letter, col);
                     m.emissiveTexture = letterDT;
                 }
-                m.emissiveColor = new BABYLON.Color3(1,1,1);
-                m.alpha = 1;
+                
+                // Ensure texture is set and material is ready
+                if (!m.emissiveTexture) {
+                    console.warn(`[CubeManager] Face ${idx} material missing emissiveTexture for ${c.name}`);
+                }
+                
                 mats.push(m);
             });
             const mm = new BABYLON.MultiMaterial(`${c.name}-mm`, this.scene);
             mm.subMaterials.push(...mats);
             c.material = mm;
-            // Ensure all 6 faces have materials - create subMeshes for each face
-            const vC = c.getTotalVertices();
-            c.subMeshes = [];
-            // Create subMeshes for all 6 faces (2 triangles per face = 12 triangles total, 6 vertices per face)
-            for (let i = 0; i < 6; i++) {
-                const subMesh = new BABYLON.SubMesh(i, 0, vC, i * 6, 6, c);
-                c.subMeshes.push(subMesh);
+            
+            // Babylon.js CreateBox auto-creates 12 subMeshes when MultiMaterial is set
+            // We need to work with these 12 subMeshes and map pairs to our 6 materials
+            // After setting material, Babylon.js will have created 12 subMeshes
+            // Map them: subMeshes 0,1 -> material 0; 2,3 -> 1; 4,5 -> 2; 6,7 -> 3; 8,9 -> 4; 10,11 -> 5
+            
+            // Wait a frame for Babylon.js to finish creating subMeshes, then map them
+            // Actually, let's just map whatever subMeshes exist
+            if (c.subMeshes.length === 12) {
+                // Perfect - map pairs to materials
+                for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
+                    const subMesh1 = c.subMeshes[faceIndex * 2];
+                    const subMesh2 = c.subMeshes[faceIndex * 2 + 1];
+                    if (subMesh1) subMesh1.materialIndex = faceIndex;
+                    if (subMesh2) subMesh2.materialIndex = faceIndex;
+                }
+            } else if (c.subMeshes.length > 0) {
+                // Unexpected count - try to map what we have
+                console.warn(`[CubeManager] ${c.name}: Unexpected subMesh count ${c.subMeshes.length}, attempting to map`);
+                // Clear and create 6 manually
+                c.subMeshes = [];
+                const indices = c.getIndices();
+                const verticesCount = c.getTotalVertices();
+                for (let i = 0; i < 6; i++) {
+                    const indexStart = i * 6;
+                    const subMesh = new BABYLON.SubMesh(i, 0, verticesCount || 24, indexStart, 6, c);
+                    c.subMeshes.push(subMesh);
+                }
+            } else {
+                // No subMeshes - create 6
+                const indices = c.getIndices();
+                const verticesCount = c.getTotalVertices();
+                for (let i = 0; i < 6; i++) {
+                    const indexStart = i * 6;
+                    const subMesh = new BABYLON.SubMesh(i, 0, verticesCount || 24, indexStart, 6, c);
+                    c.subMeshes.push(subMesh);
+                }
+            }
+            
+            c.refreshBoundingInfo();
+            
+            // Ensure all materials are opaque and visible
+            mats.forEach((mat, idx) => {
+                mat.alpha = 1;
+                mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+                mat.backFaceCulling = true;
+                // Ensure emissive color is set so faces are visible
+                if (!mat.emissiveColor) {
+                    mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                }
+                // Ensure diffuse color is set
+                if (!mat.diffuseColor) {
+                    mat.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+                }
+                // Debug: log if any material is missing texture
+                if (!mat.emissiveTexture) {
+                    console.warn(`[CubeManager] Material ${idx} for ${c.name} is missing emissiveTexture`);
+                }
+            });
+            
+            // Force refresh to ensure subMeshes are properly applied
+            c.refreshBoundingInfo();
+            
+            // Final verification and fix: ensure we have exactly 6 subMeshes
+            // Babylon.js may auto-create 12 subMeshes, so we force it to 6
+            if (c.subMeshes.length !== 6) {
+                console.warn(`[CubeManager] ${c.name}: ${c.subMeshes.length} subMeshes but expected 6 - force fixing`);
+                // Force clear and recreate exactly 6
+                c.subMeshes = [];
+                const vCount = c.getTotalVertices();
+                const idx = c.getIndices();
+                for (let i = 0; i < 6; i++) {
+                    const indexStart = i * 6;
+                    const subMesh = new BABYLON.SubMesh(i, 0, vCount || 24, indexStart, 6, c);
+                    c.subMeshes.push(subMesh);
+                }
+                c.refreshBoundingInfo();
+            }
+            
+            // Verify final state
+            // Note: Having 12 subMeshes with 6 materials is actually OK - pairs share materials
+            // But we prefer 6 subMeshes for simplicity
+            if (c.subMeshes.length === 12 && mm.subMaterials.length === 6) {
+                // This is fine - 12 subMeshes mapped to 6 materials (2 per face)
+                // Verify mapping is correct
+                let mappingOk = true;
+                for (let i = 0; i < 6; i++) {
+                    const sm1 = c.subMeshes[i * 2];
+                    const sm2 = c.subMeshes[i * 2 + 1];
+                    if (!sm1 || !sm2 || sm1.materialIndex !== i || sm2.materialIndex !== i) {
+                        mappingOk = false;
+                        break;
+                    }
+                }
+                if (!mappingOk) {
+                    console.warn(`[CubeManager] ${c.name}: 12 subMeshes but mapping incorrect - fixing`);
+                    for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
+                        if (c.subMeshes[faceIndex * 2]) c.subMeshes[faceIndex * 2].materialIndex = faceIndex;
+                        if (c.subMeshes[faceIndex * 2 + 1]) c.subMeshes[faceIndex * 2 + 1].materialIndex = faceIndex;
+                    }
+                }
+            } else if (c.subMeshes.length !== 6 || mm.subMaterials.length !== 6) {
+                console.error(`[CubeManager] ${c.name}: Final state mismatch - ${c.subMeshes.length} subMeshes, ${mm.subMaterials.length} materials`);
             }
         }
         getAverageChannels() {
@@ -1813,8 +1921,9 @@ export default function BabylonHydraCanvas() {
             // Frequency from Tune
             try { (tune as any).mode.output = 'frequency'; } catch {}
             const k = ((absStep % Nloc) + Nloc) % Nloc;
-            const oClamp = Math.max(-8, Math.min(8, octave));
-            const f = Number(tune.note(k, oClamp));
+            // Use octave as-is (don't clamp - this was breaking pitch calculations)
+            // MIDI range validation happens at MIDI conversion, not here
+            const f = Number(tune.note(k, octave));
             const hasF = Number.isFinite(f);
             const fTxt = hasF ? `${f.toFixed(2)} Hz` : undefined;
             // Always show both letters and degree number
@@ -1828,6 +1937,8 @@ export default function BabylonHydraCanvas() {
         try {
             const k = ((absStep % Nloc) + Nloc) % Nloc;
             const o = Math.floor(absStep / Nloc);
+            // Use octave as-is (don't clamp - this was breaking pitch calculations)
+            // MIDI range validation happens at MIDI conversion, not here
             try { (tune as any).mode.output = 'frequency'; } catch {}
             const f = Number(tune?.note?.(k, o));
             console.log('Hex click', { absStep, degree: k, octave: o, freq: f });
@@ -1879,19 +1990,54 @@ export default function BabylonHydraCanvas() {
         } catch (e) { console.log('Hex click err', e); }
     }, [Nloc, tune, useSharps]);
 
+    // Watch for scale selection changes from MicrotonesSearch and update tune
+    useEffect(() => {
+        if (selectedScale && selectedScale.name && tune) {
+            currentMicroTonalScale(selectedScale);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedScale]);
+
     // Center the scrollable hex area on first render and when dimensions/layout change
     useEffect(() => {
         const el = hexScrollRef.current;
         if (!el) return;
-        // next tick to let children layout
-        const id = requestAnimationFrame(() => {
+        
+        let rafId1: number | null = null;
+        let rafId2: number | null = null;
+        
+        // Wait for content to be laid out before centering
+        const centerScroll = () => {
             try {
-                el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2);
-                el.scrollTop = Math.max(0, (el.scrollHeight - el.clientHeight) / 2);
+                // Always show the hex keyboard
                 setHexVisible(true);
-            } catch {}
+                
+                // Ensure we have valid dimensions before centering
+                if (el.scrollWidth > el.clientWidth && el.scrollHeight > el.clientHeight) {
+                    const centerX = (el.scrollWidth - el.clientWidth) / 2;
+                    const centerY = (el.scrollHeight - el.clientHeight) / 2;
+                    el.scrollLeft = Math.max(0, centerX);
+                    el.scrollTop = Math.max(0, centerY);
+                } else {
+                    // If dimensions aren't ready yet, try again on next frame
+                    rafId2 = requestAnimationFrame(centerScroll);
+                }
+            } catch (e) {
+                console.warn('[HexKeyboard] Error centering scroll:', e);
+                // Still show even if centering fails
+                setHexVisible(true);
+            }
+        };
+        
+        // Use double RAF to ensure layout is complete
+        rafId1 = requestAnimationFrame(() => {
+            rafId2 = requestAnimationFrame(centerScroll);
         });
-        return () => cancelAnimationFrame(id);
+        
+        return () => {
+            if (rafId1 !== null) cancelAnimationFrame(rafId1);
+            if (rafId2 !== null) cancelAnimationFrame(rafId2);
+        };
     }, [chosenOverlayName, mTScaleLength, stepsPerOctave]);
 
     // Cleanup preview audio context on unmount
@@ -1966,8 +2112,10 @@ export default function BabylonHydraCanvas() {
                     position: 'absolute',
                     left: 0,
                     bottom: 0,
-                    width: 800, //512
-                    height: 450, //512
+                    // width: 350 * (16/9), //512
+                    // height: 350, //512
+                    width: 400,
+                    height: 400 * (9/16),
                     zIndex: 5,
                     overflow: 'auto',
                     pointerEvents: 'none',
@@ -1987,8 +2135,9 @@ export default function BabylonHydraCanvas() {
                     transition: 'opacity 240ms ease' }}>
                     {(() => {
                         const N = mTScaleLength || stepsPerOctave || 12;
-                        const oMin = Number(selectedChordScaleOctaveRange.current?.octaveMin ?? -3);
-                        const oMax = Number(selectedChordScaleOctaveRange.current?.octaveMax ?? 5);
+                        // Use original range, but ensure it doesn't exceed MIDI 0-127 limits
+                        const oMin = Number(selectedChordScaleOctaveRange.current?.octaveMin ?? 1);
+                        const oMax = Number(selectedChordScaleOctaveRange.current?.octaveMax ?? 4);
                         const overlayNotes = Math.max(1, (oMax - oMin + 1) * N);
                         const keyboardMode = useOldMonolithStore.getState().keyboardMode;
                         return (
@@ -2010,14 +2159,14 @@ export default function BabylonHydraCanvas() {
                     })()}
                 </div>
             </div>
-            <Box sx={{ display: 'flex', flexDirection: 'row', gap: '8px', position: 'absolute', top: '104px', left: '8px', zIndex: 9999 }}>
+            {/* <Box sx={{ display: 'flex', flexDirection: 'row', gap: '8px', position: 'absolute', top: '104px', left: '8px', zIndex: 9999 }}>
                 <MicrotonesWrapper 
                     tune={tune}
                     currentMicroTonalScale={currentMicroTonalScale}
                     updateMicroTonalScale={updateMicroTonalScale}
                 />
         
-            </Box>
+            </Box> */}
             {telemetry?.past30 && <Title text={titleText} />}
             <canvas
                 ref={canvasRef}

@@ -96,7 +96,8 @@ export default function OldKeyboardPanel(props: Props) {
   const showFraction = useMicrotonalStore(s => s.showFraction);
 
 
-  console.log('keyboardMode???? ', keyboardMode);
+  // Debug: keyboard mode
+  // console.log('keyboardMode???? ', keyboardMode);
   const getTunedHz = useCallback((midiNote: number, defaultHz?: number) => {
     const a4 = 440;
     // If cents provided, use them as the temperament for one octave cycle
@@ -198,7 +199,7 @@ export default function OldKeyboardPanel(props: Props) {
         left: '0px',
         padding: '8px',
         pointerEvents: keysVisible ? 'none' : 'auto',
-        zIndex: 99999,
+        zIndex: 100001,
       }}
     >
       {/* Keyboard mode toggle + microtonal controls */}
@@ -247,7 +248,8 @@ export default function OldKeyboardPanel(props: Props) {
         handleMingusChordsData={handleMingusChordsData}
       />
 
-      {clickedBegin && chuckHook && (
+      {/* AudioMixer moved to Mixer tab in RightDrawer */}
+      {/* {clickedBegin && chuckHook && (
         <AudioMixer
           universalSources={universalSourcesCurrent}
           handleUpdateVolumes={handleUpdateVolumes}
@@ -257,7 +259,7 @@ export default function OldKeyboardPanel(props: Props) {
           expandedMixerSource={expandedMixerSource}
           setExpandedMixerSource={setExpandedMixerSource}
         />
-      )}
+      )} */}
 
       {/* Render only one keyboard at a time, or none */}
       {keyboardMode === 'piano' ? (

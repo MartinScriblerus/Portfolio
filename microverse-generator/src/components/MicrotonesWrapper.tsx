@@ -18,7 +18,7 @@ const MicrotonesWrapper = (
         <div style={{
             display: "flex",
             flexDirection: "column",
-            width: "100%",
+            // width: "100%",
         }}>
             <CustomAriaLive 
                 tune={tune} 

@@ -312,17 +312,75 @@ export default function ChuckSetup() {
                 const source = (globalAudioCtx.current as AudioContext).createMediaStreamSource(stream);
                 if (chuckRef.current) {
                     source.connect(chuckRef.current);
-                    chuckRef.current.chuckPrint = (message: string) => {
-                        // if (message.includes("TICK: ")) {
-                        //     const parsedMsg = message.split(":")[1].trim();
-
-                        //     // setChuckMsg(parsedMsg); 
-                        //     console.log(parsedMsg);
-                        // }
-                        if (message.includes("CHUCK_UP_TO_DATE: ")) {
-                            // const parsedMsg = message.split(":")[1].trim();
+                    chuckRef.current.chuckPrint = async (message: string) => {
+                        if (message.includes("TICK")) {
+                            const parsedMsg = message.split(":")[1].trim();
 
                             // setChuckMsg(parsedMsg); 
+                            console.log("msg is... --> ", parsedMsg);
+                        }
+                        
+                        if (message.includes("CHUCK_UP_TO_DATE")) {
+                            // Chuck is ready - synchronize beatgrid data here
+                            const beatGridData = useBeatGridStore.getState().masterPatternsHashHook;
+                            const gridVersion = useBeatGridStore.getState().gridVersion;
+                            
+                            // ============================================================
+                            // LOG: Beatgrid data ready for passing to Chuck
+                            // ============================================================
+                            console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
+                            console.log('Grid Version:', gridVersion);
+                            console.log('Beatgrid Structure:', beatGridData);
+                            
+                            // Log a flattened view of the data structure
+                            const flattenedCells: any[] = [];
+                            Object.keys(beatGridData).forEach(yKey => {
+                                Object.keys(beatGridData[yKey]).forEach(xKey => {
+                                    const cell = beatGridData[yKey][xKey];
+                                    flattenedCells.push({
+                                        position: { x: Number(xKey), y: Number(yKey) },
+                                        subdivisions: cell?.subdivisions,
+                                        velocity: cell?.velocity,
+                                        length: cell?.length,
+                                        fileNums: cell?.fileNums,
+                                        noteName: cell?.noteName,
+                                        volume: cell?.volume,
+                                    });
+                                });
+                            });
+                            console.log('Flattened Cells:', flattenedCells);
+                            console.log('Total Cells:', flattenedCells.length);
+                            console.groupEnd();
+                            
+                            // ============================================================
+                            // SYNCHRONIZE BEATGRID DATA TO CHUCK
+                            // Using existing associative arrays pattern (like audioInSettingsHelperHash)
+                            // ============================================================
+                            if (chuckRef.current) {
+                                // Option: Use existing arrays (chuckNotes, chuckVelocities, midiNotesArray, etc.)
+                                // OR create a new associative array for beatgrid data
+                                // 
+                                // Example using existing pattern with setAssociativeFloatArrayValue:
+                                // await chuckRef.current.setInt('gridVersion', gridVersion);
+                                // 
+                                // Object.keys(beatGridData).forEach(yKey => {
+                                //     Object.keys(beatGridData[yKey]).forEach(xKey => {
+                                //         const cell = beatGridData[yKey][xKey];
+                                //         const cellKey = `beatgrid_${yKey}_${xKey}`;
+                                //         
+                                //         // Use setAssociativeIntArrayValue for integers
+                                //         await chuckRef.current.setAssociativeIntArrayValue('beatGridData', `${cellKey}_subdivisions`, cell?.subdivisions || 1);
+                                //         
+                                //         // Use setAssociativeFloatArrayValue for floats
+                                //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_velocity`, cell?.velocity || 0);
+                                //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_length`, Array.isArray(cell?.length) ? cell.length[0] : cell?.length || 1);
+                                //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_volume`, Array.isArray(cell?.volume) ? cell.volume[0] : cell?.volume || 0);
+                                //     });
+                                // });
+                                // 
+                                // await chuckRef.current.broadcastEvent('beatgridUpdated');
+                            }
+
                             runNextEventDFSHelper();
                         }
                     }
@@ -378,6 +436,8 @@ export default function ChuckSetup() {
 
     const chuckInstructions = `
 
+
+        <<< "TICK: ", now >>>;
         ${filesArray} @=> string files[];
 
 
@@ -443,6 +503,8 @@ export default function ChuckSetup() {
         global int activeEffect;
         2 => activeEffect;
         -1 => int lastEffect; 
+
+        
 
 
         ${getGrainStretchClass(
@@ -551,18 +613,25 @@ export default function ChuckSetup() {
             //     Machine.resetShredID();
             // }
 
-            <<< "ACTIVE_EFFECT: ", activeEffect >>>;
-            <<< "SHREDCOUNT: ", Machine.numShreds() >>>;
+            // <<< "ACTIVE_EFFECT: ", activeEffect >>>;
+            // <<< "SHREDCOUNT: ", Machine.numShreds() >>>;
+            // <<< "TICK: ", now >>>;
 
 
+            
             (BeatMsInts)::ms => now;
             // 1000::ms => now;
-            <<< "CHUCK_UP_TO_DATE: ", BeatMsInts >>>;
+            <<< "CHUCK_UP_TO_DATE: ", BeatMsInts, stepCount, beatCount >>>;
             stepCount++;
 
             if (stepCount % stepsPerBeat == 0) {
                 beatCount++;
-                0 => stepCount;    
+                0 => stepCount;
+                <<< "SHREDCOUNT: ", Machine.numShreds() >>>;
+                <<< "TICK: ", now >>>;    
+                <<< "BEATCOUNT: ", beatCount >>>;
+            } else {
+                <<< "TICK IN THE ELSE " >>>;
             }
 
 
@@ -605,7 +674,8 @@ export default function ChuckSetup() {
     };
 
     useEffect(() => {
-        console.log("SEL DEVICE ID ", selectedDeviceId);
+        // Debug: selected device ID
+        // console.log("SEL DEVICE ID ", selectedDeviceId);
         (async () => {
             chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
             chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
@@ -615,7 +685,8 @@ export default function ChuckSetup() {
     const updateAudioInputDevice = async (e: any) => {
         const id = e?.target?.value;
         if (!id) return;
-        console.log("UPDATING AUDIO INPUT DEVICE TO ID: ", id);
+        // Debug: updating audio input device
+        // console.log("UPDATING AUDIO INPUT DEVICE TO ID: ", id);
         setSelectedDeviceId(id);
         // if (ready) chuckMicButton(id);
     };
@@ -651,7 +722,8 @@ export default function ChuckSetup() {
         (async () => {
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
-                console.log("yo devices: ", devices);
+                // Debug: enumerated devices
+                // console.log("yo devices: ", devices);
                 const audioInputs = devices.filter(d => d.kind === 'audioinput');
                 setDeviceOptions(audioInputs);
                 if (!selectedDeviceId && audioInputs.length > 0) {
@@ -670,29 +742,8 @@ export default function ChuckSetup() {
 
     let sampleRate: number = 0;
     
-    // Listen for near-global beatgrid updates at the audio layer.
-    // This is the ideal place to immediately set ChucK globals (setInt, etc.) without racing renders.
-    useEffect(() => {
-        const handler = (e: Event) => {
-            const detail = (e as CustomEvent)?.detail;
-            try {
-                console.log("BOP!", { detail });
-                // If needed later: wire to ChucK immediately (example)
-                // NOTE (future effects/STK): when rhythm structure should update audio,
-                // set values here atomically to avoid UI races.
-                // if (chuckRef.current) {
-                //     // Example: await chuckRef.current.setInt('gridVersion', Number(detail?.gridVersion || 0));
-                //     // Example: await chuckRef.current.broadcastEvent('fxUpdate');
-                // }
-            } catch {
-                console.log("BOP!");
-            }
-        };
-        try { window.addEventListener('beatgrid:updated', handler as EventListener); } catch {}
-        return () => {
-            try { window.removeEventListener('beatgrid:updated', handler as EventListener); } catch {}
-        };
-    }, []);
+    // Note: Beatgrid synchronization happens in chuckPrint handler when "CHUCK_UP_TO_DATE" is received
+    // This ensures TypeScript and ChucK are synchronized when Chuck is actually ready
     
     // On load: ensure a first pass happens so the graph/cache is built before first ChucK run.
     // We emit a synthetic event if no update has been fired yet.
@@ -750,13 +801,88 @@ export default function ChuckSetup() {
 
         setInitializing(true);
 
+        // Set up chuckPrint handler for synchronization (same as in chuckMicButton)
+        if (chuckRef.current) {
+            chuckRef.current.chuckPrint = async (message: string) => {
+                if (message.includes("TICK")) {
+                    const parsedMsg = message.split(":")[1].trim();
+                    console.log("msg is... --> ", parsedMsg);
+                }
+                
+                if (message.includes("CHUCK_UP_TO_DATE")) {
+                    // Chuck is ready - synchronize beatgrid data here
+                    const beatGridData = useBeatGridStore.getState().masterPatternsHashHook;
+                    const gridVersion = useBeatGridStore.getState().gridVersion;
+                    
+                    // ============================================================
+                    // LOG: Beatgrid data ready for passing to Chuck
+                    // ============================================================
+                    console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
+                    console.log('Grid Version:', gridVersion);
+                    console.log('Beatgrid Structure:', beatGridData);
+                    
+                    // Log a flattened view of the data structure
+                    const flattenedCells: any[] = [];
+                    Object.keys(beatGridData).forEach(yKey => {
+                        Object.keys(beatGridData[yKey]).forEach(xKey => {
+                            const cell = beatGridData[yKey][xKey];
+                            flattenedCells.push({
+                                position: { x: Number(xKey), y: Number(yKey) },
+                                subdivisions: cell?.subdivisions,
+                                velocity: cell?.velocity,
+                                length: cell?.length,
+                                fileNums: cell?.fileNums,
+                                noteName: cell?.noteName,
+                                volume: cell?.volume,
+                            });
+                        });
+                    });
+                    console.log('Flattened Cells:', flattenedCells);
+                    console.log('Total Cells:', flattenedCells.length);
+                    console.groupEnd();
+                    
+                    // ============================================================
+                    // SYNCHRONIZE BEATGRID DATA TO CHUCK
+                    // Using existing associative arrays pattern (like audioInSettingsHelperHash)
+                    // ============================================================
+                    if (chuckRef.current) {
+                        // Option: Use existing arrays (chuckNotes, chuckVelocities, midiNotesArray, etc.)
+                        // OR create a new associative array for beatgrid data
+                        // 
+                        // Example using existing pattern with setAssociativeFloatArrayValue:
+                        // await chuckRef.current.setInt('gridVersion', gridVersion);
+                        // 
+                        // Object.keys(beatGridData).forEach(yKey => {
+                        //     Object.keys(beatGridData[yKey]).forEach(xKey => {
+                        //         const cell = beatGridData[yKey][xKey];
+                        //         const cellKey = `beatgrid_${yKey}_${xKey}`;
+                        //         
+                        //         // Use setAssociativeIntArrayValue for integers
+                        //         await chuckRef.current.setAssociativeIntArrayValue('beatGridData', `${cellKey}_subdivisions`, cell?.subdivisions || 1);
+                        //         
+                        //         // Use setAssociativeFloatArrayValue for floats
+                        //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_velocity`, cell?.velocity || 0);
+                        //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_length`, Array.isArray(cell?.length) ? cell.length[0] : cell?.length || 1);
+                        //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_volume`, Array.isArray(cell?.volume) ? cell.volume[0] : cell?.volume || 0);
+                        //     });
+                        // });
+                        // 
+                        // await chuckRef.current.broadcastEvent('beatgridUpdated');
+                    }
+
+                    runNextEventDFSHelper();
+                }
+            };
+        }
+
         console.log("SANITY CHUCK DEBUG: ", chuckInstructions);
         chuckRef.current && filesArray?.length > 0 && await chuckRef.current.runCode(chuckInstructions);
         isRunning.current = true;
 
     }
 
-    console.log("What are device options? ", deviceOptions);
+    // Debug: device options available
+    // console.log("What are device options? ", deviceOptions);
 
     return (
         <>

@@ -10,7 +10,7 @@ const setupAudioAnalysisWorklet = async (audioContext, setMeydaData) => {
       await audioContext.audioWorklet.addModule('/audio/meydaAudioProcessor.js');
       processorRegisteredAnalysis = true;  // Mark as registered  
     
-      const meydaNode = await new AudioAnalysisNode(audioContext, 'meyda-audio-processor');
+      const meydaNode = new AudioAnalysisNode(audioContext, { processorName: 'meyda-audio-processor' });
       console.log('meydaNode: ', meydaNode);
       meydaNode.port.onmessage = (event) => {
         console.log("Received Meyda event:", event.data);

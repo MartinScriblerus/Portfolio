@@ -20,6 +20,7 @@
     "@types/node": "^16.18.126",
     "@types/react": "^19.2.1",
     "@types/react-dom": "^19.2.0",
+    "@visx/visx": "^3.12.0",
     "@wavesurfer/react": "^1.0.11",
     "@xenova/transformers": "^2.17.2",
     "axios": "^1.13.1",

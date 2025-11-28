@@ -17,6 +17,7 @@ import { useOldMonolithStore } from "../../store/useOldMonolithStore";
 import { useBeatGridStore } from "../../store/useBeatGridStore";
 import { formatNoteNameWithOctave } from "../../utils/utils";
 import type { MingusSelections } from "./MingusPopup";
+import MicrotonesWrapper from "../MicrotonesWrapper";
 
 type BeatGridPanelProps = {
     bpm: number;
@@ -238,10 +239,11 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     }
 
     const MARGIN = { top: 10, right: 30, bottom: 30, left: 30 };
-    type CellData = { note: number[] | any, notesHz: number[] | any, velocity: number[] | any, subdivisions: number; length: number[] | any; on: boolean; xVal?: number | null; yVal?: number | null; zVal?: number | null; };
+    type CellData = { note: number[] | any, notesHz: number[] | any, velocity: number[] | any, volume: number[] | any, subdivisions: number; length: number[] | any; on: boolean; xVal?: number | null; yVal?: number | null; zVal?: number | null; };
 
     const [showPatternEditorPopup, setShowPatternEditorPopup] = useState<boolean>(false);
     const [noteVelocityValue, setNoteVelocityValue] = useState<number>(0.5);
+    const [noteVolumeValue, setNoteVolumeValue] = useState<number>(0.5);
     const currentXVal = useRef<number>(0);
     const currentYVal = useRef<number>(0);
     const cellData = useRef<CellData[]>(null);
@@ -260,7 +262,30 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     const setSampleFileName = useOldMonolithStore((s) => s.setSampleFileName);
     
     // Get uploaded file names for sample selector
-    const uploadedNames = filesToProcess ? (Array.isArray(filesToProcess) ? filesToProcess.map((f: any) => f?.name || f).filter(Boolean) : []) : [];
+    // filesToProcess items have structure: { data, filename, processed }
+    // Extract filename strings to avoid rendering objects
+    const uploadedNames = filesToProcess ? (Array.isArray(filesToProcess) ? filesToProcess.map((f: any) => {
+        // Try filename first (from useFileUploads), then name (from File API), then string
+        const name = f?.filename || f?.name || (typeof f === 'string' ? f : null);
+        return name;
+    }).filter(Boolean) : []) : [];
+    
+    // Preloaded server files (DR-55Snare, Conga, etc.) - these are always available
+    const preloadedFiles = [
+        "DR-55Snare.wav",
+        "DR-55Kick.wav", 
+        "DR-55Hat.wav",
+        "DR-55Pop.wav",
+        "Conga.wav"
+    ];
+    
+    // Combine preloaded files with uploaded files for the dropdown
+    const allAvailableFiles = Array.from(new Set([...preloadedFiles, ...uploadedNames]));
+    
+    // Debug: log if files exist but names are empty
+    if (filesToProcess && Array.isArray(filesToProcess) && filesToProcess.length > 0 && uploadedNames.length === 0) {
+        console.warn('[BeatGrid] filesToProcess has items but uploadedNames is empty:', filesToProcess.map((f: any) => ({ hasFilename: !!f?.filename, hasName: !!f?.name, type: typeof f, keys: Object.keys(f || {}) })));
+    }
     
     // local instrument label not used by Tooltip; omit extra state
     const widthSvg = 540;
@@ -311,7 +336,65 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         if (!yLabels || yLabels.length === 0 || boundsHeight <= 0) return null;
         return d3.scaleBand().domain(yLabels.map((d: any) => d.toString())).range([boundsHeight, 0]).padding(0.01);
     }, [yLabels, boundsHeight]);
-    const handleNoteVelocityUpdateLocal = (e: any, newValue: number | number[]) => { setNoteVelocityValue(newValue as number); handleNoteVelocityUpdate(e, cellData); };
+    const handleNoteVelocityUpdateLocal = (e: any, newValue: number | number[]) => { 
+        setNoteVelocityValue(newValue as number);
+        // Update velocity in cell data for currently selected cell
+        const xKey = String(currentSelectedCell.x);
+        const yKey = String(currentSelectedCell.y);
+        const cell = (masterPatternsHashHook as any)?.[yKey]?.[xKey];
+        if (cell) {
+            // Update velocity in the cell data
+            const updatedCell = { ...cell, velocity: Array.isArray(cell.velocity) ? cell.velocity.map(() => newValue as number) : newValue as number };
+            (masterPatternsHashHook as any)[yKey][xKey] = updatedCell;
+            // Trigger update
+            useBeatGridStore.getState().setMasterPatternsHashHook({ ...masterPatternsHashHook });
+        }
+        // Also call the original handler for backward compatibility
+        handleNoteVelocityUpdate(e, cellData); 
+    };
+    
+    // Handle volume updates - similar to velocity but for volume
+    const handleNoteVolumeUpdateLocal = (e: any, newValue: number | number[]) => {
+        setNoteVolumeValue(newValue as number);
+        // Update volume in cell data for currently selected cell
+        const xKey = String(currentSelectedCell.x);
+        const yKey = String(currentSelectedCell.y);
+        const cell = (masterPatternsHashHook as any)?.[yKey]?.[xKey];
+        if (cell) {
+            // Update volume in the cell data
+            const updatedCell = { ...cell, volume: Array.isArray(cell.volume) ? cell.volume.map(() => newValue as number) : [newValue as number] };
+            (masterPatternsHashHook as any)[yKey][xKey] = updatedCell;
+            // Trigger update
+            useBeatGridStore.getState().setMasterPatternsHashHook({ ...masterPatternsHashHook });
+        }
+    };
+    
+    // Sync slider values with currently selected cell
+    useEffect(() => {
+        const xKey = String(currentSelectedCell.x);
+        const yKey = String(currentSelectedCell.y);
+        const cell = (masterPatternsHashHook as any)?.[yKey]?.[xKey];
+        if (cell) {
+            // Set velocity from cell (use first value if array, or the value itself)
+            if (cell.velocity !== undefined) {
+                const velValue = Array.isArray(cell.velocity) ? (cell.velocity[0] ?? 0.5) : (typeof cell.velocity === 'number' ? cell.velocity : 0.5);
+                setNoteVelocityValue(velValue);
+            } else {
+                setNoteVelocityValue(0.5);
+            }
+            // Set volume from cell (use first value if array, or the value itself)
+            if (cell.volume !== undefined) {
+                const volValue = Array.isArray(cell.volume) ? (cell.volume[0] ?? 0.5) : (typeof cell.volume === 'number' ? cell.volume : 0.5);
+                setNoteVolumeValue(volValue);
+            } else {
+                setNoteVolumeValue(0.5);
+            }
+        } else {
+            // Reset to defaults if no cell selected
+            setNoteVelocityValue(0.5);
+            setNoteVolumeValue(0.5);
+        }
+    }, [currentSelectedCell.x, currentSelectedCell.y, masterPatternsHashHook]);
     const didSetupHeatmap = useRef<boolean>(false);
 
     // Subscribe to fxRadioValue from store to ensure reactivity - memoized to prevent re-renders
@@ -331,6 +414,23 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         // Update selected cell in store when a cell is clicked
         useBeatGridStore.getState().setCurrentSelectedCell({ x: Number(xVal), y: Number(yVal) });
         cellData.current = xVal && yVal && masterPatternsHashHook[`${Number(yVal)}`]?.length > 0 ? { xVal: Number(xVal), yVal: Number(yVal), zVal: zVal, ...masterPatternsHashHook[`${Number(yVal)}`][`${Number(xVal)}`] } as any : {};
+        
+        // Update slider values from cell data
+        const currentCell = cellData.current as any;
+        if (currentCell && currentCell.velocity !== undefined) {
+            const vel = Array.isArray(currentCell.velocity) ? currentCell.velocity[0] : currentCell.velocity;
+            setNoteVelocityValue(typeof vel === 'number' ? vel : 0.5);
+        } else {
+            setNoteVelocityValue(0.5);
+        }
+        
+        if (currentCell && currentCell.volume !== undefined) {
+            const vol = Array.isArray(currentCell.volume) ? currentCell.volume[0] : currentCell.volume;
+            setNoteVolumeValue(typeof vol === 'number' ? vol : 0.5);
+        } else {
+            setNoteVolumeValue(0.5);
+        }
+        
         setShowPatternEditorPopup(true);
     };
 
@@ -372,12 +472,12 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 style={{ pointerEvents: "none" }}
                             />
                             {masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName?.join().length > 0 && (
-                                <text x={x! + 2} y={y! + 10 + idx * 10} key={`${masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName}_text1_${d.x}_${d.y}`} fontSize={8} fill={'white'}>
+                                <text x={x! + 2} y={y! + 10 + idx * 10} key={`text1_${idx}_${d.x}_${d.y}`} fontSize={8} fill={'white'}>
                                     {masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName}
                                 </text>
                             )}
                             {masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].fileNums?.join().length > 0 && (
-                                <text x={x! + 2} y={y! + 10 + idx * 10 + yScale.bandwidth() / 3} key={`${masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName}_text2_${d.x}_${d.y}`} fontSize={8} fill={'white'}>
+                                <text x={x! + 2} y={y! + 10 + idx * 10 + yScale.bandwidth() / 3} key={`text2_${idx}_${d.x}_${d.y}`} fontSize={8} fill={'white'}>
                                     {1 / (Array.isArray(masterPatternsHashHook[`${Number(d.y)}`]?.[`${d.x}`]?.length) ? masterPatternsHashHook[`${Number(d.y)}`][`${d.x}`].length[0] || 1 : masterPatternsHashHook[`${Number(d.y)}`]?.[`${d.x}`]?.length || 1)}
                                 </text>
                             )}
@@ -397,21 +497,26 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 }
                                 fill={
                                     currentBeatCountToDisplay === Number(d.x) && currentNumerCountColToDisplay === Number(d.y) ||
-                                        currentSelectedCell.x === Number(d.x) && currentSelectedCell.y === Number(d.y)
+                                        Number(currentSelectedCell.x) === Number(d.x) && Number(currentSelectedCell.y) === Number(d.y)
                                         ? NEON_PINK
                                         : currentBeatCountToDisplay === Number(d.x)
                                             ? CORDUROY_RUST
                                             : (Number(d.y) > 0) ? OBERHEIM_TEAL : NEON_PINK
                                 }
                                 stroke={
-                                    currentSelectedCell.x === Number(d.x) && currentSelectedCell.y === Number(d.y)
-                                        ? NEON_PINK
+                                    Number(currentSelectedCell.x) === Number(d.x) && Number(currentSelectedCell.y) === Number(d.y)
+                                        ? HERITAGE_GOLD  // More recognizable gold border for selected cell
                                         : 'rgba(245,245,245,0.78)'
                                 }
                                 strokeWidth={
-                                    currentSelectedCell.x === Number(d.x) && currentSelectedCell.y === Number(d.y)
-                                        ? 3
+                                    Number(currentSelectedCell.x) === Number(d.x) && Number(currentSelectedCell.y) === Number(d.y)
+                                        ? 3  // Thicker border for selected cell
                                         : 1
+                                }
+                                strokeDasharray={
+                                    Number(currentSelectedCell.x) === Number(d.x) && Number(currentSelectedCell.y) === Number(d.y)
+                                        ? '0'  // Solid border for selected cell
+                                        : 'none'
                                 }
                                 onClick={(e: any) => {
                                     e.stopPropagation();
@@ -443,7 +548,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         placeholder?: string;
         onChange: (value: Option[]) => void;
     }> = ({ options, value, placeholder = "Select...", onChange }) => {
-        console.log('[ParameterMultiSelect] Options:', options.length, 'Value:', value.length);
+        // Debug: parameter multi-select
+        // console.log('[ParameterMultiSelect] Options:', options.length, 'Value:', value.length);
         return (
             <Autocomplete
                 multiple
@@ -452,7 +558,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                 options={options}
                 value={value}
                 onChange={(_e, v) => {
-                    console.log('[ParameterMultiSelect] onChange called with:', v);
+                    // Debug: parameter multi-select onChange
+                    // console.log('[ParameterMultiSelect] onChange called with:', v);
                     onChange(v as Option[]);
                 }}
                 getOptionLabel={(opt) => opt.label || opt.value || ''}
@@ -463,15 +570,44 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                         variant="outlined"
                         size="small"
                         placeholder={placeholder}
+                        sx={{
+                            color: 'rgba(245,245,245,0.78)',
+                            '& .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'rgba(245,245,245,0.3)',
+                            },
+                            '& .MuiInputBase-input': {
+                                color: 'rgba(245,245,245,0.78)',
+                            },
+                        }}
                         onClick={(e) => {
-                            console.log('[ParameterMultiSelect] TextField clicked');
+                            // Debug: parameter multi-select click
+                            // console.log('[ParameterMultiSelect] TextField clicked');
                             e.stopPropagation();
                         }}
                     />
                 )}
                 slotProps={{
                     popper: {
-                        style: { zIndex: 99999 },
+                        sx: {
+                            zIndex: 99999,
+                            '& .MuiAutocomplete-paper': {
+                                backgroundColor: 'rgba(28,28,28,0.95)',
+                                '& .MuiAutocomplete-listbox': {
+                                    '& .MuiAutocomplete-option': {
+                                        color: 'rgba(245,245,245,0.78)',
+                                        '&:hover': {
+                                            backgroundColor: 'rgba(255,255,255,0.1)',
+                                        },
+                                        '&[aria-selected="true"]': {
+                                            backgroundColor: 'rgba(255,255,255,0.15)',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        style: {
+                            zIndex: 99999,
+                        },
                         placement: 'bottom-start',
                         modifiers: [
                             {
@@ -482,14 +618,41 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                             },
                         ],
                     },
+                    paper: {
+                        sx: {
+                            zIndex: 99999,
+                            backgroundColor: 'rgba(28,28,28,0.95)',
+                            '& .MuiAutocomplete-listbox': {
+                                '& .MuiAutocomplete-option': {
+                                    color: 'rgba(245,245,245,0.78)',
+                                    '&:hover': {
+                                        backgroundColor: 'rgba(255,255,255,0.1)',
+                                    },
+                                    '&[aria-selected="true"]': {
+                                        backgroundColor: 'rgba(255,255,255,0.15)',
+                                    },
+                                },
+                            },
+                        },
+                        style: {
+                            zIndex: 99999,
+                        },
+                    },
                 }}
                 sx={{
                     width: '100%',
                     position: 'relative',
                     zIndex: 99999,
+                    color: 'rgba(245,245,245,0.78)',
                     '& .MuiAutocomplete-inputRoot': {
                         color: 'rgba(245,245,245,0.78)',
-                        backgroundColor: 'rgba(28,28,28,0.78)',
+                        backgroundColor: 'transparent',
+                        '& .MuiAutocomplete-input': {
+                            color: 'rgba(245,245,245,0.78)',
+                        },
+                        '& input': {
+                            color: 'rgba(245,245,245,0.78)',
+                        },
                     },
                     '& .MuiOutlinedInput-notchedOutline': {
                         borderColor: 'rgba(245,245,245,0.3)',
@@ -499,6 +662,24 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                     },
                     '& .MuiAutocomplete-popper': {
                         zIndex: '99999 !important',
+                    },
+                    '& .MuiAutocomplete-paper': {
+                        backgroundColor: 'rgba(28,28,28,0.95)',
+                        zIndex: 99999,
+                        '& .MuiAutocomplete-listbox': {
+                            '& .MuiAutocomplete-option': {
+                                color: 'rgba(245,245,245,0.78) !important',
+                                '&:hover': {
+                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                },
+                                '&[aria-selected="true"]': {
+                                    backgroundColor: 'rgba(255,255,255,0.15)',
+                                },
+                            },
+                        },
+                    },
+                    '& .MuiAutocomplete-option': {
+                        color: 'rgba(245,245,245,0.78) !important',
                     },
                 }}
             />
@@ -569,7 +750,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         const cell = masterPatternsHashHook?.[yKey]?.[xKey];
         const names = cell?.noteName ? (Array.isArray(cell.noteName) ? cell.noteName : [cell.noteName]).filter(Boolean) : [];
 
-        console.log('[notesSelected] Cell:', { x: xKey, y: yKey }, 'noteName:', names, 'notesOptions count:', notesOptions.length);
+        // Debug: notes selected
+        // console.log('[notesSelected] Cell:', { x: xKey, y: yKey }, 'noteName:', names, 'notesOptions count:', notesOptions.length);
 
         // Try to match stored note names with options (handle both "C-4" and "C4" formats)
         const matched = (names as string[]).map((name) => {
@@ -595,7 +777,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
             return found;
         }).filter(Boolean) as Option[];
 
-        console.log('[notesSelected] Matched', matched.length, 'out of', names.length, 'notes');
+        // Debug: notes matched
+        // console.log('[notesSelected] Matched', matched.length, 'out of', names.length, 'notes');
         return matched;
     }, [masterPatternsHashHook, currentXVal.current, currentYVal.current, notesOptions, gridVersion]);
 
@@ -831,8 +1014,32 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                             {showPatternEditorPopup && (
                                 <>
 
-                                    <Box key={`wrapnewvals__${currentBeatCountToDisplay}_${currentNumerCountColToDisplay}_${currentDenomCount}_${currentPatternCount}`} sx={{ display: "flex", flexDirection: "column", fontFamily: 'monospace', fontWeight: "100", textAlign: 'left', position: 'relative', zIndex: 10000, padding: '0px', overflow: 'visible' }}>
-                                        <Box style={{ fontFamily: 'monospace', fontWeight: '100', color: 'rgba(245,245,245,0.78)', paddingLeft: '8px', width: '100%', height: '100%', background: 'rgba(245,245,245,0.078)', display: 'inline-block', whiteSpace: 'nowrap', border: `1px solid rgba(0,0,0,0.78)` }}>
+                                    <Box key={`wrapnewvals__${currentBeatCountToDisplay}_${currentNumerCountColToDisplay}_${currentDenomCount}_${currentPatternCount}`} 
+                                    sx={{ 
+                                        display: "flex", 
+                                        flexDirection: "column", 
+                                        fontFamily: 'monospace', 
+                                        fontWeight: "100", 
+                                        textAlign: 'left', 
+                                        position: 'relative', 
+                                        zIndex: 10000, 
+                                        padding: '0px', 
+                                        overflow: 'visible',
+                                        marginRight: '16px', 
+                                    }}>
+                                        <Box style={{ 
+                                            fontFamily: 'monospace', 
+                                            fontWeight: '100', 
+                                            color: 'rgba(245,245,245,0.78)', 
+                                            paddingLeft: '8px', 
+                                            height: '100%', 
+                                            background: 'rgba(245,245,245,0.078)', 
+                                            display: 'inline-block', 
+                                            whiteSpace: 'nowrap', 
+                                            //background: 'red',
+                                            border: `1px solid rgba(0,0,0,0.78)` }}
+                                        >
+                                            
                                             <span style={{ marginRight: "12px" }}>Cell: {`${currentXVal.current} | ${currentYVal.current}`}</span>
                                             <Box sx={{ 
                                                 display: "inline-flex", 
@@ -841,7 +1048,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                 alignItems: "center", 
                                                 paddingTop: "8px", 
                                                 padding: "4px", 
-                                                fontSize: '16px', 
+                                                // fontSize: '16px', 
                                                 borderRadius: '5px', 
                                                 blur: "8px", 
                                                 maxHeight: "24px" 
@@ -856,7 +1063,13 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                             </Box>
                                         </Box>
                                         {/* Main Grid SVG - Always visible */}
-                                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", width: '100%', border: '1px solid rgba(0,0,0,0.78)', marginBottom: '8px' }}>
+                                        <Box sx={{ 
+                                            display: "flex", 
+                                            flexDirection: "column", 
+                                            alignItems: "center", 
+                                            width: '100%', 
+                                            border: '1px solid rgba(0,0,0,0.78)' }}
+                                        >
                                             {width && height && boundsWidth && boundsHeight && xScale && yScale && (
                                                 <svg
                                                     key={`heatmapSVG_main_${currentBeatCountToDisplay}_${currentNumerCountColToDisplay}`}
@@ -959,8 +1172,29 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                         </ButtonGroup>
                                                     </Box>
                                                     
-                                                    <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
-
+                                                    <Box sx={{ 
+                                                        display: "flex", 
+                                                        flexDirection: "column",
+                                                        gap: 1 
+                                                    }}>
+                                                        <Box sx={{
+                                                            display: 'block', 
+                                                            flexDirection: 'column', 
+                                                            gap: '8px', 
+                                                            height: '100%', 
+                                                            position: 'relative', 
+                                                            zIndex: 9999,
+                                                            justifyContent: 'stretch',
+                                                            // padding: '4px',
+                                               
+                                                            background: "green"
+                                                        }}>
+                                                            <MicrotonesWrapper 
+                                                                tune={tune}
+                                                                currentMicroTonalScale={currentMicroTonalScale}
+                                                                updateMicroTonalScale={updateMicroTonalScale}
+                                                            />
+                                                        </Box>
                                                         {/* Consolidated Note Controls: Notes, Velocity, Volume */}
                                                         <Box sx={{ display: "flex", flexDirection: "column", 
                                                             //gap: 2, 
@@ -968,30 +1202,42 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                             padding: "0px", 
                                                             // border: `1px solid ${OBERHEIM_TEAL}`, 
                                                             borderRadius: "5px"}}>
+                                                                
                                                             <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                                                                 {/* <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '12px', fontWeight: 'bold' }}>Note Controls</FormLabel> */}
 
                                                                 {/* Show Sample Input if noteBuilderFocus is "Sample" or "MIDI", otherwise show Notes Selector */}
                                                                 {/* {(noteBuilderFocus === 'Sampler' || noteBuilderFocus === 'MIDI') ? ( */}
                                                                     <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
-                                                                        <FormControlLabel
-                                                                            control={
-                                                                                <Switch 
-                                                                                    checked={sampleVoiceEnabled} 
-                                                                                    onChange={(e) => setSampleVoiceEnabled(e.target.checked)} 
-                                                                                    size="small" 
-                                                                                />
-                                                                            }
-                                                                            label="Use Sample Voice"
-                                                                            sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '12px' }}
-                                                                        />
-                                                                        <FormControl size="small" sx={{ minWidth: '100%' }} disabled={!sampleVoiceEnabled || uploadedNames.length === 0}>
+                                                                        <FormControl size="small" sx={{ minWidth: '100%' }} 
+                                                                            disabled={
+                                                                                // !sampleVoiceEnabled || 
+                                                                                uploadedNames.length === 0}
+                                                                        style={{ width: '100%' }}
+                                                                        >
                                                                             <InputLabel id="sample-file-label" sx={{ color: 'rgba(245,245,245,0.78)' }}>Sample File</InputLabel>
                                                                             <Select
                                                                                 labelId="sample-file-label"
                                                                                 label="Sample File"
                                                                                 value={sampleFileName || ''}
                                                                                 onChange={(e) => setSampleFileName(e.target.value || null)}
+                                                                                MenuProps={{
+                                                                                    sx: {
+                                                                                        zIndex: 99999,
+                                                                                    },
+                                                                                    style: {
+                                                                                        zIndex: 99999,
+                                                                                    },
+                                                                                    PaperProps: {
+                                                                                        sx: {
+                                                                                            zIndex: 99999,
+                                                                                            backgroundColor: 'rgba(28,28,28,0.95)',
+                                                                                        },
+                                                                                        style: {
+                                                                                            zIndex: 99999,
+                                                                                        },
+                                                                                    },
+                                                                                }}
                                                                                 sx={{ 
                                                                                     color: 'rgba(245,245,245,0.78)',
                                                                                     '& .MuiOutlinedInput-notchedOutline': {
@@ -999,18 +1245,20 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                                     },
                                                                                 }}
                                                                             >
-                                                                                {uploadedNames.length === 0 && (
-                                                                                    <MenuItem value="" disabled>No uploads</MenuItem>
+                                                                                {allAvailableFiles.length === 0 ? (
+                                                                                    <MenuItem sx={{ color: 'rgba(245,245,245,0.78)' }} value="" disabled>No files available</MenuItem>
+                                                                                ) : (
+                                                                                    allAvailableFiles.map((nm: string, idx: number) => (
+                                                                                        <MenuItem sx={{ color: 'rgba(245,245,245,0.78)' }} key={`${nm}_${idx}`} value={nm}>{nm}</MenuItem>
+                                                                                    ))
                                                                                 )}
-                                                                                {uploadedNames.map((nm) => (
-                                                                                    <MenuItem key={nm} value={nm}>{nm}</MenuItem>
-                                                                                ))}
+                                                                                
                                                                             </Select>
                                                                         </FormControl>
                                                                     </Box>
 
                                                                         <Box sx={{ width: "100%" }}>
-                                                                            <ParameterMultiSelect options={notesOptions} value={notesSelected} placeholder="Select notes" onChange={handleNotesChange} />
+                                                                            <ParameterMultiSelect options={notesOptions} value={notesSelected} placeholder="Select Notes" onChange={handleNotesChange} />
                                                                         </Box>
                                                                     {/* )
                                                                 )} */}
@@ -1021,10 +1269,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     <ParameterSlider label="Note Velocity" value={noteVelocityValue} min={0} max={1} step={0.01} onChange={handleNoteVelocityUpdateLocal} />
                                                                 </Box>
                                                                 <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                                                                    <ParameterSlider label="Volume" value={noteVelocityValue} min={0} max={1} step={0.01} onChange={(e, v) => {
-                                                                        // TODO: Update volume in cell data
-                                                                        console.log('[BeatGridPanel] Volume changed:', v);
-                                                                    }} />
+                                                                    <ParameterSlider label="Volume" value={noteVolumeValue} min={0} max={1} step={0.01} onChange={handleNoteVolumeUpdateLocal} />
                                                                 </Box>
                                                             </Box>
                                                             {/* Velocity/Length Sliders (existing) */}
@@ -1035,20 +1280,6 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                             )}
                                                         </Box>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-      
 
                                                         <Box sx={{ width: "100%" }}>
                                                             <MingusPopup
@@ -1064,7 +1295,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                             />
                                                         </Box>
                                                         {/* Chord/Scale Assignment Buttons */}
-                                                        <Box sx={{ display: "flex", flexDirection: "row", gap: 1, width: "100%" }}>
+                                                        <Box sx={{ display: "flex", flexDirection: "row", width: "100%" }}>
                                                             <button
                                                                 onClick={handleAssignChordToCell}
                                                                 style={{
@@ -1102,7 +1333,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                     <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
 
                                                         <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
-                                                            <Box sx={{ padding: "4px", width: "50%" }}>
+                                                            <Box sx={{ padding: "4px", width: "100%" }}>
                                                                 <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</FormLabel>
                                                                 <Slider
                                                                     value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}

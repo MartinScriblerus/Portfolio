@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import microtoneDescsData from '../microtone_descriptions.json';
 import { Box, FormControl, Input } from '@mui/material';
 import { useMicrotonalStore } from '../store/useMicrotonalStore';
+import { useLayoutStore } from '../store/useLayoutStore';
+import { useOldMonolithStore } from '../store/useOldMonolithStore';
 
 
 interface MicrotoneOption {
@@ -26,6 +28,23 @@ export default function CustomDropdown({ tune, currentMicroTonalScale, updateMic
     const dropdownRef = useRef<HTMLDivElement | null>(null);
     const selected = useMicrotonalStore(s => s.selected);
     const setScale = useMicrotonalStore(s => s.setScale);
+    
+    // Hex mode layout controls
+    const keyboardMode = useOldMonolithStore(s => s.keyboardMode);
+    const category = useLayoutStore(s => s.category);
+    const layoutIndex = useLayoutStore(s => s.layoutIndex);
+    const setCategory = useLayoutStore(s => s.setCategory);
+    const setLayoutIndex = useLayoutStore(s => s.setLayoutIndex);
+    
+    const categories: Array<{ value: 'isomorphic'|'tonnetz'; label: string }> = [
+        { value: 'isomorphic', label: 'Isomorphic' },
+        { value: 'tonnetz', label: 'Tonnetz' },
+    ];
+    const layoutOptionsByCategory: Record<'isomorphic'|'tonnetz', string[]> = {
+        isomorphic: ['Wicki-Hayden', 'Harmonic Table'],
+        tonnetz: ['Tonnetz (P5 vs M3)', 'Tonnetz (P5 vs m3)'],
+    };
+    const layoutOptions = layoutOptionsByCategory[category] ?? [];
 
     // Filter microtones based on search term
     const filteredOptions = useMemo(() => {
@@ -87,13 +106,15 @@ export default function CustomDropdown({ tune, currentMicroTonalScale, updateMic
             id="microtone-dropdown"
             sx={{
                 flexDirection: 'row',
-                width: '200px',
+                // width: '200px',
+                // width: '100%',
                 outline: 'none',
-                position: 'absolute',
+                // position: 'absolute',
                 top: '104px',
                 left: '8px',
                 zIndex: 9999,
                 paddingLeft: '8px',
+                paddingRight: '8px',
                 border: '1px solid rgba(255,255,255,0.18)',
                 background: 'royalblue',
                 // background: 'rgba(0,0,0,0.78)',
@@ -179,6 +200,67 @@ export default function CustomDropdown({ tune, currentMicroTonalScale, updateMic
                     </div>
                 )}
             </FormControl>
+            
+            {/* Hex mode category and layout dropdowns */}
+            {keyboardMode === 'hex' && (
+                <Box
+                    sx={{
+                        marginTop: '8px',
+                        padding: '8px',
+                        backgroundColor: 'rgba(28,28,28,0.78)',
+                        border: '1px solid rgba(255,255,255,0.18)',
+                        borderRadius: '4px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                    }}
+                >
+                    <Box sx={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <label style={{ opacity: 0.8, fontSize: '12px', color: 'rgba(245,245,245,0.78)', fontFamily: 'monospace' }}>Category</label>
+                        <select
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value as 'isomorphic' | 'tonnetz')}
+                            style={{
+                                background: '#111',
+                                color: '#fff',
+                                border: '1px solid #555',
+                                padding: '4px 6px',
+                                borderRadius: 4,
+                                fontSize: '12px',
+                                fontFamily: 'monospace',
+                                cursor: 'pointer',
+                                flex: 1,
+                            }}
+                        >
+                            {categories.map(c => (
+                                <option key={c.value} value={c.value}>{c.label}</option>
+                            ))}
+                        </select>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <label style={{ opacity: 0.8, fontSize: '12px', color: 'rgba(245,245,245,0.78)', fontFamily: 'monospace' }}>Layout</label>
+                        <select
+                            value={layoutIndex}
+                            onChange={(e) => setLayoutIndex(parseInt(e.target.value, 10))}
+                            style={{
+                                background: '#111',
+                                color: '#fff',
+                                border: '1px solid #555',
+                                padding: '4px 6px',
+                                borderRadius: 4,
+                                fontSize: '12px',
+                                fontFamily: 'monospace',
+                                cursor: 'pointer',
+                                flex: 1,
+                            }}
+                        >
+                            {layoutOptions.map((name, i) => (
+                                <option key={name} value={i}>{name}</option>
+                            ))}
+                        </select>
+                    </Box>
+                </Box>
+            )}
         </Box>
     );
 }

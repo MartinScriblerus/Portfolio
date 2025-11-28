@@ -80,9 +80,9 @@ export default function OldLeftColumn(props: OldLeftColumnProps) {
           beatsDenominator={beatsDenominator}
         />
       )} */}
-      <Box sx={{ padding: '8px', backgroundColor: 'rgba(28,28,28,0.78)' }}>
+      {/* <Box sx={{ padding: '8px', backgroundColor: 'rgba(28,28,28,0.78)' }}>
         <STKManagerDropdown updateStkKnobs={updateStkKnobs} stkValues={stkValues} setStkValues={setStkValues} />
-      </Box>
+      </Box> */}
       <Box sx={{ position: 'relative', color: 'rgba(255,255,255,0.78)' }}>
           <FXRouting
             key={fXChainKey + fxRadioValue}

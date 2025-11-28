@@ -40,107 +40,110 @@ export default function TimingControls() {
   };
 
   return (
-    <Box
-      sx={{
-        width: '100%',
-        // padding: 2,
-        backgroundColor: 'rgba(10,10,14,0.95)',
-        borderRadius: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        // gap: 2,
-      }}
-    >
+    <Box sx={{  display: 'flex', flexDirection: 'row' }}>
       <Button
         startIcon={<FileUploadIcon />}
         onClick={handleFileUpload}
         sx={{
           backgroundColor: '#3f51b5',
           color: '#fff',
+          minWidth: '120px',
           '&:hover': {
             backgroundColor: '#303f9f',
           },
         }}
       >
-        Upload Audio
+        File
       </Button>
-
-      <Box>
-        <Typography
-          sx={{
-            color: '#e0e0e0',
-            fontSize: 14,
-            mb: 1,
-          }}
-        >
-          BPM: {bpm}
-        </Typography>
-        <input
-          type="range"
-          min="60"
-          max="200"
-          step="1"
-          value={bpm}
-          onChange={(e) => {
-            const newBpm = Number(e.target.value);
-            setBpm(newBpm);
-          }}
-          style={{ width: '100%' }}
-        />
-      </Box>
-
-      <Box>
-        <Typography
-          sx={{
-            color: '#e0e0e0',
-            fontSize: 14,
-            mb: 1,
-          }}
-        >
-          Time Signature: {timeSig.num}/{timeSig.den}
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <input
-            type="number"
-            min="1"
-            max="32"
-            value={timeSig.num}
-            onChange={(e) => setTimeSig({ num: Number(e.target.value), den: timeSig.den })}
-            style={{
-              width: 60,
-              padding: '4px',
-              background: '#1a1a1a',
+      <Box
+        sx={{
+          width: '100%',
+          // padding: 2,
+          backgroundColor: 'rgba(10,10,14,0.95)',
+          borderRadius: 1,
+          display: 'flex',
+          flexDirection: 'row',
+          gap: 2,
+        }}
+      >
+        <Box>
+          <Typography
+            sx={{
               color: '#e0e0e0',
-              border: '1px solid #444',
-              borderRadius: 4,
+              fontSize: 14,
+              mb: 1,
             }}
-          />
-          <span style={{ color: '#e0e0e0' }}>/</span>
+          >
+            BPM: {bpm}
+          </Typography>
           <input
-            type="number"
-            min="1"
-            max="32"
-            value={timeSig.den}
+            type="range"
+            min="60"
+            max="200"
+            step="1"
+            value={bpm}
             onChange={(e) => {
-              const den = Number(e.target.value);
-              if ([1, 2, 4, 8, 16, 32].includes(den)) {
-                setTimeSig({ num: timeSig.num, den });
-              }
+              const newBpm = Number(e.target.value);
+              setBpm(newBpm);
             }}
-            style={{
-              width: 60,
-              padding: '4px',
-              background: '#1a1a1a',
-              color: '#e0e0e0',
-              border: '1px solid #444',
-              borderRadius: 4,
-            }}
+            style={{ width: '100%' }}
           />
+        </Box>
+
+        <Box>
+          <Typography
+            sx={{
+              color: '#e0e0e0',
+              fontSize: 14,
+              mb: 1,
+            }}
+          >
+            Time Signature: {timeSig.num}/{timeSig.den}
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <input
+              type="number"
+              min="1"
+              max="32"
+              value={timeSig.num}
+              onChange={(e) => setTimeSig({ num: Number(e.target.value), den: timeSig.den })}
+              style={{
+                width: 40,
+                padding: '4px',
+                background: '#1a1a1a',
+                color: '#e0e0e0',
+                border: '1px solid #444',
+                borderRadius: 4,
+              }}
+            />
+            <span style={{ color: '#e0e0e0' }}>/</span>
+            <input
+              type="number"
+              min="1"
+              max="32"
+              value={timeSig.den}
+              onChange={(e) => {
+                const den = Number(e.target.value);
+                if ([1, 2, 4, 8, 16, 32].includes(den)) {
+                  setTimeSig({ num: timeSig.num, den });
+                }
+              }}
+              style={{
+                width: 40,
+                padding: '4px',
+                background: '#1a1a1a',
+                color: '#e0e0e0',
+                border: '1px solid #444',
+                borderRadius: 4,
+              }}
+            />
+          </Box>
         </Box>
       </Box>
     </Box>
   );
 }
+
 
 
 

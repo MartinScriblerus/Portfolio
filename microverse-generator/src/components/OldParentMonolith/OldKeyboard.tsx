@@ -268,12 +268,20 @@ const Keyboard = ({
         <div
             id="keyboardWrapper"
             key="keyboardWrapper"
+            style={{
+                position: 'relative',
+                zIndex: 99999,
+            }}
         >
             {chuckHook && Object.values(chuckHook).length && keysVisible && (
                 <Box
                     id="keyboardBox"
+                    sx={{
+                        position: 'relative',
+                        zIndex: 99999,
+                    }}
                 >
-                    <ul id="keyboard" key={'keyboard'}>
+                    <ul id="keyboard" key={'keyboard'} style={{ position: 'relative', zIndex: 99999 }}>
                         {keysToDisplay &&
                             keysToDisplay.length > 0 &&
                             keysToDisplay.map((data: any, idx: number) => {
