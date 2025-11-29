@@ -116,7 +116,7 @@ export default function CustomDropdown({ tune, currentMicroTonalScale, updateMic
                 paddingLeft: '8px',
                 paddingRight: '8px',
                 border: '1px solid rgba(255,255,255,0.18)',
-                background: 'royalblue',
+                background: '#3f51b5',
                 // background: 'rgba(0,0,0,0.78)',
             }}
         >

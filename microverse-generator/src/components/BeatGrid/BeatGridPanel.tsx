@@ -1,9 +1,9 @@
 import { Box, FormLabel, Slider, Autocomplete, TextField, FormControl, InputLabel, Select, MenuItem, FormControlLabel, Switch, Button, ButtonGroup } from "@mui/material";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { cache, useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
 import { Tooltip } from "./BeatGridTooltip";
 import SubdivisionsPicker from "./SubdivisionsPicker";
-import { CORDUROY_RUST, HERITAGE_GOLD, OBERHEIM_TEAL, NEON_PINK } from "../../constants";
+import { CORDUROY_RUST, HERITAGE_GOLD, OBERHEIM_TEAL, NEON_PINK, BLUE_CHANNEL } from "../../constants";
 import MingusPopup from "./MingusPopup";
 import GenericRadioButtons from "./GenericRadioButtons";
 import NoteBuilderToggle from "./NoteBuilderToggle";
@@ -190,9 +190,15 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     const [height, setHeight] = useState<number | undefined>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    const [currCellString, setCurrCellString] = useState<string>("0_1_0"); // Default cell string for (x=0, y=1, subdiv=0)
+
     // Build rhythm DFS/next-event cache on load and on grid updates
     // Ensures cache is constructed before first audio run
-    const { cacheRef, version } = useRhythmCache();
+    // Pass filesToProcess and tune for enhanced cache data (frequencies, file names)
+    const { cacheRef, version } = useRhythmCache({
+        filesToProcess,
+        tune,
+    });
 
     // Safely capture and expose rhythm events when cache updates
     useEffect(() => {
@@ -204,7 +210,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
 
         // Cache is ready - events are available at cache.events
         // This is a linear/flattened array sorted by time (t)
-        // Each event has: { y, x, t, length, velocity, fileIdxs?, noteNames? }
+        // Each event has: { y, x, subdivision, subdivisions, t, length, velocity, volume?, fileIdxs?, fileNames?, noteNames?, noteFrequencies?, midiIn?, midiOut? }
         console.log(`[RhythmCache] Cache updated (v${cache.version}), ${cache.events.length} events ready`);
         
         // TODO: Schedule audio events here or dispatch to audio system
@@ -260,6 +266,9 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     const setSampleVoiceEnabled = useOldMonolithStore((s) => s.setSampleVoiceEnabled);
     const sampleFileName = useOldMonolithStore((s) => s.sampleFileName);
     const setSampleFileName = useOldMonolithStore((s) => s.setSampleFileName);
+
+    const filesForThisCell = useRef<number[] | string[] | 'none'>('none');
+    const notesForThisCell = useRef<string[] | 'none'>('none');
     
     // Get uploaded file names for sample selector
     // filesToProcess items have structure: { data, filename, processed }
@@ -401,12 +410,18 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     const fxRadioValueFromStore = useOldMonolithStore((s) => s.fxRadioValue);
     const fxRadioValue = useMemo(() => fxRadioValueProp || fxRadioValueFromStore, [fxRadioValueProp, fxRadioValueFromStore]);
     const triggerEditPattern = async (e: any, num: any) => {
+
+        console.log("WTF E ", e, "NUM!: ", num)
+
         const string: any = e && Object.values(e.target)[1] || null;
         const isFill = e && string && string.id && string.id.includes("fill");
         const vals = !e || (string.length < 1) || (string && !string.id) ? ["1", "1"] : !isFill ? string.id.split("_") : string.id.replace("fill_", "").split("_");
         const xVal = Number(num);
         const yVal = Number(vals[1]) || 1;
-        clickHeatmapCell(xVal, yVal);
+        const subDiv = Number(vals[2]) || 0;
+        const clickedCell = clickHeatmapCell(xVal, yVal, subDiv);
+        console.log("CLICKED CELL!!: ", clickedCell);
+        setCurrCellString(`${xVal}_${yVal}_${subDiv}`);
         const zVal = vals[2] || null;
         xVal && yVal && resetCellSubdivisionsCounter(xVal, yVal);
         currentXVal.current = Number(xVal);
@@ -436,6 +451,36 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
 
     useEffect(() => { if (!currentXVal.current && !didSetupHeatmap.current) { triggerEditPattern(null, 0); didSetupHeatmap.current = true; } }, []);
 
+    useEffect(() => {
+        const theX = currCellString.split('_')[0];
+        const theY = currCellString.split('_')[1];
+        const subDiv = currCellString.split('_')[2] || '0';
+        const cache = cacheRef.current;
+        
+        // Find the specific event matching x, y, and subdivision
+        const event = cache.events.find(
+            (evt) => evt.x === Number(theX) && evt.y === Number(theY) && evt.subdivision === Number(subDiv)
+        );
+        
+        if (event) {
+            // Use fileNames if available, otherwise fall back to fileIdxs
+            filesForThisCell.current = event.fileNames || event.fileIdxs || [];
+            notesForThisCell.current = event.noteNames || [];
+        } else {
+            // Fallback: find any event for this cell (first subdivision)
+            const cellEvent = cache.events.find(
+                (evt) => evt.x === Number(theX) && evt.y === Number(theY)
+            );
+            if (cellEvent) {
+                filesForThisCell.current = cellEvent.fileNames || cellEvent.fileIdxs || [];
+                notesForThisCell.current = cellEvent.noteNames || [];
+            } else {
+                filesForThisCell.current = [];
+                notesForThisCell.current = [];
+            }
+        }
+    }, [currCellString, cacheRef.current.version]);
+    
     const allShapes = heatmapData.map((d) => {
         if (!xScale || !yScale) return null;
         const x = xScale(d.x); const y = yScale(d.y); if (d.value === null || !x || !y) { return null; }
@@ -450,11 +495,11 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                             <rect
                                 width={xScale.bandwidth() / (masterPatternsHashHook[`${d.y}`][d.x].subdivisions * (1 / (Array.isArray(masterPatternsHashHook[`${d.y}`][d.x].length) ? masterPatternsHashHook[`${d.y}`][d.x].length[0] || 1 : masterPatternsHashHook[`${d.y}`][d.x].length || 1)))}
                                 height={yScale.bandwidth() / 2.5}
-                                key={`main_cell_noteEl_${d.x}_${d.y}`}
+                                key={`main_cell_noteEl_${d.x}_${d.y}_${idx}`}
                                 r={4}
                                 opacity={masterPatternsHashHook[`${d.y}`][`${d.x}`].velocity}
                                 fill={masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName?.join().length > 0 ? HERITAGE_GOLD : "transparent"}
-                                id={`fill_noteEl_${d.x}_${d.y}`}
+                                id={`fill_noteEl_${d.x}_${d.y}_${idx}`}
                                 x={(xScale(d.x)! + (xScale.bandwidth() * idx) / masterPatternsHashHook[d.y][d.x].subdivisions)}
                                 y={yScale(d.y)}
                                 style={{ pointerEvents: "none" }}
@@ -462,11 +507,11 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                             <rect
                                 width={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][d.x] ? (xScale.bandwidth() / masterPatternsHashHook[Number(d.y) - 1][d.x].subdivisions) * ((Array.isArray(masterPatternsHashHook[Number(d.y) - 1][d.x].length) ? masterPatternsHashHook[Number(d.y) - 1][d.x].length[0] || 1 : masterPatternsHashHook[Number(d.y) - 1][d.x].length || 1) * currentNumerCountColToDisplay) : 0}
                                 height={yScale.bandwidth() / 2.5}
-                                key={`main_cell_sampleEl_${d.x}_${d.y}`}
+                                key={`main_cell_sampleEl_${d.x}_${d.y}_${idx}`}
                                 r={4}
                                 opacity={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] ? masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].velocity * 2 : 0}
                                 fill={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].fileNums?.join().length > 0 ? OBERHEIM_TEAL : "transparent"}
-                                id={`fill_sampleEl_${d.x}_${d.y}`}
+                                id={`fill_sampleEl_${d.x}_${d.y}_${idx}`}
                                 x={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][d.x] ? (xScale(d.x)! + (xScale.bandwidth() * idx) / masterPatternsHashHook[`${Number(d.y) - 1}`][d.x].subdivisions) : 0}
                                 y={(yScale(d.y) || 0) + yScale.bandwidth() / 3}
                                 style={{ pointerEvents: "none" }}
@@ -482,9 +527,9 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 </text>
                             )}
                             <rect
-                                key={`main_cell_${d.x}_${d.y}`}
+                                key={`main_cell_${d.x}_${d.y}_${idx}`}
                                 r={4}
-                                id={`fill_${d.x}_${d.y}`}
+                                id={`fill_${d.x}_${d.y}_${idx}`}
                                 x={(xScale(d.x)! + (xScale.bandwidth() * idx) / masterPatternsHashHook[d.y][d.x].subdivisions)}
                                 y={yScale(d.y)}
                                 width={(xScale.bandwidth() / masterPatternsHashHook[d.y][d.x].subdivisions)}
@@ -499,7 +544,9 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                     currentBeatCountToDisplay === Number(d.x) && currentNumerCountColToDisplay === Number(d.y) ||
                                         Number(currentSelectedCell.x) === Number(d.x) && Number(currentSelectedCell.y) === Number(d.y)
                                         ? NEON_PINK
-                                        : currentBeatCountToDisplay === Number(d.x)
+                                        : (currCellString === `${d.x}_${d.y}_${idx}`)
+                                        ? BLUE_CHANNEL
+                                        : currentBeatCountToDisplay === Number(d.x) || (d.x === hoveredCell?.xLabel && d.y === hoveredCell?.yLabel)
                                             ? CORDUROY_RUST
                                             : (Number(d.y) > 0) ? OBERHEIM_TEAL : NEON_PINK
                                 }
@@ -521,7 +568,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 onClick={(e: any) => {
                                     e.stopPropagation();
                                     // Pass y value in the event target value format that triggerEditPattern expects
-                                    const fakeEvent = { ...e, target: { ...e.target, value: `${d.x}|${d.y}` } };
+                                    const fakeEvent = { ...e, target: { ...e.target, value: `${d.x}|${d.y}|${idx}` } };
                                     triggerEditPattern(fakeEvent, d.x);
                                 }}
                                 onMouseEnter={() => {
@@ -531,7 +578,9 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 cursor="pointer"
                                 style={{ zIndex: 1, pointerEvents: "auto" }}
                             >
-                                <text>{d.x} {d.y}</text>
+                                <text
+                                    style={{ color: 'black', height: '100%', width: '100%', pointerEvents: 'none' }}
+                                >{d.x} {d.y}</text>
                             </rect>
                         </React.Fragment>
                     ))}
@@ -589,6 +638,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                 slotProps={{
                     popper: {
                         sx: {
+                            color: 'rgba(245,245,245,0.78)',
                             zIndex: 99999,
                             '& .MuiAutocomplete-paper': {
                                 backgroundColor: 'rgba(28,28,28,0.95)',
@@ -725,6 +775,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     }, [masterPatternsHashHook, currentXVal.current, currentYVal.current, sampleOptions]);
 
     const handleSamplesChange = (vals: Option[]) => {
+        console.log('WTF VALS ', vals, currentXVal.current, currentYVal.current);
         handleLatestSamples(vals.map((o) => o.value), currentXVal.current, currentYVal.current - 1);
     };
 
@@ -748,6 +799,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         const yKey = String(currentYVal.current);
         const xKey = String(currentXVal.current);
         const cell = masterPatternsHashHook?.[yKey]?.[xKey];
+        console.log('WTF CELL ', cell, xKey, yKey);
+
         const names = cell?.noteName ? (Array.isArray(cell.noteName) ? cell.noteName : [cell.noteName]).filter(Boolean) : [];
 
         // Debug: notes selected
@@ -1015,53 +1068,86 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 <>
 
                                     <Box key={`wrapnewvals__${currentBeatCountToDisplay}_${currentNumerCountColToDisplay}_${currentDenomCount}_${currentPatternCount}`} 
-                                    sx={{ 
-                                        display: "flex", 
-                                        flexDirection: "column", 
-                                        fontFamily: 'monospace', 
-                                        fontWeight: "100", 
-                                        textAlign: 'left', 
-                                        position: 'relative', 
-                                        zIndex: 10000, 
-                                        padding: '0px', 
-                                        overflow: 'visible',
-                                        marginRight: '16px', 
-                                    }}>
-                                        <Box style={{ 
+                                        sx={{ 
+                                            display: "flex", 
+                                            flexDirection: "column", 
                                             fontFamily: 'monospace', 
-                                            fontWeight: '100', 
-                                            color: 'rgba(245,245,245,0.78)', 
-                                            paddingLeft: '8px', 
-                                            height: '100%', 
-                                            background: 'rgba(245,245,245,0.078)', 
-                                            display: 'inline-block', 
-                                            whiteSpace: 'nowrap', 
-                                            //background: 'red',
-                                            border: `1px solid rgba(0,0,0,0.78)` }}
-                                        >
-                                            
-                                            <span style={{ marginRight: "12px" }}>Cell: {`${currentXVal.current} | ${currentYVal.current}`}</span>
-                                            <Box sx={{ 
-                                                display: "inline-flex", 
-                                                flexDirection: "row", 
-                                                justifyContent: "stretch", 
-                                                alignItems: "center", 
-                                                paddingTop: "8px", 
-                                                padding: "4px", 
-                                                // fontSize: '16px', 
-                                                borderRadius: '5px', 
-                                                blur: "8px", 
-                                                maxHeight: "24px" 
-                                            }}>
-                                                Subdivs: <SubdivisionsPicker 
-                                                    xVal={currentXVal.current} 
-                                                    yVal={currentYVal.current} 
-                                                    masterPatternsHashHook={masterPatternsHashHook} 
-                                                    handleChangeCellSubdivisions={handleChangeCellSubdivisions} 
-                                                    cellSubdivisions={cellSubdivisions} 
-                                                />
+                                            fontWeight: "100", 
+                                            textAlign: 'left', 
+                                            position: 'relative', 
+                                            zIndex: 10000, 
+                                            padding: '0px', 
+                                            overflow: 'visible',
+                                            marginRight: '16px', 
+                                        }}
+                                    >
+                                        <Box>
+                                            <Box
+                                                sx={{                                                                                                fontFamily: 'monospace', 
+                                                    fontWeight: '100', 
+                                                    color: 'rgba(245,245,245,0.78)', 
+                                                    paddingLeft: '8px', 
+                                                    height: '100%', 
+                                                    background: 'rgba(245,245,245,0.078)', 
+                                                    display: 'inline-block', 
+                                                    whiteSpace: 'nowrap', 
+                                                    //background: 'red',
+                                                    border: `1px solid rgba(0,0,0,0.78)` 
+                                                }}
+                                            ></Box>
+                                            <Box style={{ 
+                                                fontFamily: 'monospace', 
+                                                fontWeight: '100', 
+                                                color: 'rgba(245,245,245,0.78)', 
+                                                paddingLeft: '8px', 
+                                                height: '100%', 
+                                                background: 'rgba(245,245,245,0.078)', 
+                                                display: 'inline-block', 
+                                                whiteSpace: 'nowrap', 
+                                                //background: 'red',
+                                                border: `1px solid rgba(0,0,0,0.78)` }}
+                                            >
+                                                
+                                                <span style={{ marginRight: "12px" }}>
+                                                    Cell: {`${currentXVal.current} | ${currentYVal.current}`}
+                                                </span>
+                                                <Box sx={{ 
+                                                    display: "inline-flex", 
+                                                    flexDirection: "row", 
+                                                    justifyContent: "stretch", 
+                                                    alignItems: "center", 
+                                                    paddingTop: "8px", 
+                                                    padding: "4px", 
+                                                    // fontSize: '16px', 
+                                                    borderRadius: '5px', 
+                                                    blur: "8px", 
+                                                    maxHeight: "24px" 
+                                                }}>
+                                                    Subdivs: <SubdivisionsPicker 
+                                                        xVal={currentXVal.current} 
+                                                        yVal={currentYVal.current} 
+                                                        masterPatternsHashHook={masterPatternsHashHook} 
+                                                        handleChangeCellSubdivisions={handleChangeCellSubdivisions} 
+                                                        cellSubdivisions={cellSubdivisions} 
+                                                    />
+                                                </Box>
                                             </Box>
                                         </Box>
+
+                                        <Box 
+                                            id='currentCellFileNoteAssignments' 
+                                            sx={{ 
+                                                display: 'flex', 
+                                                flexDirection: 'row', 
+                                                justifyContent: 'space-between',
+                                            }}
+                                        >
+
+                                            <span>{filesForThisCell.current}</span>
+                                            <span>{notesForThisCell.current}</span>
+                                            
+                                        </Box>
+                                        
                                         {/* Main Grid SVG - Always visible */}
                                         <Box sx={{ 
                                             display: "flex", 
@@ -1091,12 +1177,12 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                 </svg>
                                             )}
                                         </Box>
-                                        {fxRadioValue && fxRadioValue.toLowerCase().includes("sample") && (
+                                        {/* {fxRadioValue && fxRadioValue.toLowerCase().includes("sample") && ( */}
+                                        {uploadedBlob.current && (
                                             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "top" }}>
                                                 <Box sx={{ display: 'inline-flex' }}>
                                                     <Box sx={{ display: "inline-flex", flexDirection: "column", justifyContent: "stretch", alignItems: "left", width: "100%", padding: "16px", height: "fit-content" }}>
                                                         <span style={{ paddingTop: "4px", paddingBottom: "8px" }}>
-                                                            {uploadedBlob.current && fxRadioValue.includes("sample") && (
                                                                 <FileWindow
                                                                     uploadedBlob={uploadedBlob}
                                                                     getMeydaData={getMeydaData}
@@ -1105,12 +1191,11 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     onBpmDetected={onBpmDetected}
                                                                     autoAnalyze={false}
                                                                 />
-                                                            )}
                                                         </span>
-                                                        <ParameterMultiSelect options={sampleOptions} value={sampleSelected} placeholder="Select samples" onChange={handleSamplesChange} />
+                                                        {/* <ParameterMultiSelect options={sampleOptions} value={sampleSelected} placeholder="Select samples" onChange={handleSamplesChange} /> */}
                                                     </Box>
                                                 </Box>
-                                                <Box sx={{ display: "inline-flex", width: '100%', flexDirecton: "row" }}>
+                                                {/* <Box sx={{ display: "inline-flex", width: '100%', flexDirecton: "row" }}>
                                                     <Box sx={{ width: "58%", margin: "4px", marginLeft: "16px", borderRadius: "5px", justifyContent: "center", alignItems: "center", paddingLeft: "16px", paddingTop: "8px", height: "100%" }}>
                                                         <Box sx={{ padding: "8px" }}>
                                                             <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '4px' }}>Pattern Cells</FormLabel>
@@ -1130,9 +1215,10 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                     <Box sx={{ display: "inline-flex", flexDirection: "column", justifyContent: "stretch", alignItems: "right", width: "34%", border: `1px solid ${OBERHEIM_TEAL}`, borderRadius: "5px", height: "100%", p: 1 }}>
                                                         <ParameterSlider label="Velocity" value={0} min={0} max={12} step={0.01} onChange={() => { }} />
                                                     </Box>
-                                                </Box>
+                                                </Box> */}
                                             </Box>
                                         )}
+                                        {/* // )} */}
 
 
 
@@ -1149,21 +1235,42 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', marginTop: '8px', marginBottom: '8px' }}>
                                                         <ButtonGroup sx={{ width: '100%', zIndex: 9999 }} size="small" color="primary" variant="outlined">
                                                             <Button 
-                                                                sx={{ zIndex: 99999, pointerEvents: 'auto', cursor: 'pointer', flex: 1 }} 
+                                                                sx={{ 
+                                                                    zIndex: 99999, 
+                                                                    pointerEvents: 'auto', 
+                                                                    cursor: 'pointer', 
+                                                                    flex: 1,
+                                                                    background: keyboardMode === 'piano' ? '#3f51b5' : undefined,
+                                                                    color: keyboardMode === 'piano' ? '#fff' : undefined 
+                                                                }} 
                                                                 onClick={() => setKeyboardMode('piano')} 
                                                                 variant={keyboardMode === 'piano' ? 'contained' : 'outlined'}
                                                             >
                                                                 Piano
                                                             </Button>
                                                             <Button 
-                                                                sx={{ zIndex: 99999, pointerEvents: 'auto', cursor: 'pointer', flex: 1 }} 
+                                                                sx={{ 
+                                                                    zIndex: 99999, 
+                                                                    pointerEvents: 'auto', 
+                                                                    cursor: 'pointer', 
+                                                                    flex: 1,
+                                                                    background: keyboardMode === 'hex' ? '#3f51b5' : undefined,
+                                                                    color: keyboardMode === 'hex' ? '#fff' : undefined 
+                                                                }} 
                                                                 onClick={() => setKeyboardMode('hex')} 
                                                                 variant={keyboardMode === 'hex' ? 'contained' : 'outlined'}
                                                             >
                                                                 Hex
                                                             </Button>
                                                             <Button 
-                                                                sx={{ zIndex: 99999, pointerEvents: 'auto', cursor: 'pointer', flex: 1 }} 
+                                                                sx={{ 
+                                                                    zIndex: 99999, 
+                                                                    pointerEvents: 'auto', 
+                                                                    cursor: 'pointer', 
+                                                                    flex: 1,
+                                                                    background: keyboardMode === 'none' ? '#3f51b5' : undefined,
+                                                                    color: keyboardMode === 'none' ? '#fff' : undefined 
+                                                                }} 
                                                                 onClick={() => setKeyboardMode('none')} 
                                                                 variant={keyboardMode === 'none' ? 'contained' : 'outlined'}
                                                             >
@@ -1257,9 +1364,9 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                         </FormControl>
                                                                     </Box>
 
-                                                                        <Box sx={{ width: "100%" }}>
-                                                                            <ParameterMultiSelect options={notesOptions} value={notesSelected} placeholder="Select Notes" onChange={handleNotesChange} />
-                                                                        </Box>
+                                                                    <Box sx={{ width: "100%" }}>
+                                                                        <ParameterMultiSelect options={notesOptions} value={notesSelected} placeholder="Select Notes" onChange={handleNotesChange} />
+                                                                    </Box>
                                                                     {/* )
                                                                 )} */}
                                                             </Box>

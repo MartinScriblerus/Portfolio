@@ -71,7 +71,7 @@ type RightDrawerProps = {
   currentNumerCountColToDisplay: number;
   currentDenomCount: number;
   currentPatternCount: number;
-  clickHeatmapCell: (x: number, y: number) => void;
+  clickHeatmapCell: (x: number, y: number, subDiv: number) => void;
   handleLatestSamples: any;
   handleLatestNotes: any;
   mTFreqs: number[];
@@ -855,6 +855,7 @@ export default function OldParentMonolith(
   const masterPatternsHashHookUpdated = useBeatGridStore((s) => s.masterPatternsHashHookUpdated);
   const setMasterPatternsHashHook = useBeatGridStore((s) => s.setMasterPatternsHashHook);
   const inPatternEditMode = false as any;
+  const currentSelectionsRef = useRef<{ x: number; y: number; subdivisions: number }>({ x: 0, y: 1, subdivision: 0 });
 
   // Initialize grid with default empty cells on mount
   useEffect(() => {
@@ -892,7 +893,16 @@ export default function OldParentMonolith(
   const cellSubdivisions = {} as any;
   const resetCellSubdivisionsCounter = () => {};
   const handleClickUploadedFiles = () => {};
-  const clickHeatmapCell = (_x: number, _y: number) => {};
+  const clickHeatmapCell = (_x: number, _y: number, subdiv: number) => {
+    let cS;
+    currentSelectionsRef.current = {
+      x: _x,
+      y: _y,
+      subdivision: subdiv,
+    }
+    cS = currentSelectionsRef.current;
+    return cS; 
+  };
   const handleLatestSamples = async () => {};
   const updateCellNotes = useBeatGridStore((s) => s.updateCellNotes);
   const handleLatestNotes = async (notes: string[], x: number, y: number) => {

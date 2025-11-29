@@ -1,15 +1,23 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useBeatGridStore } from '../store/useBeatGridStore';
+import { noteToFreq } from '../utils/utils';
 
 // Types of the cache we build. Adapt as your DFS/next-event needs grow.
 export type RhythmEvent = {
   y: number;                // row index
   x: number;                // col index
+  subdivision: number;       // subdivision index within cell (0-based, default 0 if not divided)
+  subdivisions: number;      // total subdivisions for this cell (default 1 if not divided)
   t: number;                // start time (beats or seconds depending on your convention)
   length: number;           // normalized length
   velocity: number;         // normalized velocity
+  volume?: number;          // volume (separate from velocity)
   fileIdxs?: number[];      // optional sample indices
+  fileNames?: string[];     // optional file names/paths (derived from fileIdxs if filesToProcess available)
   noteNames?: string[];     // optional note names
+  noteFrequencies?: number[]; // optional note frequencies (calculated from noteNames)
+  midiIn?: any;             // optional MIDI input events
+  midiOut?: any;            // optional MIDI output events
 };
 
 export type RhythmCache = {
@@ -30,8 +38,15 @@ export type RhythmCache = {
  *   (1) Subscribe to their versions here and include them in the recompute condition.
  *   (2) Or call useBeatGridStore.getState().bumpGridVersion() from those systems
  *       to force a recompute using the same global trigger.
+ * 
+ * - Optional context:
+ *   You can pass filesToProcess and tune for enhanced cache data (frequencies, file names).
+ *   If not provided, cache will still work but without these enhancements.
  */
-export function useRhythmCache() {
+export function useRhythmCache(options?: {
+  filesToProcess?: any[];  // Array of file objects with { filename, ... }
+  tune?: any;               // Tune instance for frequency calculation
+}) {
   const gridVersion = useBeatGridStore((s) => s.gridVersion);
   const grid = useBeatGridStore((s) => s.masterPatternsHashHook);
 
@@ -48,9 +63,9 @@ export function useRhythmCache() {
 
   // Build cache whenever the version changes. We read the latest grid snapshot.
   useEffect(() => {
-    const next = buildCacheFromGrid(grid, gridVersion);
+    const next = buildCacheFromGrid(grid, gridVersion, options);
     cacheRef.current = next;
-  }, [gridVersion, grid]);
+  }, [gridVersion, grid, options?.filesToProcess, options?.tune]);
 
   // Expose the cache and version as stable references
   return useMemo(
@@ -64,10 +79,83 @@ export function useRhythmCache() {
 
 function buildCacheFromGrid(
   grid: Record<string, Record<string, any>>,
-  version: number
+  version: number,
+  options?: {
+    filesToProcess?: any[];
+    tune?: any;
+  }
 ): RhythmCache {
   const events: RhythmEvent[] = [];
   const nextByCell: Record<string, RhythmEvent | undefined> = {};
+  const filesToProcess = options?.filesToProcess || [];
+  const tune = options?.tune;
+
+  // Helper: Calculate frequency from note name
+  const getNoteFrequency = (noteName: string): number | null => {
+    if (!noteName) return null;
+    
+    try {
+      // Try parsing "C-4" format (note-octave)
+      const match = String(noteName).match(/^([A-G][#b]?)-?(\d+)$/);
+      if (match) {
+        const [, note, octaveStr] = match;
+        const octave = Number(octaveStr);
+        return noteToFreq(note, octave);
+      }
+      
+      // Try parsing microtonal format "degree/stepsPerOctave@octave"
+      const microMatch = String(noteName).match(/^(\d+)\/(\d+)@(\d+)$/);
+      if (microMatch && tune) {
+        const [, degreeStr, stepsPerOctaveStr, octaveStr] = microMatch;
+        const degree = Number(degreeStr);
+        const octave = Number(octaveStr);
+        try {
+          (tune as any).mode.output = 'frequency';
+          const freq = Number(tune.note(degree, octave));
+          return Number.isFinite(freq) ? freq : null;
+        } catch (e) {
+          return null;
+        }
+      }
+      
+      // Fallback: try with Tune if available
+      if (tune) {
+        try {
+          (tune as any).mode.output = 'frequency';
+          // Try to extract octave from note name if possible
+          const octaveMatch = noteName.match(/(\d+)/);
+          const octave = octaveMatch ? Number(octaveMatch[1]) : 4;
+          const noteOnly = noteName.replace(/[-\d]/g, '').trim();
+          if (noteOnly) {
+            return noteToFreq(noteOnly, octave);
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+    
+    return null;
+  };
+
+  // Helper: Get file names from file indices
+  const getFileNames = (fileIdxs: number[] | undefined): string[] | undefined => {
+    if (!fileIdxs || fileIdxs.length === 0 || filesToProcess.length === 0) {
+      return undefined;
+    }
+    
+    const names: string[] = [];
+    for (const idx of fileIdxs) {
+      if (idx >= 0 && idx < filesToProcess.length) {
+        const file = filesToProcess[idx];
+        const name = file?.filename || file?.name || String(idx);
+        if (name) names.push(name);
+      }
+    }
+    return names.length > 0 ? names : undefined;
+  };
 
   // Traverse rows (y) then columns (x). Adjust ordering to your timing model.
   const yKeys = Object.keys(grid).sort((a, b) => Number(a) - Number(b));
@@ -79,34 +167,49 @@ function buildCacheFromGrid(
       const subdivisions = Number(cell.subdivisions ?? 1);
       const length = Number(cell.length ?? 1);
       const velocity = Number(cell.velocity ?? 0.5);
+      const volume = cell.volume !== undefined ? Number(cell.volume) : undefined;
       const fileIdxs: number[] | undefined = cell.fileNums ? Array.from(cell.fileNums) : undefined;
-      const noteNames: string[] | undefined = cell.noteName ? Array.from(cell.noteName) : undefined;
+      const noteNames: string[] | undefined = cell.noteName ? (Array.isArray(cell.noteName) ? cell.noteName : [cell.noteName]).filter(Boolean) : undefined;
 
-      // Simple placement: treat each subdivision as a separate event
-      // t is normalized to x + k/subdivisions; adapt to your beat model as needed
-      for (let k = 0; k < Math.max(1, subdivisions); k++) {
+      // Calculate file names and note frequencies
+      const fileNames = getFileNames(fileIdxs);
+      const noteFrequencies: number[] | undefined = noteNames 
+        ? noteNames.map(getNoteFrequency).filter((f): f is number => f !== null)
+        : undefined;
+
+      // Create one event per subdivision (or one event if subdivisions = 0 or 1)
+      const numSubdivisions = Math.max(1, subdivisions);
+      for (let k = 0; k < numSubdivisions; k++) {
         const evt: RhythmEvent = {
           y: Number(yKey),
           x: Number(xKey),
-          t: Number(xKey) + k / Math.max(1, subdivisions),
+          subdivision: k,                    // subdivision index (0-based)
+          subdivisions: numSubdivisions,      // total subdivisions
+          t: Number(xKey) + k / numSubdivisions,
           length,
           velocity,
+          volume,
           fileIdxs,
+          fileNames,
           noteNames,
+          noteFrequencies,
+          // MIDI events - placeholder for now (can be populated from cell.midiIn/midiOut if added to store)
+          midiIn: cell.midiIn,
+          midiOut: cell.midiOut,
         };
         events.push(evt);
       }
     }
   }
 
-  // Sort by t (then by y/x for deterministic ordering)
-  events.sort((a, b) => (a.t - b.t) || (a.y - b.y) || (a.x - b.x));
+  // Sort by t (then by y/x/subdivision for deterministic ordering)
+  events.sort((a, b) => (a.t - b.t) || (a.y - b.y) || (a.x - b.x) || (a.subdivision - b.subdivision));
 
   // Build a simple next-event lookup per cell (first next after t)
-  // Consumers can build more detailed structures from events if needed
+  // Key includes subdivision for granular lookup: "y_x_subdivision"
   for (let i = 0; i < events.length; i++) {
     const cur = events[i];
-    const key = `${cur.y}_${cur.x}`;
+    const key = `${cur.y}_${cur.x}_${cur.subdivision}`;
     // First-next mapping: choose the next timeline event after current
     // This is a simple heuristic; extend as needed
     let nextEvt: RhythmEvent | undefined = undefined;
