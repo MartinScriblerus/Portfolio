@@ -1,4 +1,4 @@
-const powerADSRHelper = () => {
+export const powerADSRHelper = () => {
     return `
     // Eric Heep
     // April 3rd, 2017

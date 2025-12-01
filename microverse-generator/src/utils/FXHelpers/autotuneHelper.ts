@@ -1,4 +1,4 @@
-const autotuneHelper = () => {
+export const autotuneHelper = () => {
     return `
         //---------------------------------------------------------------
         // name: autotune.ck

@@ -1652,7 +1652,7 @@ export default function BabylonHydraCanvas() {
             const namesByCategory: Record<'isomorphic'|'tonnetz', string[]> = {
                 isomorphic: ['Wicki-Hayden', 'Harmonic Table'],
                 tonnetz: ['Tonnetz (P5 vs M3)', 'Tonnetz (P5 vs m3)'],
-            } as const;
+            };
             const nameList = namesByCategory[category as 'isomorphic'|'tonnetz'] ?? [];
             const chosenName = nameList[(layoutIndex % nameList.length + nameList.length) % nameList.length] || 'Wicki-Hayden';
 
@@ -1907,7 +1907,7 @@ export default function BabylonHydraCanvas() {
     const namesByCategory: Record<'isomorphic'|'tonnetz', string[]> = {
         isomorphic: ['Wicki-Hayden', 'Harmonic Table', 'Janko'],
         tonnetz: ['Tonnetz (P5 vs M3)', 'Tonnetz (P5 vs m3)'],
-    } as const;
+    };
     const overlayList = namesByCategory[category as 'isomorphic'|'tonnetz'] ?? [];
     const chosenOverlayName = overlayList.length
         ? overlayList[(layoutIndex % overlayList.length + overlayList.length) % overlayList.length]

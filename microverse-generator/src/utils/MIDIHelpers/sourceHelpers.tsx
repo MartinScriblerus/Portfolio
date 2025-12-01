@@ -1,4 +1,4 @@
-import { Sources } from "@/types/audioTypes";
+import { Sources } from "../../interfaces/audioTypes";
 
 export const winFuncString = (source: string, attackDenom: number, releaseDenom: number, envSetting: string) => `winfuncenv_${source}.set${envSetting}(); for (int i; i < 250; i++) { spork ~ playWindow(winfuncenv_${source}, whole/${attackDenom}, whole/${releaseDenom}); }`;
 
