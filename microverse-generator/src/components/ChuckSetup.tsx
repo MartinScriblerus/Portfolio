@@ -1,37 +1,40 @@
 'use client';
 import { act, useEffect, useRef, useState } from 'react';
 import { Chuck } from 'webchuck';
-import { 
-    getAsymptoticChopperClass, 
-    getGrainStretchClass, 
-    getLisaTriggerClass, 
-    getMosaicSynthClass, 
-    getRandomReverseClass, 
-    getReichClass, 
-    getTapeClass 
+import {
+    getAsymptoticChopperClass,
+    getGrainStretchClass,
+    getLisaTriggerClass,
+    getMosaicSynthClass,
+    getRandomReverseClass,
+    getReichClass,
+    getTapeClass
 } from '../utils/audioInSettingsHelper';
 import { useTimingStore } from '../hooks/useTimingStore';
 import { useBeatGridStore } from '../store/useBeatGridStore';
 import '../../app/globals.css';
 import { useAudioInSettingsStore } from '../utils/audioInSettingsHelper';
 import { audioInEffectSlidersHelper } from '../utils/utils';
-import {calculateDisplayDigits, loadWebChugins} from '../utils/audioClient';   
+import { calculateDisplayDigits, loadWebChugins } from '../utils/audioClient';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import MicIcon from '@mui/icons-material/Mic';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import { Box, Button, InputLabel, Select } from '@mui/material';
-import { filesToProcess, chuckRef as globalChuckRef } from '../../app/state/refs';
+import { filesToProcess, chuckRef as globalChuckRef, moogGrandmotherEffects, universalSources, activeSTKDeclarations, activeSTKSettings, activeSTKPlayOn, activeSTKPlayOff } from '../../app/state/refs';
 import '../../app/globals.css';
 import OldParentMonolith from '../components/OldParentMonolith/OldParentMonolith';
+import { Tune } from "../tune";
+import { useRhythmCache } from '../hooks/useRhythmCache';
+import { getChuckCode, buildSourceData, processSourceFX, createEmptyTargets } from '../utils/chuckHelper';
 
 // Put this near the top, inside component file (module scope or inside component before handlers):
 const SERVER_FILES_TO_PRELOAD: Array<{ serverFilename: string; virtualFilename: string }> = [
-  { serverFilename: "/Conga.wav",       virtualFilename: "Conga.wav" },
-  { serverFilename: "/DR-55Hat.wav",    virtualFilename: "DR-55Hat.wav" },
-  { serverFilename: "/DR-55Kick.wav",   virtualFilename: "DR-55Kick.wav" },
-  { serverFilename: "/DR-55Pop.wav",    virtualFilename: "DR-55Pop.wav" },
-  { serverFilename: "/DR-55Snare.wav",  virtualFilename: "DR-55Snare.wav" },
+    { serverFilename: "/Conga.wav", virtualFilename: "Conga.wav" },
+    { serverFilename: "/DR-55Hat.wav", virtualFilename: "DR-55Hat.wav" },
+    { serverFilename: "/DR-55Kick.wav", virtualFilename: "DR-55Kick.wav" },
+    { serverFilename: "/DR-55Pop.wav", virtualFilename: "DR-55Pop.wav" },
+    { serverFilename: "/DR-55Snare.wav", virtualFilename: "DR-55Snare.wav" },
 ];
 
 // -----------------------------
@@ -206,9 +209,57 @@ export default function ChuckSetup() {
 
     const beatMs = useTimingStore((s: any) => s.beatMs);
     const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
-    const uploadedVFilesRef = useRef<string[]>([]); 
+    const uploadedVFilesRef = useRef<string[]>([]);
 
     const globalAudioCtx = useRef<AudioContext | null>(null);
+
+
+    // Access the rhythm cache - note: this creates a separate instance
+    // To access values from BeatGridPanel's cache, we'll use stores directly
+    const { cacheRef } = useRhythmCache({ 
+        filesToProcess: filesToProcess?.current || [], 
+        tune: null // Can be passed from parent if available
+    });
+    
+    /**
+     * Helper to safely extract cache context values with fallbacks
+     * 
+     * Usage:
+     *   const context = getCacheContext();
+     *   const bpm = context.bpm;
+     *   const mTFreqs = context.mTFreqs;
+     * 
+     * All values are safely accessed with fallbacks to stores or defaults.
+     * The cache context contains values passed from BeatGridPanel:
+     *   - mTFreqs, mTMidiNums: Microtonal frequencies and MIDI numbers
+     *   - bpm: Beats per minute (from timing store if not in cache)
+     *   - numeratorSignature, denominatorSignature: Time signature
+     *   - notesHolder: Current note values
+     *   - masterFastestRate: Fastest playback rate
+     *   - selectedChordScaleOctaveRange: Chord/scale/octave selection
+     */
+    const getCacheContext = () => {
+        const context = cacheRef.current?.context;
+        const timingStore = useTimingStore.getState() as any;
+        const bpmFromStore = timingStore?.bpm || 120;
+        const beatMsFromStore = timingStore?.beatMs || 500;
+        const beatGridStore = useBeatGridStore.getState();
+        
+        return {
+            // From cache context (if available) or fallback to stores/defaults
+            mTFreqs: context?.mTFreqs || [],
+            mTMidiNums: context?.mTMidiNums || [],
+            bpm: context?.bpm || bpmFromStore || 120,
+            numeratorSignature: context?.numeratorSignature || 4,
+            denominatorSignature: context?.denominatorSignature || 4,
+            notesHolder: context?.notesHolder || beatGridStore.currentNoteVals || null,
+            masterFastestRate: context?.masterFastestRate || 4,
+            selectedChordScaleOctaveRange: context?.selectedChordScaleOctaveRange || null,
+            // Additional useful values
+            beatMs: beatMsFromStore || 500,
+        };
+    };
+
     useEffect(() => {
         if (!globalAudioCtx.current) {
             globalAudioCtx.current = new AudioContext();
@@ -237,15 +288,13 @@ export default function ChuckSetup() {
         return promise;
     }
 
-    var readAsync = function( url: any, onload: any, onerror: any )
-    {
+    var readAsync = function (url: any, onload: any, onerror: any) {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', url, true);
         xhr.responseType = 'arraybuffer';
-        xhr.onload = function xhr_onload() 
-        {
+        xhr.onload = function xhr_onload() {
             if (xhr.status == 200 || (xhr.status == 0 && xhr.response)) // file URLs can return 0
-            { 
+            {
                 onload(xhr.response);
                 return;
             }
@@ -256,11 +305,10 @@ export default function ChuckSetup() {
     };
 
 
-    const asyncLoadFile = function( url: string, onload: any, onerror: any ) 
-        {
-        readAsync(url, function(arrayBuffer: any) {
+    const asyncLoadFile = function (url: string, onload: any, onerror: any) {
+        readAsync(url, function (arrayBuffer: any) {
             onload(new Uint8Array(arrayBuffer));
-        }, function(event: any) {
+        }, function (event: any) {
             if (onerror) {
                 onerror();
             } else {
@@ -268,9 +316,8 @@ export default function ChuckSetup() {
             }
         });
     }
-    const loadWasm = new Promise( function( resolve, reject )
-    {
-        asyncLoadFile( '/webchuck/webchuck.wasm', resolve, reject ); 
+    const loadWasm = new Promise(function (resolve, reject) {
+        asyncLoadFile('/webchuck/webchuck.wasm', resolve, reject);
     });
 
     const filesArray = JSON.stringify(SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename));
@@ -278,14 +325,14 @@ export default function ChuckSetup() {
     const handleChuckMsg = (chuckMsg: string) => {
         let isMounted = true;
         if (chuckMsg.includes(""))
-        return () => {
-            isMounted = false;
-        }
+            return () => {
+                isMounted = false;
+            }
     };
 
     const runNextEventDFSHelper = () => {
         // const beatMs = useTimingStore.getState().beatMs;
-       chuckRef.current && chuckRef.current.setInt('BeatMsInts', beatMs || 4000); 
+        chuckRef.current && chuckRef.current.setInt('BeatMsInts', beatMs || 4000);
     };
 
     let theWasm;
@@ -308,7 +355,7 @@ export default function ChuckSetup() {
                     video: false
                 });
                 const audioTracks = stream.getAudioTracks();
-                
+
                 const source = (globalAudioCtx.current as AudioContext).createMediaStreamSource(stream);
                 if (chuckRef.current) {
                     source.connect(chuckRef.current);
@@ -317,21 +364,21 @@ export default function ChuckSetup() {
                             const parsedMsg = message.split(":")[1].trim();
 
                             // setChuckMsg(parsedMsg); 
-                            console.log("msg is... --> ", parsedMsg);
+                            console.log("msg is... --> ", message);
                         }
-                        
+
                         if (message.includes("CHUCK_UP_TO_DATE")) {
                             // Chuck is ready - synchronize beatgrid data here
                             const beatGridData = useBeatGridStore.getState().masterPatternsHashHook;
                             const gridVersion = useBeatGridStore.getState().gridVersion;
-                            
+
                             // ============================================================
                             // LOG: Beatgrid data ready for passing to Chuck
                             // ============================================================
-                            console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
-                            console.log('Grid Version:', gridVersion);
-                            console.log('Beatgrid Structure:', beatGridData);
-                            
+                            // console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
+                            // console.log('Grid Version:', gridVersion);
+                            // console.log('Beatgrid Structure:', beatGridData);
+
                             // Log a flattened view of the data structure
                             const flattenedCells: any[] = [];
                             Object.keys(beatGridData).forEach(yKey => {
@@ -348,10 +395,10 @@ export default function ChuckSetup() {
                                     });
                                 });
                             });
-                            console.log('Flattened Cells:', flattenedCells);
+                            // console.log('Flattened Cells:', flattenedCells);
                             console.log('Total Cells:', flattenedCells.length);
-                            console.groupEnd();
-                            
+                            // console.groupEnd();
+
                             // ============================================================
                             // SYNCHRONIZE BEATGRID DATA TO CHUCK
                             // Using existing associative arrays pattern (like audioInSettingsHelperHash)
@@ -394,41 +441,41 @@ export default function ChuckSetup() {
     }
 
     async function handleUpload(files: FileList | null) {
-    const list = Array.from(files || []);
-    if (!list.length || !chuckRef.current) return;
+        const list = Array.from(files || []);
+        if (!list.length || !chuckRef.current) return;
 
-    for (const file of list) {
-        const buf = await file.arrayBuffer();
-        const bytes = new Uint8Array(buf);
-        const safeName = file.name.replace(/[^\w.\-]+/g, '_');
-        const vpath = `uploads/${Date.now()}_${safeName}`;
+        for (const file of list) {
+            const buf = await file.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+            const vpath = `uploads/${Date.now()}_${safeName}`;
 
-        // Write into WebChucK FS
-        if (typeof (chuckRef.current as any).createFile === 'function') {
-        await (chuckRef.current as any).createFile(vpath, bytes);
-        } else if ((chuckRef.current as any).Module?.FS) {
-        (chuckRef.current as any).Module.FS.writeFile(vpath, bytes);
-        } else {
-        console.warn('No file API on WebChucK instance; cannot upload:', vpath);
-        continue;
+            // Write into WebChucK FS
+            if (typeof (chuckRef.current as any).createFile === 'function') {
+                await (chuckRef.current as any).createFile(vpath, bytes);
+            } else if ((chuckRef.current as any).Module?.FS) {
+                (chuckRef.current as any).Module.FS.writeFile(vpath, bytes);
+            } else {
+                console.warn('No file API on WebChucK instance; cannot upload:', vpath);
+                continue;
+            }
+
+            uploadedVFilesRef.current.push(vpath);
         }
 
-        uploadedVFilesRef.current.push(vpath);
-    }
+        // Update ChucK global files[] and broadcast filesUpdated
+        const allVFiles = [
+            ...SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename),
+            ...uploadedVFilesRef.current
+        ];
+        const arrayLiteral = JSON.stringify(allVFiles);
+        try {
+            await chuckRef.current.runCode(`[${arrayLiteral}] @=> files; filesUpdated.broadcast();`);
+        } catch (err) {
+            console.warn('Failed to update files[] in ChucK', err);
+        }
 
-    // Update ChucK global files[] and broadcast filesUpdated
-    const allVFiles = [
-        ...SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename),
-        ...uploadedVFilesRef.current
-    ];
-    const arrayLiteral = JSON.stringify(allVFiles);
-    try {
-        await chuckRef.current.runCode(`[${arrayLiteral}] @=> files; filesUpdated.broadcast();`);
-    } catch (err) {
-        console.warn('Failed to update files[] in ChucK', err);
-    }
-
-    // e.target.value = '';
+        // e.target.value = '';
     }
 
     const beatInMilliseconds = useTimingStore((s: any) => s.beatMs);
@@ -436,8 +483,8 @@ export default function ChuckSetup() {
 
     const chuckInstructions = `
 
+        <<< "BEATCOUNT SANITY CHECK " >>>;
 
-        <<< "TICK: ", now >>>;
         ${filesArray} @=> string files[];
 
 
@@ -469,12 +516,11 @@ export default function ChuckSetup() {
         global float stkEffectsDefaults[0];  
         global int allFXDynamicInts[0];
         global int allSTKFXDynamicInts[0];
-        global int stkInstsInUse;
         global float allFXDynamicFloats[0];
         global float allSTKFXDynamicFloats[0];
 
-        // global int numeratorSignature;
-        // global int denominatorSignature;
+        global int numeratorSignature;
+        global int denominatorSignature;
 
         // 0.5 => global float osc1MasterGain;
         // 0.5 => global float samplerMasterGain;
@@ -504,8 +550,6 @@ export default function ChuckSetup() {
         2 => activeEffect;
         -1 => int lastEffect; 
 
-        
-
 
         ${getGrainStretchClass(
             beatMs,
@@ -522,7 +566,6 @@ export default function ChuckSetup() {
         ${getReichClass(
             beatMs,
         )}
-
 
         1 => audioInSettingsHelperHash["grain_stretch"];
         ${audioInSettingsHelperHash['grain_rate']} / 1000 => audioInSettingsHelperHash["grain_rate"];
@@ -618,7 +661,11 @@ export default function ChuckSetup() {
             // <<< "TICK: ", now >>>;
 
 
-            
+            Std.ftoi(stepCount / 4) => int colCount;
+            Std.ftoi((4 * numeratorSignature * colCount) % stepCount) => int rowCount;
+
+
+            <<< "TICK BEFORE ", colCount, rowCount >>>;
             (BeatMsInts)::ms => now;
             // 1000::ms => now;
             <<< "CHUCK_UP_TO_DATE: ", BeatMsInts, stepCount, beatCount >>>;
@@ -628,7 +675,7 @@ export default function ChuckSetup() {
                 beatCount++;
                 0 => stepCount;
                 <<< "SHREDCOUNT: ", Machine.numShreds() >>>;
-                <<< "TICK: ", now >>>;    
+                <<< "TICK ??: ", now >>>;    
                 <<< "BEATCOUNT: ", beatCount >>>;
             } else {
                 <<< "TICK IN THE ELSE " >>>;
@@ -640,8 +687,8 @@ export default function ChuckSetup() {
         1::samp => now;
     }
     `;
-    
-    
+
+
     useEffect(() => {
         // Don't do anything until WebChucK is ready
         // if (!ready || !chuckRef.current || !audioInSelected) return;
@@ -667,7 +714,7 @@ export default function ChuckSetup() {
             console.error('Failed to set activeEffect:', err);
         }
     }, [audioInSelected]);
-    
+
     type ServerFileToPreload = {
         serverFilename: string;
         virtualFilename: string;
@@ -694,24 +741,24 @@ export default function ChuckSetup() {
     const updateSelectedAudioInSetting = (newSetting: string) => {
         setAudioInSelected(newSetting);
         const defaultAudioInSetting = 1;
-        let activeEffect = defaultAudioInSetting; 
+        let activeEffect = defaultAudioInSetting;
         console.log("NEW SETTING SELECTED: ", newSetting);
-        switch(newSetting.toLowerCase()) {
-            case 'grain': 
+        switch (newSetting.toLowerCase()) {
+            case 'grain':
                 activeEffect = 0;
             case ('tape'):
                 activeEffect = 1;
-            case ('random reverse'): 
+            case ('random reverse'):
                 activeEffect = 2;
-            case ('clapping'): 
+            case ('clapping'):
                 activeEffect = 3;
-            case ('lisa trigger'): 
+            case ('lisa trigger'):
                 activeEffect = 4;
-            case ('asymptotic chopper'): 
+            case ('asymptotic chopper'):
                 activeEffect = 5;
-            case ('mosaic synth'): 
+            case ('mosaic synth'):
                 activeEffect = 6;
-            default: 
+            default:
                 return activeEffect | defaultAudioInSetting;
         }
     };
@@ -741,10 +788,10 @@ export default function ChuckSetup() {
     }, [initializing]);
 
     let sampleRate: number = 0;
-    
+
     // Note: Beatgrid synchronization happens in chuckPrint handler when "CHUCK_UP_TO_DATE" is received
     // This ensures TypeScript and ChucK are synchronized when Chuck is actually ready
-    
+
     // On load: ensure a first pass happens so the graph/cache is built before first ChucK run.
     // We emit a synthetic event if no update has been fired yet.
     useEffect(() => {
@@ -752,11 +799,12 @@ export default function ChuckSetup() {
             const gv = useBeatGridStore.getState().gridVersion;
             // Fire once on mount with the current version snapshot
             window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, source: 'bootstrap' } }));
-        } catch {}
+        } catch { }
     }, []);
-    
-     const runChuckCode = async() => {
-         let sampleRate = globalAudioCtx.current && globalAudioCtx.current.sampleRate || 44100;
+
+    const runChuckCode = async () => {
+        
+        let sampleRate = globalAudioCtx.current && globalAudioCtx.current.sampleRate || 44100;
         calculateDisplayDigits(sampleRate);
         if (isRunning.current) return;
         const chugins: string[] = loadWebChugins();
@@ -788,6 +836,7 @@ export default function ChuckSetup() {
         ];
         const whereIsChuck = LOCAL_CHUCK_SRC;
 
+       
         chuckRef.current = globalAudioCtx.current && await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
         // Expose the running ChucK instance globally for Old-* components
         if (chuckRef.current) {
@@ -797,30 +846,31 @@ export default function ChuckSetup() {
 
 
 
-        console.log("WebChucK initialized with live mic input ", chuckRef.current); 
+        console.log("WebChucK initialized with live mic input ", chuckRef.current);
 
         setInitializing(true);
 
         // Set up chuckPrint handler for synchronization (same as in chuckMicButton)
         if (chuckRef.current) {
             chuckRef.current.chuckPrint = async (message: string) => {
-                if (message.includes("TICK")) {
+                if (message.includes("BEATCOUNT")) {
                     const parsedMsg = message.split(":")[1].trim();
-                    console.log("msg is... --> ", parsedMsg);
+                    console.log("beatcount msg is... --> ", parsedMsg);
                 }
-                
+
                 if (message.includes("CHUCK_UP_TO_DATE")) {
+                    console.log("chuck up to date msg is... --> ", message);
                     // Chuck is ready - synchronize beatgrid data here
                     const beatGridData = useBeatGridStore.getState().masterPatternsHashHook;
                     const gridVersion = useBeatGridStore.getState().gridVersion;
-                    
+
                     // ============================================================
                     // LOG: Beatgrid data ready for passing to Chuck
                     // ============================================================
-                    console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
+                    // console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
                     console.log('Grid Version:', gridVersion);
                     console.log('Beatgrid Structure:', beatGridData);
-                    
+
                     // Log a flattened view of the data structure
                     const flattenedCells: any[] = [];
                     Object.keys(beatGridData).forEach(yKey => {
@@ -840,7 +890,7 @@ export default function ChuckSetup() {
                     console.log('Flattened Cells:', flattenedCells);
                     console.log('Total Cells:', flattenedCells.length);
                     console.groupEnd();
-                    
+
                     // ============================================================
                     // SYNCHRONIZE BEATGRID DATA TO CHUCK
                     // Using existing associative arrays pattern (like audioInSettingsHelperHash)
@@ -876,7 +926,157 @@ export default function ChuckSetup() {
         }
 
         console.log("SANITY CHUCK DEBUG: ", chuckInstructions);
-        chuckRef.current && filesArray?.length > 0 && await chuckRef.current.runCode(chuckInstructions);
+        if (chuckRef.current && filesArray?.length > 0) {
+            const beatGridData = useBeatGridStore.getState().masterPatternsHashHook || {};
+            
+            // Safely check if beatGridData is valid before processing
+            if (!beatGridData || typeof beatGridData !== 'object') {
+                console.warn('[ChuckSetup] beatGridData is invalid:', beatGridData);
+                return;
+            }
+            
+            // Log a flattened view of the data structure
+            const flattenedCells: any[] = [];
+            try {
+                Object.keys(beatGridData).forEach(yKey => {
+                    const row = beatGridData[yKey];
+                    if (!row || typeof row !== 'object') return;
+                    Object.keys(row).forEach(xKey => {
+                        const cell = row[xKey];
+                        if (!cell) return;
+                        flattenedCells.push({
+                            position: { x: Number(xKey), y: Number(yKey) },
+                            subdivisions: cell?.subdivisions,
+                            velocity: cell?.velocity,
+                            length: cell?.length,
+                            fileNums: cell?.fileNums,
+                            noteName: cell?.noteName,
+                            volume: cell?.volume,
+                        });
+                    });
+                });
+            } catch (err) {
+                console.error('[ChuckSetup] Error processing beatGridData:', err);
+            }
+            console.log('Flattened Cells !@#$:', flattenedCells);
+            
+            // Safely extract all context values with fallbacks
+            const context = getCacheContext();
+            
+            // Wrap beatGridData in a ref-like object since chuckHelper expects .current property
+            const masterPatternsRefLike = { current: beatGridData };
+            
+            // Safely extract currentNoteVals from beatGridData - needs to match expected structure
+            // currentNoteVals should be an object with osc1, sampler, etc. properties, not a flat array
+            // For now, create a safe structure that matches what getChuckCode expects
+            const currentNoteValsSafe = (() => {
+                try {
+                    // Try to extract from beatGridData or use context values
+                    // If currentNoteVals needs osc1[0] structure, create it from context
+                    const masterRate = context.masterFastestRate || 4;
+                    return {
+                        osc1: [masterRate],
+                        // Add other expected properties as needed
+                    };
+                } catch (err) {
+                    console.error('[ChuckSetup] Error creating currentNoteValsSafe:', err);
+                    return { osc1: [4] }; // Default fallback
+                }
+            })();
+
+            // Build signal chain data for each source using buildSourceData
+            // Helper function to safely build source data
+            const emptySourceData = { signalChain: [], signalChainDeclarations: [], valuesReadout: {}, valuesReadoutDeclarations: {} };
+            const safeBuildSourceData = (sourceName: 'osc1' | 'sampler' | 'stk1' | 'audioin') => {
+                if (!universalSources.current) {
+                    return emptySourceData;
+                }
+                try {
+                    // Use type assertion to bypass TypeScript's strict type checking
+                    // buildSourceData expects keyof typeof universalSources.current, but TypeScript
+                    // can't infer this when current might be undefined
+                    return (buildSourceData as any)(sourceName);
+                } catch (err) {
+                    console.error(`[ChuckSetup] Error building source data for ${sourceName}:`, err);
+                    return emptySourceData;
+                }
+            };
+            
+            const osc1Data = safeBuildSourceData('osc1');
+            const samplerData = safeBuildSourceData('sampler');
+            const stkData = safeBuildSourceData('stk1');
+            const audioInData = safeBuildSourceData('audioin');
+
+            // Create getSourceFX function that returns FX code for each source
+            // This is called synchronously in the template string, so it must be synchronous
+            // The actual FX processing happens via buildSourceData above
+            const getSourceFX = (sourceKey: 'osc1' | 'sampler' | 'stk' | 'audioin'): string => {
+                // Return empty string - the actual FX chains are built via buildSourceData
+                // and included in signalChainDeclarations which are passed separately
+                // This function is just for any additional FX code that needs to be injected
+                return '';
+            };
+
+            // Calculate maxMinFreq from context if available
+            const maxMinFreq = context.mTFreqs && context.mTFreqs.length > 0
+                ? { min: Math.min(...context.mTFreqs), max: Math.max(...context.mTFreqs) }
+                : undefined;
+
+            try {
+                const chuckCode = getChuckCode(
+                undefined, // isTestingChord
+                filesArray,
+                currentNoteValsSafe, // currentNoteVals (object with osc1, etc.)
+                masterPatternsRefLike, // masterPatternsRef (wrapped in ref-like object)
+                context.masterFastestRate, // masterFastestRate
+                
+                context.numeratorSignature, // numeratorSignature
+                context.denominatorSignature, // denominatorSignature
+                context.bpm, // bpm
+                moogGrandmotherEffects, // moogGrandmotherEffects (from refs)
+                osc1Data.signalChain, // signalChain
+                osc1Data.signalChainDeclarations, // signalChainDeclarations
+                samplerData.signalChain, // signalChainSampler
+                samplerData.signalChainDeclarations, // signalChainSamplerDeclarations
+                stkData.signalChain, // signalChainSTK
+                stkData.signalChainDeclarations, // signalChainSTKDeclarations
+                audioInData.signalChain, // signalChainAudioIn
+                audioInData.signalChainDeclarations, // signalChainAudioInDeclarations
+                osc1Data.valuesReadout, // valuesReadout
+                samplerData.valuesReadout, // valuesReadoutSampler
+                stkData.valuesReadout, // valuesReadoutSTK
+                audioInData.valuesReadout, // valuesReadoutAudioIn
+                osc1Data.valuesReadoutDeclarations, // valuesReadoutDeclarations
+                samplerData.valuesReadoutDeclarations, // valuesReadoutSamplerDeclarations
+                stkData.valuesReadoutDeclarations, // valuesReadoutSTKDeclarations
+                audioInData.valuesReadoutDeclarations, // valuesReadoutAudioInDeclarations
+                getSourceFX, // getSourceFX
+                context.mTFreqs, // mTFreqs
+                activeSTKDeclarations.current, // activeSTKDeclarations
+                activeSTKSettings.current, // activeSTKSettings
+                activeSTKPlayOn.current, // activeSTKPlayOn
+                activeSTKPlayOff.current, // activeSTKPlayOff
+                context.selectedChordScaleOctaveRange, // selectedChordScaleOctaveRange
+                maxMinFreq, // maxMinFreq
+                context.notesHolder ? { current: context.notesHolder } : null, // notesHolder (wrap in ref-like object if needed)
+                null, // hid (TODO: get from MIDI access if available)
+                );
+                
+                console.log('[ChuckSetup] Generated ChucK code length:', chuckCode.length);
+                // console.log('[ChuckSetup] First 500 chars of ChucK code:', chuckCode.substring(0, 500));
+                
+                await chuckRef.current.runCode(chuckCode);
+                console.log('[ChuckSetup] ChucK code executed successfully');
+            } catch (err) {
+                console.error('[ChuckSetup] Error running ChucK code:', err);
+                console.error('[ChuckSetup] Error details:', {
+                    message: err instanceof Error ? err.message : String(err),
+                    stack: err instanceof Error ? err.stack : undefined
+                });
+                throw err; // Re-throw to see the full error
+            }
+            // await chuckRef.current.runCode(chuckInstructions);
+        }
         isRunning.current = true;
 
     }
@@ -887,12 +1087,12 @@ export default function ChuckSetup() {
     return (
         <>
             <Box
-                id='chuckSetupContainer' 
+                id='chuckSetupContainer'
                 sx={{
                     position: 'absolute',
                     top: 8,
                     left: 8,
-                    display:'flex',
+                    display: 'flex',
                     alignItems: 'center',
                     gap: '12px',
                     backgroundColor: 'transparent',
@@ -933,11 +1133,11 @@ export default function ChuckSetup() {
                 </Button>
             </Box>
 
-            <OldParentMonolith 
+            <OldParentMonolith
                 onUpload={handleUpload}
                 chuckHook={chuckHook || {}}
                 selectedDeviceId={selectedDeviceId}
-                updateAudioInputDevice={updateAudioInputDevice} 
+                updateAudioInputDevice={updateAudioInputDevice}
                 deviceOptions={deviceOptions}
                 showAudioInDropdown={showAudioInDropdown}
                 updateSelectedAudioInSetting={updateSelectedAudioInSetting}

@@ -25,6 +25,17 @@ export type RhythmCache = {
   events: RhythmEvent[];    // flattened DFS/sequence for quick traversal
   // Optionally include maps for "next event" lookups per (y,x)
   nextByCell: Record<string, RhythmEvent | undefined>;
+  // Context/metadata for enhanced event processing
+  context?: {
+    mTFreqs?: number[];
+    mTMidiNums?: number[];
+    bpm?: number;
+    numeratorSignature?: number;
+    denominatorSignature?: number;
+    notesHolder?: any;
+    masterFastestRate?: number;
+    selectedChordScaleOctaveRange?: any;
+  };
 };
 
 /**
@@ -40,12 +51,20 @@ export type RhythmCache = {
  *       to force a recompute using the same global trigger.
  * 
  * - Optional context:
- *   You can pass filesToProcess and tune for enhanced cache data (frequencies, file names).
+ *   You can pass filesToProcess, tune, and other parameters for enhanced cache data.
  *   If not provided, cache will still work but without these enhancements.
  */
 export function useRhythmCache(options?: {
   filesToProcess?: any[];  // Array of file objects with { filename, ... }
   tune?: any;               // Tune instance for frequency calculation
+  mTFreqs?: number[];      // Microtonal frequencies array
+  mTMidiNums?: number[];   // Microtonal MIDI numbers array
+  selectedChordScaleOctaveRange?: any; // { key, scale, chord, octaveMin, octaveMax, freqs, notes, midi }
+  bpm?: number;            // Beats per minute
+  numeratorSignature?: number;  // Time signature numerator
+  denominatorSignature?: number; // Time signature denominator
+  notesHolder?: any;       // Ref/object holding current note values
+  masterFastestRate?: number; // Fastest playback rate
 }) {
   const gridVersion = useBeatGridStore((s) => s.gridVersion);
   const grid = useBeatGridStore((s) => s.masterPatternsHashHook);
@@ -59,13 +78,26 @@ export function useRhythmCache(options?: {
     version: -1,
     events: [],
     nextByCell: {},
+    context: undefined,
   });
 
   // Build cache whenever the version changes. We read the latest grid snapshot.
   useEffect(() => {
     const next = buildCacheFromGrid(grid, gridVersion, options);
     cacheRef.current = next;
-  }, [gridVersion, grid, options?.filesToProcess, options?.tune]);
+  }, [
+    gridVersion, 
+    grid, 
+    options?.filesToProcess, 
+    options?.tune,
+    options?.mTFreqs,
+    options?.mTMidiNums,
+    options?.bpm,
+    options?.numeratorSignature,
+    options?.denominatorSignature,
+    options?.notesHolder,
+    options?.masterFastestRate,
+  ]);
 
   // Expose the cache and version as stable references
   return useMemo(
@@ -83,6 +115,14 @@ function buildCacheFromGrid(
   options?: {
     filesToProcess?: any[];
     tune?: any;
+    mTFreqs?: number[];
+    mTMidiNums?: number[];
+    selectedChordScaleOctaveRange?: any;
+    bpm?: number;
+    numeratorSignature?: number;
+    denominatorSignature?: number;
+    notesHolder?: any;
+    masterFastestRate?: number;
   }
 ): RhythmCache {
   const events: RhythmEvent[] = [];
@@ -226,6 +266,16 @@ function buildCacheFromGrid(
     version,
     events,
     nextByCell,
+    context: {
+      mTFreqs: options?.mTFreqs,
+      mTMidiNums: options?.mTMidiNums,
+      bpm: options?.bpm,
+      numeratorSignature: options?.numeratorSignature,
+      denominatorSignature: options?.denominatorSignature,
+      notesHolder: options?.notesHolder,
+      masterFastestRate: options?.masterFastestRate,
+      selectedChordScaleOctaveRange: options?.selectedChordScaleOctaveRange,
+    },
   };
 }
 

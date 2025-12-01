@@ -234,23 +234,31 @@ export async function processSourceFX(
     // if(addedEffect.split(" ").length > 1 && addedEffect.split(" ")[0].includes('Delay')) {
     //     addedEffect = addedEffect?.split(" ").shift()?.toString();
     // }
+    // Ensure signalChain exists and is an array
+    if (!targets.signalChain) {
+      targets.signalChain = [];
+    }
+    
     if (
-        !Object.values(targets.signalChain).toString().includes(addedEffect) && 
-        universalSources && universalSources[sourceKey] && Object.values(universalSources[sourceKey].effects).filter(i => i.On && i.VarName === fx.VarName).length > 0 &&
-        targets.signalChain.indexOf(addedEffect) === -1
+        !targets.signalChain.includes(addedEffect) && 
+        universalSources && universalSources[sourceKey] && Object.values(universalSources[sourceKey].effects || {}).filter(i => i.On && i.VarName === fx.VarName).length > 0
     ) {
       targets.signalChain.push(addedEffect);
     }
 
+    // Ensure signalChainDeclarations exists and is an array
+    if (!targets.signalChainDeclarations) {
+      targets.signalChainDeclarations = [];
+    }
+
     if (
-        !Object.values(targets.signalChainDeclarations).toString().includes(addedEffectDeclaration) &&
-        universalSources && universalSources[sourceKey] && Object.values(universalSources[sourceKey].effects).filter(i => i.On && i.VarName === fx.VarName).length > 0 &&
-        targets.signalChainDeclarations.indexOf(addedEffectDeclaration) === -1
+        !targets.signalChainDeclarations.includes(addedEffectDeclaration) &&
+        universalSources && universalSources[sourceKey] && Object.values(universalSources[sourceKey].effects || {}).filter(i => i.On && i.VarName === fx.VarName).length > 0
     ) {
       targets.signalChainDeclarations.push(addedEffectDeclaration);
     }
 
-    for (const preset of Object.values(fx.presets)) {
+    for (const preset of Object.values(fx.presets || {})) {
 
         if (universalSources && universalSources[sourceKey] && Object.values(universalSources[sourceKey].effects).filter(i => i.On && i.VarName === fx.VarName).length === 0) {
             console.log("SKIPPING PRESET APPLICATION FOR ", fx.VarName, " AS IT IS TURNED OFF");
@@ -319,9 +327,13 @@ export const getChuckCode = (
     console.log("JUST PRIOR TO CHUCK HERE IS selectedChordScaleOctaveRange: ", selectedChordScaleOctaveRange);
     console.log("MASTER FASTEST RATE: ", masterFastestRate);
     console.log("HEY_YO FILES ARRAY! ", filesArray);    
-    console.log("SANITY NOTESHOLDER: ", notesHolder.current);
+    // Safely access notesHolder (could be a ref or direct value)
+    const notesHolderValue = notesHolder?.current || notesHolder || null;
+    console.log("SANITY NOTESHOLDER: ", notesHolderValue);
     console.log("VALS DECLARATIONS: ", valuesReadoutDeclarations);
-    console.log("MASTERPATTERNSREF IN CHUCK HELPER: ", Object.values(masterPatternsRef.current));
+    // Safely access masterPatternsRef.current
+    const masterPatternsData = masterPatternsRef?.current || masterPatternsRef || {};
+    console.log("MASTERPATTERNSREF IN CHUCK HELPER: ", Object.values(masterPatternsData));
 
     const beatInMilliseconds = ((60000 / bpm));
 
@@ -336,12 +348,54 @@ export const getChuckCode = (
       
 
 
-    const masterPatternsObj = (Object.values(masterPatternsRef.current).map((i:any)=>Object.values(i))[0])[0];
+    // Safely extract masterPatternsObj with null checks
+    const masterPatternsDataForObj = masterPatternsRef?.current || masterPatternsRef || {};
+    const masterPatternsRows = Object.values(masterPatternsDataForObj).filter((i: any) => i != null);
+    const masterPatternsObj = masterPatternsRows.length > 0 
+        ? (Object.values(masterPatternsRows[0] as any).filter((i: any) => i != null)[0] || {})
+        : {};
     // const masterPatternsStr = JSON.stringify(masterPatternsObj);
     console.log("MASTER PATTERNS OBJ ", masterPatternsObj);
 
 
-    console.log("LALALA ", Object.values(valuesReadout).map((value: any) => value).join(' '));
+    // Safely access valuesReadout and other potentially undefined objects
+    const safeValuesReadout = valuesReadout || {};
+    const safeValuesReadoutDeclarations = valuesReadoutDeclarations || {};
+    const safeValuesReadoutSampler = valuesReadoutSampler || {};
+    const safeValuesReadoutSamplerDeclarations = valuesReadoutSamplerDeclarations || {};
+    const safeValuesReadoutSTK = valuesReadoutSTK || {};
+    const safeValuesReadoutSTKDeclarations = valuesReadoutSTKDeclarations || {};
+    const safeValuesReadoutAudioIn = valuesReadoutAudioIn || {};
+    const safeValuesReadoutAudioInDeclarations = valuesReadoutAudioInDeclarations || {};
+    const safeSignalChainDeclarations = signalChainDeclarations || [];
+    const safeSignalChainSamplerDeclarations = signalChainSamplerDeclarations || [];
+    const safeSignalChainSTKDeclarations = signalChainSTKDeclarations || [];
+    const safeSignalChainAudioInDeclarations = signalChainAudioInDeclarations || [];
+    
+    // Safely access moogGrandmotherEffects with fallback structure
+    // Handle both ref-like objects ({ current: ... }) and direct objects
+    const safeMoogGrandmotherEffects = (() => {
+        if (!moogGrandmotherEffects) {
+            return { 
+                current: { 
+                    offset: { value: 0 }, 
+                    oscOffset: { value: 0 } 
+                } 
+            };
+        }
+        // If it's already a ref-like object with .current, use it
+        if (moogGrandmotherEffects.current) {
+            return moogGrandmotherEffects;
+        }
+        // If it's a direct object, wrap it
+        return { current: moogGrandmotherEffects };
+    })();
+    
+    // Extract values from safeMoogGrandmotherEffects before template string to avoid runtime errors
+    const moogOffsetValue = safeMoogGrandmotherEffects?.current?.offset?.value || 0;
+    const moogOscOffsetValue = safeMoogGrandmotherEffects?.current?.oscOffset?.value || 0;
+    
+    console.log("LALALA ", Object.values(safeValuesReadout).map((value: any) => value).join(' '));
 
     const newChuckCode = `
     
@@ -403,15 +457,15 @@ export const getChuckCode = (
 
 
 
-    ${signalChainDeclarations.map((value: any) => value).join(' ')}
-    ${signalChainSamplerDeclarations.map((value: any) => value).join(' ')}
-    ${signalChainSTKDeclarations.map((value: any) => value).join(' ')}
-    ${signalChainAudioInDeclarations.map((value: any) => value).join(' ')}
+    ${safeSignalChainDeclarations.map((value: any) => value).join(' ')}
+    ${safeSignalChainSamplerDeclarations.map((value: any) => value).join(' ')}
+    ${safeSignalChainSTKDeclarations.map((value: any) => value).join(' ')}
+    ${safeSignalChainAudioInDeclarations.map((value: any) => value).join(' ')}
 
-    ${Object.values(valuesReadoutDeclarations).map((value: any) => value).join(' ')}
-    ${Object.values(valuesReadoutSamplerDeclarations).map((value: any) => value).join(' ')}
-    ${Object.values(valuesReadoutSTKDeclarations).map((value: any) => value).join(' ')}
-    ${Object.values(valuesReadoutAudioInDeclarations).map((value: any) => value).join(' ')}
+    ${Object.values(safeValuesReadoutDeclarations).map((value: any) => value).join(' ')}
+    ${Object.values(safeValuesReadoutSamplerDeclarations).map((value: any) => value).join(' ')}
+    ${Object.values(safeValuesReadoutSTKDeclarations).map((value: any) => value).join(' ')}
+    ${Object.values(safeValuesReadoutAudioInDeclarations).map((value: any) => value).join(' ')}
 
 
     ${hid} => Hid hi;                
@@ -450,7 +504,7 @@ export const getChuckCode = (
     // Number of voices for polyphony
     1 => global int numVoices;
     global float NOTES_SET[0];
-    ${currentNoteVals.osc1[0]} => global int fastestRateUpdate;
+    ${(currentNoteVals && typeof currentNoteVals === 'object' && currentNoteVals.osc1 && Array.isArray(currentNoteVals.osc1) && currentNoteVals.osc1[0]) || masterFastestRate || 4} => global int fastestRateUpdate;
 
     SawOsc saw1;
     SawOsc saw2;
@@ -472,29 +526,29 @@ export const getChuckCode = (
 
     class Osc1_EffectsChain extends Chugraph
     { 
-        inlet => ${signalChain.join(' ')} outlet;
+        inlet => ${(signalChain || []).join(' ')} outlet;
 
-        ${Object.values(valuesReadout).map((value: any) => value).join(' ')}
-        ${getSourceFX('osc1')}
+        ${Object.values(safeValuesReadout).map((value: any) => value).join(' ')}
+        ${getSourceFX?.('osc1') || ''}
     }
 
     class Sampler_EffectsChain extends Chugraph
     {
-        inlet => ${signalChainSampler.join(' ')} outlet;
-        ${Object.values(valuesReadoutSampler).map((value: any) => value).join(' ')}
-        ${getSourceFX('sampler')}
+        inlet => ${(signalChainSampler || []).join(' ')} outlet;
+        ${Object.values(safeValuesReadoutSampler).map((value: any) => value).join(' ')}
+        ${getSourceFX?.('sampler') || ''}
     }
 
     class STK_EffectsChain extends Chugraph {
-        inlet => ${signalChainSTK.join(' ')} outlet;
-        ${Object.values(valuesReadoutSTK).map((value: any) => value).join(' ')}
-        ${getSourceFX('stk')}
+        inlet => ${(signalChainSTK || []).join(' ')} outlet;
+        ${Object.values(safeValuesReadoutSTK).map((value: any) => value).join(' ')}
+        ${getSourceFX?.('stk') || ''}
     }
 
     class AudioIn_EffectsChain extends Chugraph {
-        inlet => ${signalChainAudioIn.join(' ')} outlet;
-        ${Object.values(valuesReadoutAudioIn).map((value: any) => value).join(' ')}
-        ${getSourceFX('audioin')}
+        inlet => ${(signalChainAudioIn || []).join(' ')} outlet;
+        ${Object.values(safeValuesReadoutAudioIn).map((value: any) => value).join(' ')}
+        ${getSourceFX?.('audioin') || ''}
     }
 
     SndBuf buffers[5] => Sampler_EffectsChain sampler_FxChain => Dyno sampler_MasterDyno => Pan2 sampler_MasterPan => Gain sampler_MasterGain => dac;
@@ -559,10 +613,10 @@ export const getChuckCode = (
         80.0 => float filterCutoff;
         filterCutoff => lpf.freq;
 
-        ${moogGrandmotherEffects.current.offset.value} => float offset;
+        ${moogOffsetValue} => float offset;
         1.0 => float filterEnv;
         1.0 => float osc2Detune;
-        ${moogGrandmotherEffects.current.oscOffset.value} => float oscOffset;
+        ${moogOscOffsetValue} => float oscOffset;
 
         fun void SetOsc1Freq(float frequency)
         {
@@ -856,10 +910,10 @@ export const getChuckCode = (
         string keys[0];
         allFXDynamicInts.getKeys(keys);
 
-        ${Object.values(valuesReadout).map((value: any) => value).join(' ')}
-        ${Object.values(valuesReadoutSampler).map((value: any) => value).join(' ')}
-        ${Object.values(valuesReadoutSTK).map((value: any) => value).join(' ')}
-        ${Object.values(valuesReadoutAudioIn).map((value: any) => value).join(' ')}
+        ${Object.values(safeValuesReadout).map((value: any) => value).join(' ')}
+        ${Object.values(safeValuesReadoutSampler).map((value: any) => value).join(' ')}
+        ${Object.values(safeValuesReadoutSTK).map((value: any) => value).join(' ')}
+        ${Object.values(safeValuesReadoutAudioIn).map((value: any) => value).join(' ')}
 
     }
 
@@ -937,9 +991,9 @@ export const getChuckCode = (
 
         ((fastestTickCounter % (numeratorSignature * denominatorSignature)) + 1) % fastestRateUpdate => int masterTick;
 
-        [${Object.values(masterPatternsRef.current).map((i: any) =>  Object.values(i).map( (i:any) => i.fileNums.length > 0 ? `[${i.fileNums}]` : `['9999']` ) )}] @=> int filesArr[][]; 
+        [${Object.keys(masterPatternsData || {}).length > 0 ? Object.values(masterPatternsData).map((i: any) => i && typeof i === 'object' ? Object.values(i).map((cell: any) => cell?.fileNums?.length > 0 ? `[${cell.fileNums}]` : `['9999']`) : `['9999']`) : `['9999']`}] @=> int filesArr[][]; 
 
-        ${Object.values(valuesReadoutSampler).map((value: any) => value).join(' ')}
+        ${Object.values(safeValuesReadoutSampler).map((value: any) => value).join(' ')}
         
 
         if (recurringTickCount >= filesArr.size()) return;
@@ -1034,10 +1088,10 @@ export const getChuckCode = (
 
     while(true)
     {
-        ${Object.values(valuesReadout).map((value: any) => value).join(' ')}
+        ${Object.values(safeValuesReadout).map((value: any) => value).join(' ')}
         // ${Object.values(valuesReadoutSampler).map((value: any) => value).join(' ')}
-        ${Object.values(valuesReadoutSTK).map((value: any) => value).join(' ')}
-        ${Object.values(valuesReadoutAudioIn).map((value: any) => value).join(' ')}
+        ${Object.values(safeValuesReadoutSTK).map((value: any) => value).join(' ')}
+        ${Object.values(safeValuesReadoutAudioIn).map((value: any) => value).join(' ')}
  
         /////////////////////////////////////////////////////
         // THIS COULD BE SWITCHED FROM MONO BACK TO POLY...

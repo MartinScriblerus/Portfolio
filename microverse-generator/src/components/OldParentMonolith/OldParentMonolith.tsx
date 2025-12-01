@@ -315,11 +315,13 @@ function RightDrawer(props: RightDrawerProps) {
           {/* <EditingModeToggle /> */}
           {/* <div style={{ marginTop: 8 }}> */}
            {/* {props.fxRadioValue === "sample" &&  */}
-           <WaveformCanvas
-              getSamples={() => latestTimeDomainRef.current}
-              height={56}
-              color="#62f5ff"
-            />
+           <Box sx={{ height: '56px', width: '100%' }}>
+            <WaveformCanvas
+                getSamples={() => latestTimeDomainRef.current}
+                height={56}
+                color="#62f5ff"
+              />
+            </Box>
             {/* } */}
           {/* </div> */}
         </header>

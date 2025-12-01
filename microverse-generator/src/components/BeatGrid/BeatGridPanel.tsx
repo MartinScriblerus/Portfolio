@@ -15,6 +15,7 @@ import { Tune } from "../../tune";
 import { useRhythmCache } from "../../hooks/useRhythmCache";
 import { useOldMonolithStore } from "../../store/useOldMonolithStore";
 import { useBeatGridStore } from "../../store/useBeatGridStore";
+import { useTimingStore } from "../../hooks/useTimingStore";
 import { formatNoteNameWithOctave } from "../../utils/utils";
 import type { MingusSelections } from "./MingusPopup";
 import MicrotonesWrapper from "../MicrotonesWrapper";
@@ -192,12 +193,29 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
 
     const [currCellString, setCurrCellString] = useState<string>("0_1_0"); // Default cell string for (x=0, y=1, subdiv=0)
 
+    // Get bpm from timing store (fallback to prop)
+    const bpmFromStore = useTimingStore((s: any) => s.bpm);
+    const effectiveBpm = bpm || bpmFromStore || 120;
+
+    // Create notesHolder ref from currentNoteVals for compatibility with getChuckCode
+    const notesHolder = useRef(currentNoteVals);
+    useEffect(() => {
+        notesHolder.current = currentNoteVals;
+    }, [currentNoteVals]);
+
     // Build rhythm DFS/next-event cache on load and on grid updates
     // Ensures cache is constructed before first audio run
-    // Pass filesToProcess and tune for enhanced cache data (frequencies, file names)
+    // Pass all available parameters for enhanced cache data
     const { cacheRef, version } = useRhythmCache({
         filesToProcess,
         tune,
+        mTFreqs,
+        mTMidiNums,
+        bpm: effectiveBpm,
+        numeratorSignature: Number(numeratorSignature) || 4,
+        denominatorSignature: Number(denominatorSignature) || 4,
+        notesHolder: notesHolder.current,
+        masterFastestRate,
     });
 
     // Safely capture and expose rhythm events when cache updates
@@ -1222,7 +1240,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
 
 
 
-                                        {fxRadioValue && fxRadioValue.toLowerCase().includes("osc") && (
+                                        {/* {fxRadioValue && fxRadioValue.toLowerCase().includes("osc") && ( */}
 
 
 
@@ -1379,6 +1397,32 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     <ParameterSlider label="Volume" value={noteVolumeValue} min={0} max={1} step={0.01} onChange={handleNoteVolumeUpdateLocal} />
                                                                 </Box>
                                                             </Box>
+
+                                                            <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
+
+<Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
+    <Box sx={{ padding: "4px", width: "100%" }}>
+        <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</FormLabel>
+        <Slider
+            value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
+            onChange={(e, val) => {
+                const patternMap: Record<number, number> = { 0: 0, 4: 2, 8: 3, 16: 4 };
+                const mapped = patternMap[val as number] ?? 0;
+                handleAssignPatternNumber({ target: { value: mapped.toString() } } as any);
+            }}
+            marks={[{ value: 0, label: '0' }, { value: 4, label: '1' }, { value: 8, label: '2' }, { value: 16, label: '4' }]}
+            min={0}
+            max={16}
+            step={null}
+            sx={{ color: NEON_PINK }}
+        />
+    </Box>
+</Box>
+<Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? HERITAGE_GOLD : OBERHEIM_TEAL}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
+    <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
+</Box>
+</Box>
+
                                                             {/* Velocity/Length Sliders (existing) */}
                                                             {cellData.current && Object.values(cellData.current).length > 0 && Object.values(cellData.current[0]).length > 0 && (
                                                                 <Box sx={{ display: "flex", flexDirection: "column", width: "100%" }}>
@@ -1437,7 +1481,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                             </button>
                                                         </Box>
                                                     </Box>
-                                                    <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
+                                                    {/* <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
 
                                                         <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
                                                             <Box sx={{ padding: "4px", width: "100%" }}>
@@ -1460,10 +1504,10 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                         <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? HERITAGE_GOLD : OBERHEIM_TEAL}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
                                                             <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
                                                         </Box>
-                                                    </Box>
+                                                    </Box> */}
                                                 </Box>
                                             </Box>
-                                        )}
+                                        {/* // )} */}
 
 
 
