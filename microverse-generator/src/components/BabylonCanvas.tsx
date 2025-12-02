@@ -1353,11 +1353,67 @@ export default function BabylonHydraCanvas() {
             // ------------------------------
             // Babylon setup
             // ------------------------------
-            const engine = new BABYLON.Engine(canvasRef.current, true, {
-                preserveDrawingBuffer: true,
-                stencil: true,
-            });
-            const scene = new BABYLON.Scene(engine);
+            let engine: BABYLON.Engine | undefined;
+            let scene: BABYLON.Scene | undefined;
+            
+            try {
+                // Ensure canvas is ready
+                if (!canvasRef.current) {
+                    console.error('Canvas ref is not available for Babylon.js');
+                    return;
+                }
+                
+                engine = new BABYLON.Engine(canvasRef.current, true, {
+                    preserveDrawingBuffer: true,
+                    stencil: true,
+                });
+                
+                // Ensure engine is ready before creating scene
+                if (!engine || !engine.getCaps) {
+                    console.error('Babylon.js engine failed to initialize');
+                    if (engine) {
+                        try { engine.dispose(); } catch {}
+                    }
+                    return;
+                }
+                
+                // Wait a tick to ensure engine is fully initialized
+                await new Promise(resolve => setTimeout(resolve, 0));
+                
+                // Verify engine is still valid before creating scene
+                if (!engine || !engine.getCaps) {
+                    console.error('Babylon.js engine became invalid after initialization delay');
+                    if (engine) {
+                        try { engine.dispose(); } catch {}
+                    }
+                    return;
+                }
+                
+                scene = new BABYLON.Scene(engine);
+            } catch (err: any) {
+                console.error('Failed to initialize Babylon.js Scene:', err);
+                console.error('Error details:', {
+                    message: err?.message,
+                    stack: err?.stack,
+                    name: err?.name,
+                });
+                // Try to dispose engine if it was created
+                if (engine) {
+                    try { engine.dispose(); } catch (disposeErr) {
+                        console.warn('Failed to dispose engine:', disposeErr);
+                    }
+                }
+                return;
+            }
+            
+            // Ensure scene was created successfully
+            if (!scene) {
+                console.error('Scene was not created successfully');
+                if (engine) {
+                    try { engine.dispose(); } catch {}
+                }
+                return;
+            }
             // Lighten baseline background so cubes are discoverable
             // scene.clearColor = new BABYLON.Color4(0.06, 0.07, 0.085, 1);
             scene.clearColor = new BABYLON.Color4(0.10, 0.11, 0.13, 1)
@@ -2050,49 +2106,65 @@ export default function BabylonHydraCanvas() {
         let node: any | null = null;
 
         (async () => {
-          const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-          ctx = (window as any).__audioCtx ?? new AC();
-          (window as any).__audioCtx = ctx;
-          try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
+          try {
+            const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+            ctx = (window as any).__audioCtx ?? new AC();
+            (window as any).__audioCtx = ctx;
+            try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
 
-          const { default: MeydaNode } = await import('../audio/AudioAnalysisNode.js');
-          await MeydaNode.ensureModule(ctx, '/audio/meyda-audio-processor.js');
+            const { default: MeydaNode } = await import('../audio/AudioAnalysisNode.js');
+            await MeydaNode.ensureModule(ctx, '/audio/meyda-audio-processor.js');
 
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
-            video: false
-          });
-          await ctx;
-          source = ctx && ctx.createMediaStreamSource(stream);
-          node = new MeydaNode(ctx, { processorName: 'meyda-audio-processor' });
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+              video: false
+            });
+            await ctx;
+            source = ctx && ctx.createMediaStreamSource(stream);
+            node = new MeydaNode(ctx, { processorName: 'meyda-audio-processor' });
 
-          node.ondata = (msg: any) => {
-            const rms = typeof msg?.rms === 'number' ? msg.rms : 0;
-            const prev = (window as any).__audioAmp ?? 0;
-            (window as any).__audioAmp = prev + (Math.min(1, rms * 3) - prev) * 0.2;
-            // Expose Meyda data globally for Hydra controls
-            (window as any).__meydaData = msg;
-          };
+            node.ondata = (msg: any) => {
+              const rms = typeof msg?.rms === 'number' ? msg.rms : 0;
+              const prev = (window as any).__audioAmp ?? 0;
+              (window as any).__audioAmp = prev + (Math.min(1, rms * 3) - prev) * 0.2;
+              // Expose Meyda data globally for Hydra controls
+              (window as any).__meydaData = msg;
+            };
 
-          // connect mic -> worklet only (no destination = no feedback)
-          await source;
-          source && source.connect(node);
-        })().catch(err => console.warn('Audio analysis init failed', err));
+            // connect mic -> worklet only (no destination = no feedback)
+            await source;
+            source && source.connect(node);
+          } catch (err: any) {
+            // Silently fail if worklet module can't be loaded (may not be available in all environments)
+            if (err?.name !== 'AbortError' && err?.message?.includes('worklet')) {
+              // Only log non-AbortError worklet failures
+              console.debug('Audio analysis worklet not available:', err.message);
+            }
+          }
+        })();
 
         if (typeof window === 'undefined') return;
         let midiNode: any | null = null;
 
         (async () => {
-          const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-          ctx = (window as any).__audioCtx ?? new AC();
-          (window as any).__audioCtx = ctx;
-          try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
+          try {
+            const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+            ctx = (window as any).__audioCtx ?? new AC();
+            (window as any).__audioCtx = ctx;
+            try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
 
-          const { default: MidiAudioNode } = await import('../audio/MidiAudioNode.js');
-          await MidiAudioNode.ensureModule(ctx, '/audio/midi-audio-processor.js'); // public/audio/...
-          midiNode = new MidiAudioNode(ctx);
-          // connect only if your processor outputs audio; otherwise keep it unconnected
-        })().catch(err => console.warn('Midi worklet init failed', err));
+            const { default: MidiAudioNode } = await import('../audio/MidiAudioNode.js');
+            await MidiAudioNode.ensureModule(ctx, '/audio/midi-audio-processor.js'); // public/audio/...
+            midiNode = new MidiAudioNode(ctx);
+            // connect only if your processor outputs audio; otherwise keep it unconnected
+          } catch (err: any) {
+            // Silently fail if worklet module can't be loaded (may not be available in all environments)
+            if (err?.name !== 'AbortError' && err?.message?.includes('worklet')) {
+              // Only log non-AbortError worklet failures
+              console.debug('Midi worklet not available:', err.message);
+            }
+          }
+        })();
 
         hexScrollRef.current && hexScrollRef.current.scrollTo({ left: Math.max(0, (hexScrollRef.current.scrollWidth - hexScrollRef.current.clientWidth) / 2), top: Math.max(0, (hexScrollRef.current.scrollHeight - hexScrollRef.current.clientHeight) / 2), behavior: 'smooth' });
         return () => {

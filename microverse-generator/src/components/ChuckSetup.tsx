@@ -12,6 +12,7 @@ import {
 } from '../utils/audioInSettingsHelper';
 import { useTimingStore } from '../hooks/useTimingStore';
 import { useBeatGridStore } from '../store/useBeatGridStore';
+import { useTransportStore } from '../store/useTransportStore';
 import '../../app/globals.css';
 import { useAudioInSettingsStore } from '../utils/audioInSettingsHelper';
 import { audioInEffectSlidersHelper } from '../utils/utils';
@@ -21,10 +22,29 @@ import MicOffIcon from '@mui/icons-material/MicOff';
 import MicIcon from '@mui/icons-material/Mic';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import { Box, Button, InputLabel, Select } from '@mui/material';
-import { filesToProcess, chuckRef as globalChuckRef } from '../../app/state/refs';
+import { 
+    filesToProcess, 
+    chuckRef as globalChuckRef,
+    universalSources,
+    moogGrandmotherEffects,
+    activeSTKDeclarations,
+    activeSTKSettings,
+    activeSTKPlayOn,
+    activeSTKPlayOff,
+    masterPatternsRef
+} from '../../app/state/refs';
 import '../../app/globals.css';
 import OldParentMonolith from '../components/OldParentMonolith/OldParentMonolith';
 import { EFFECTS } from '../constants';
+import { 
+    getChuckCode, 
+    buildSourceData, 
+    processSourceFX,
+    createEmptyTargets 
+} from '../utils/chuckHelper';
+import { useOldMonolithStore } from '../store/useOldMonolithStore';
+import { useMicrotonalStore } from '../store/useMicrotonalStore';
+import { initializeUniversalSources } from '../utils/effectsInitializationHelper';
 
 // Put this near the top, inside component file (module scope or inside component before handlers):
 const SERVER_FILES_TO_PRELOAD: Array<{ serverFilename: string; virtualFilename: string }> = [
@@ -200,6 +220,55 @@ export default function ChuckSetup() {
     const [deviceOptions, setDeviceOptions] = useState<MediaDeviceInfo[]>([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
     const [chuckHook, setChuckHook] = useState<Chuck | any>({});
+
+    // Initialize universalSources with all effects on mount
+    useEffect(() => {
+        if (!universalSources.current) {
+            console.log('Initializing universalSources with all available effects...');
+            universalSources.current = initializeUniversalSources();
+            console.log('✅ universalSources initialized');
+        }
+    }, []);
+
+    // Global error handler to catch unhandled promise rejections from ChucK
+    useEffect(() => {
+        const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+            const err = event.reason;
+            
+            // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
+            // This happens during ChucK initialization when it tries to access files that don't exist
+            if (err?.name === 'ErrnoError' && err?.errno === 20) {
+                event.preventDefault(); // Prevent the error from showing in console
+                event.stopPropagation(); // Stop the error from propagating
+                return; // Silently handle it
+            }
+            
+            // Log other unhandled rejections for debugging (but still suppress from console)
+            if (err?.name === 'ErrnoError') {
+                if (process.env.NODE_ENV === 'development') {
+                    console.debug('Unhandled ChucK ErrnoError (errno:', err?.errno, '):', err?.message);
+                }
+                event.preventDefault(); // Prevent the error from showing in console
+                event.stopPropagation(); // Stop the error from propagating
+                return;
+            }
+            
+            // Check if error message contains "Running code failed" (string errors from WebChucK)
+            if (typeof err === 'string' && err.includes('Running code failed')) {
+                // This is handled in the catch block, suppress it here
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+        };
+
+        // Add listener with capture phase to catch errors early
+        window.addEventListener('unhandledrejection', handleUnhandledRejection, true);
+        
+        return () => {
+            window.removeEventListener('unhandledrejection', handleUnhandledRejection, true);
+        };
+    }, []);
 
     const [isRunning, setIsRunning] = useState(false);
     const currentStreamRef = useRef<MediaStream | null>(null);
@@ -427,220 +496,19 @@ export default function ChuckSetup() {
     const arrayLiteral = JSON.stringify(allVFiles);
     try {
         await chuckRef.current.runCode(`[${arrayLiteral}] @=> files; filesUpdated.broadcast();`);
-    } catch (err) {
+    } catch (err: any) {
+        // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
+        if (err?.name === 'ErrnoError' && err?.errno === 20) {
+            // Silently ignore - this is a common non-critical file system error
+            return;
+        }
         console.warn('Failed to update files[] in ChucK', err);
     }
 
     // e.target.value = '';
 }
 
-    const beatInMilliseconds = useTimingStore((s: any) => s.beatMs);
-
-
-    const chuckInstructions = `
-
-
-        <<< "TICK: ", now >>>;
-        ${filesArray} @=> string files[];
-
-
-        // Global variables and events
-        global Event playNote;
-        global Event playSingleNote;
-
-        global Event releaseSingleNote;
-        global Event playSTK;
-        global Event startMeasure;
-        global Event playAudioIn;
-        global Event fxUpdate;
-        global Event stkInstFxUpdate;
-        global float bpm; 
-        bpm => float bpmInit;
-
-        global float chuckNotes[0];
-        global float chuckNotesOff[0];
-
-        global float chuckVelocities[0];
-
-        global float midiNotesArray[0];
-        global float midiFreqsArray[0];
-        global float midiLengthsArray[0];
-        global float midiVelocitiesArray[0];
-
-        global float moogGMDefaults[0]; 
-        global float effectsDefaults[0];  
-        global float stkEffectsDefaults[0];  
-        global int allFXDynamicInts[0];
-        global int allSTKFXDynamicInts[0];
-        global int stkInstsInUse;
-        global float allFXDynamicFloats[0];
-        global float allSTKFXDynamicFloats[0];
-
-        // global int numeratorSignature;
-        // global int denominatorSignature;
-
-        // 0.5 => global float osc1MasterGain;
-        // 0.5 => global float samplerMasterGain;
-        // 0.5 => global float audioInMasterGain;
-        // 0.5 => global float stkMasterGain;
-
-        global float audioMixer_Osc1[0];
-        global float audioMixer_Stk1[0]; 
-        global float audioMixer_Sampler[0]; 
-        global float audioMixer_AudioIn[0];  
-
-
-
-        global int beatCount;
-        0 => beatCount;
-        global int stepCount;
-        0 => stepCount;
-        global int stepsPerBeat;
-        4 => stepsPerBeat;
-
-        global float audioInSettingsHelperHash[0];
-        
-        global int BeatMsInts;
-        // ${beatMs} => BeatMsInts;
-        1 => BeatMsInts;
-        global int activeEffect;
-        2 => activeEffect;
-        -1 => int lastEffect; 
-
-        
-
-
-        ${getGrainStretchClass(
-            beatMs,
-        )}
-
-        ${getTapeClass(
-            beatMs,
-        )}
-
-        ${getRandomReverseClass(
-            beatMs,
-        )}
-        
-        ${getReichClass(
-            beatMs,
-        )}
-
-
-        1 => audioInSettingsHelperHash["grain_stretch"];
-        ${audioInSettingsHelperHash['grain_rate']} / 1000 => audioInSettingsHelperHash["grain_rate"];
-        ${audioInSettingsHelperHash['grain_length']} => audioInSettingsHelperHash["grain_length"];
-        ${audioInSettingsHelperHash['grain_grains']} => audioInSettingsHelperHash["grain_grains"];
-        
-        ${audioInSettingsHelperHash['tape_delaylength']} => audioInSettingsHelperHash["tape_delaylength"];
-        ${audioInSettingsHelperHash['tape_loop']} => audioInSettingsHelperHash["tape_loop"];
-        1.0 => audioInSettingsHelperHash["tape_gain"];
-
-        ${audioInSettingsHelperHash['random_reverse_influence']} => audioInSettingsHelperHash["random_reverse_influence"];
-        ${audioInSettingsHelperHash['random_reverse_rate']} / 1000 => audioInSettingsHelperHash["random_reverse_rate"];
-        ${audioInSettingsHelperHash['random_reverse_maxbufferlength']} / 1000 => audioInSettingsHelperHash["random_reverse_maxbufferlength"];
-        ${audioInSettingsHelperHash['random_reverse_envelopeduration']} / 1000 => audioInSettingsHelperHash["random_reverse_envelopeduration"];
-
-
-        ${audioInSettingsHelperHash["clapping_length"]} => audioInSettingsHelperHash["clapping_length"];
-        ${audioInSettingsHelperHash["clapping_voices"]} => audioInSettingsHelperHash["clapping_voices"];
-        ${audioInSettingsHelperHash["clapping_speed"]} => audioInSettingsHelperHash["clapping_speed"];
-        ${audioInSettingsHelperHash["clapping_maxbuffer"]} => audioInSettingsHelperHash["clapping_maxbuffer"];
-
-
-        GrainStretch grain;
-        Tape tape;
-        RandomReverse rr;
-        Reich rei;
-        // LisaTrigger lisaTrigger;
-
-
-        fun void fxUpdateHandler(Event e) {
-            while (true) {
-                e => now;
-                if (activeEffect == 0) {
-                    // grain.stretch(audioInSettingsHelperHash["grain_stretch"]);
-                    grain.rate(audioInSettingsHelperHash["grain_rate"]);
-                    grain.length(Std.ftoi(audioInSettingsHelperHash["grain_length"])::ms);
-                    grain.grains(Std.ftoi(audioInSettingsHelperHash["grain_grains"]));
-                } else if (activeEffect == 1) {
-                 if (audioInSettingsHelperHash["tape_delaylength"] > 600.0) {
-                    600.0 => audioInSettingsHelperHash["tape_delaylength"];
-                 }
-                    tape.delayLength(Std.ftoi(audioInSettingsHelperHash["tape_delaylength"])::ms);
-                    tape.loop(Std.ftoi(audioInSettingsHelperHash["tape_loop"]));
-                } else if (activeEffect == 2) {
-                    rr.setInfluence(audioInSettingsHelperHash["random_reverse_influence"]);
-                    rr.setReverseGain(audioInSettingsHelperHash["random_reverse_rate"]);
-                    rr.setMaxBufferLength(Std.ftoi(audioInSettingsHelperHash["random_reverse_maxbufferlength"])::ms);
-                } else if (activeEffect == 3) {
-                    rei.speed(audioInSettingsHelperHash["clapping_speed"]);
-                    // rei.length(Std.ftoi(audioInSettingsHelperHash["clapping_length"])::ms);
-                    rei.voices(Std.ftoi(audioInSettingsHelperHash["clapping_voices"]));
-                    // rei.maxBuffer(Std.ftoi(audioInSettingsHelperHash["clapping_maxbuffer"]));
-                } 
-                // else if (activeEffect == 4) {
-                // } 
-                else {
-                }
-            }
-        }
-
-        spork ~fxUpdateHandler(fxUpdate);
-
-
-        while (true) {      
-            if (activeEffect == 0) {
-                adc => grain => dac;
-            } else if (activeEffect == 1) {
-                adc => tape => dac;
-            } else if (activeEffect == 2) {
-                adc => rr => dac;
-                rr.setInfluence(1.0);
-                rr.listen(1);
-            } else if (activeEffect == 3) {            
-                adc => rei => dac;
-            } else {
-                adc =< tape;
-                adc =< rr;
-                adc =< rei;
-                adc =< grain;
-            }
-
-            activeEffect => int lastActiveEffect;
-            while ( activeEffect == lastActiveEffect) {
-    
-
-            if (activeEffect != lastActiveEffect) {
-                Machine.removeAllShreds();
-                Machine.resetShredID();
-            }
-
-            // <<< "ACTIVE_EFFECT: ", activeEffect >>>;
-            // <<< "SHREDCOUNT: ", Machine.numShreds() >>>;
-            // <<< "TICK: ", now >>>;
-
-
-            
-            (BeatMsInts)::ms => now;
-            // 1000::ms => now;
-            <<< "CHUCK_UP_TO_DATE: ", BeatMsInts, stepCount, beatCount >>>;
-            stepCount++;
-
-            if (stepCount % stepsPerBeat == 0) {
-                beatCount++;
-                0 => stepCount;
-                <<< "SHREDCOUNT: ", Machine.numShreds() >>>;
-                <<< "TICK: ", now >>>;    
-                <<< "BEATCOUNT: ", beatCount >>>;
-            } else {
-                <<< "TICK IN THE ELSE " >>>;
-            }
-        }
-        1::samp => now;
-    }
-    `;
-    
+    // Old hardcoded chuckInstructions template removed - now using getChuckCode() for proper effects routing
     
     useEffect(() => {
         // Don't do anything until WebChucK is ready
@@ -677,8 +545,16 @@ export default function ChuckSetup() {
         // Debug: selected device ID
         // console.log("SEL DEVICE ID ", selectedDeviceId);
         (async () => {
-            chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
-            chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
+            try {
+                chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
+                chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
+            } catch (err: any) {
+                // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
+                if (err?.name === 'ErrnoError' && err?.errno === 20) {
+                    return;
+                }
+                console.warn('Failed to reset ChucK shreds:', err);
+            }
         })();
     }, [audioInSelected]);
 
@@ -754,6 +630,124 @@ export default function ChuckSetup() {
             window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, source: 'bootstrap' } }));
         } catch {}
     }, []);
+
+    // Helper function to build all data needed for getChuckCode
+    const buildChuckCodeData = async () => {
+        try {
+            if (!chuckRef.current) {
+                console.warn('Chuck not ready');
+                return null;
+            }
+            
+            // Ensure universalSources.current is initialized with all effects
+            if (!universalSources.current) {
+                console.log('Initializing universalSources with all available effects...');
+                universalSources.current = initializeUniversalSources();
+                console.log('✅ universalSources initialized with', Object.keys(universalSources.current.osc1.effects).length, 'effects for osc1');
+            }
+
+            // Get store values
+            const transportState = useTransportStore.getState();
+            const bpm = transportState.bpm || 120;
+            const timeSig = transportState.timeSig || { num: 4, den: 4 };
+            const numeratorSignature = timeSig.num;
+            const denominatorSignature = timeSig.den;
+            const masterFastestRate = 1; // Default value - can be added to store if needed
+            const fxRadioValue = useOldMonolithStore.getState().fxRadioValue || 'osc1';
+            
+            // Get microtonal data (these are computed values, not stored - using defaults for now)
+            // TODO: Compute these from microtonal store if needed
+            const mTFreqs: number[] = [];
+            const mTMidiNums: number[] = [];
+            const selectedChordScaleOctaveRange: any = {};
+            
+            // Get current note values
+            const currentNoteVals = useBeatGridStore.getState().currentNoteVals || [];
+            const notesHolder = { current: currentNoteVals };
+            
+            // Build signal chain data for each source
+            const osc1Data = buildSourceData('osc1');
+            const samplerData = buildSourceData('sampler');
+            const stk1Data = buildSourceData('stk1');
+            const audioinData = buildSourceData('audioin');
+            
+            // Process effects for each source
+            const osc1Targets = createEmptyTargets();
+            const samplerTargets = createEmptyTargets();
+            const stk1Targets = createEmptyTargets();
+            const audioinTargets = createEmptyTargets();
+            
+            const osc1Effects = Object.values(universalSources.current.osc1?.effects || {}).filter((fx: any) => fx?.On);
+            const samplerEffects = Object.values(universalSources.current.sampler?.effects || {}).filter((fx: any) => fx?.On);
+            const stk1Effects = Object.values(universalSources.current.stk1?.effects || {}).filter((fx: any) => fx?.On);
+            const audioinEffects = Object.values(universalSources.current.audioin?.effects || {}).filter((fx: any) => fx?.On);
+            
+            try {
+                await Promise.all([
+                    processSourceFX('osc1', osc1Effects, chuckRef, fxRadioValue, osc1Targets, universalSources.current),
+                    processSourceFX('sampler', samplerEffects, chuckRef, fxRadioValue, samplerTargets, universalSources.current),
+                    processSourceFX('stk1', stk1Effects, chuckRef, fxRadioValue, stk1Targets, universalSources.current),
+                    processSourceFX('audioin', audioinEffects, chuckRef, fxRadioValue, audioinTargets, universalSources.current),
+                ]);
+            } catch (fxError) {
+                console.error('Error processing source FX:', fxError);
+                // Continue with empty targets if FX processing fails
+            }
+            
+            // Calculate maxMinFreq
+            const maxMinFreq = mTFreqs.length > 0 ? {
+                min: Math.min(...mTFreqs),
+                max: Math.max(...mTFreqs)
+            } : { min: 0, max: 0 };
+            
+            // Hid not used - set to null
+            const hid = null;
+            
+            // Build getSourceFX function (placeholder for now)
+            const getSourceFX = () => '';
+            
+            return {
+                isTestingChord: undefined,
+                filesArray: JSON.stringify(SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename)),
+                currentNoteVals,
+                masterPatternsRef,
+                masterFastestRate,
+                numeratorSignature,
+                denominatorSignature,
+                bpm,
+                moogGrandmotherEffects,
+                signalChain: osc1Targets.signalChain || [],
+                signalChainDeclarations: osc1Targets.signalChainDeclarations || [],
+                signalChainSampler: samplerTargets.signalChain || [],
+                signalChainSamplerDeclarations: samplerTargets.signalChainDeclarations || [],
+                signalChainSTK: stk1Targets.signalChain || [],
+                signalChainSTKDeclarations: stk1Targets.signalChainDeclarations || [],
+                signalChainAudioIn: audioinTargets.signalChain || [],
+                signalChainAudioInDeclarations: audioinTargets.signalChainDeclarations || [],
+                valuesReadout: osc1Targets.valuesReadout || {},
+                valuesReadoutSampler: samplerTargets.valuesReadout || {},
+                valuesReadoutSTK: stk1Targets.valuesReadout || {},
+                valuesReadoutAudioIn: audioinTargets.valuesReadout || {},
+                valuesReadoutDeclarations: osc1Targets.valuesReadoutDeclarations || {},
+                valuesReadoutSamplerDeclarations: samplerTargets.valuesReadoutDeclarations || {},
+                valuesReadoutSTKDeclarations: stk1Targets.valuesReadoutDeclarations || {},
+                valuesReadoutAudioInDeclarations: audioinTargets.valuesReadoutDeclarations || {},
+                getSourceFX,
+                mTFreqs,
+                activeSTKDeclarations: activeSTKDeclarations.current || '',
+                activeSTKSettings: activeSTKSettings.current || '',
+                activeSTKPlayOn: activeSTKPlayOn.current || '',
+                activeSTKPlayOff: activeSTKPlayOff.current || '',
+                selectedChordScaleOctaveRange,
+                maxMinFreq,
+                notesHolder,
+                hid,
+            };
+        } catch (error) {
+            console.error('Failed to build ChucK code data:', error);
+            throw error;
+        }
+    };
     
     const runChuckCode = async() => {
             // Lazy-load the heavy `webchuck` module only when the user requests it
@@ -790,12 +784,37 @@ export default function ChuckSetup() {
         ];
         const whereIsChuck = LOCAL_CHUCK_SRC;
 
-        chuckRef.current = globalAudioCtx.current && await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
-        // Expose the running ChucK instance globally for Old-* components
-        if (chuckRef.current) {
-            globalChuckRef.current = chuckRef.current as any;
+        try {
+            chuckRef.current = globalAudioCtx.current && await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
+            // Expose the running ChucK instance globally for Old-* components
+            if (chuckRef.current) {
+                globalChuckRef.current = chuckRef.current as any;
+            }
+            chuckRef.current && globalAudioCtx.current && await chuckRef.current.connect(globalAudioCtx.current.destination);
+        } catch (err: any) {
+            // Suppress ErrnoError errno 20 (file system errors) during initialization - these are often non-critical
+            if (err?.name === 'ErrnoError' && err?.errno === 20) {
+                // Silently ignore - this is a common non-critical file system error during ChucK initialization
+                console.debug('ChucK initialization file system error (non-critical, errno 20) - continuing...');
+                // Try to continue anyway - ChucK might still work
+                if (!chuckRef.current && globalAudioCtx.current) {
+                    try {
+                        chuckRef.current = await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
+                        if (chuckRef.current) {
+                            globalChuckRef.current = chuckRef.current as any;
+                            await chuckRef.current.connect(globalAudioCtx.current.destination);
+                        }
+                    } catch (retryErr: any) {
+                        if (retryErr?.name !== 'ErrnoError' || retryErr?.errno !== 20) {
+                            console.error('Failed to initialize ChucK after retry:', retryErr);
+                        }
+                    }
+                }
+            } else {
+                console.error('Failed to initialize ChucK:', err);
+                throw err; // Re-throw non-ErrnoError errors
+            }
         }
-        chuckRef.current && globalAudioCtx.current && await chuckRef.current.connect(globalAudioCtx.current.destination);
 
 
 
@@ -877,16 +896,221 @@ export default function ChuckSetup() {
             };
         }
 
-        console.log("SANITY CHUCK DEBUG: ", chuckInstructions);
-        chuckRef.current && filesArray?.length > 0 && await chuckRef.current.runCode(chuckInstructions);
+        // Build ChucK code with effects routing
+        let chuckCodeData;
+        try {
+            chuckCodeData = await buildChuckCodeData();
+            if (!chuckCodeData) {
+                console.error('Failed to build ChucK code data - buildChuckCodeData returned null');
+                return;
+            }
+        } catch (error) {
+            console.error('Failed to build ChucK code data:', error);
+            console.error('Error details:', error instanceof Error ? error.message : String(error));
+            console.error('Stack:', error instanceof Error ? error.stack : 'No stack trace');
+            return;
+        }
+        
+        const generatedChuckCode = getChuckCode(
+            chuckCodeData.isTestingChord,
+            chuckCodeData.filesArray,
+            chuckCodeData.currentNoteVals,
+            chuckCodeData.masterPatternsRef,
+            chuckCodeData.masterFastestRate,
+            chuckCodeData.numeratorSignature,
+            chuckCodeData.denominatorSignature,
+            chuckCodeData.bpm,
+            chuckCodeData.moogGrandmotherEffects,
+            chuckCodeData.signalChain,
+            chuckCodeData.signalChainDeclarations,
+            chuckCodeData.signalChainSampler,
+            chuckCodeData.signalChainSamplerDeclarations,
+            chuckCodeData.signalChainSTK,
+            chuckCodeData.signalChainSTKDeclarations,
+            chuckCodeData.signalChainAudioIn,
+            chuckCodeData.signalChainAudioInDeclarations,
+            chuckCodeData.valuesReadout,
+            chuckCodeData.valuesReadoutSampler,
+            chuckCodeData.valuesReadoutSTK,
+            chuckCodeData.valuesReadoutAudioIn,
+            chuckCodeData.valuesReadoutDeclarations,
+            chuckCodeData.valuesReadoutSamplerDeclarations,
+            chuckCodeData.valuesReadoutSTKDeclarations,
+            chuckCodeData.valuesReadoutAudioInDeclarations,
+            chuckCodeData.getSourceFX,
+            chuckCodeData.mTFreqs,
+            chuckCodeData.activeSTKDeclarations,
+            chuckCodeData.activeSTKSettings,
+            chuckCodeData.activeSTKPlayOn,
+            chuckCodeData.activeSTKPlayOff,
+            chuckCodeData.selectedChordScaleOctaveRange,
+            chuckCodeData.maxMinFreq,
+            chuckCodeData.notesHolder,
+            chuckCodeData.hid,
+        );
+
+        console.log("Generated ChucK code with effects routing");
+        console.log("SANITY CHUCK DEBUG: ", generatedChuckCode);
+        
+        if (chuckRef.current && chuckCodeData.filesArray) {
+            // Set up error message capture
+            const errorMessages: string[] = [];
+            const originalChuckPrint = chuckRef.current.chuckPrint;
+            
+            chuckRef.current.chuckPrint = (message: string) => {
+                // Always log ChucK messages for debugging
+                console.log('[ChucK Print]:', message);
+                
+                // Capture error messages
+                if (message.toLowerCase().includes('error') || 
+                    message.toLowerCase().includes('syntax') ||
+                    message.toLowerCase().includes('line') ||
+                    message.toLowerCase().includes('parse') ||
+                    message.toLowerCase().includes('fatal') ||
+                    message.toLowerCase().includes('exception')) {
+                    errorMessages.push(message);
+                    console.error('[ChucK Error]:', message);
+                }
+                // Also call original if it exists
+                if (originalChuckPrint) {
+                    originalChuckPrint(message);
+                }
+            };
+            
+            try {
+                // Check if ChucK is ready before running code
+                if (!chuckRef.current) {
+                    console.error('❌ ChucK instance not initialized');
+                    return;
+                }
+
+                // Wait a bit to ensure ChucK is fully ready
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                // Test with a simple code snippet first to verify ChucK is working
+                try {
+                    await chuckRef.current.runCode(`<<< "ChucK is ready", "" >>>;`);
+                    console.log('✅ ChucK test code executed successfully');
+                } catch (testErr: any) {
+                    console.warn('⚠️ ChucK test code failed:', testErr);
+                    // If test fails, the main code will likely fail too, but continue anyway
+                }
+
+                // Clear any existing code first to avoid conflicts
+                try {
+                    await chuckRef.current.runCode(`Machine.removeAllShreds();`);
+                    await chuckRef.current.runCode(`Machine.resetShredID();`);
+                } catch (clearErr: any) {
+                    // Ignore clear errors - might not be necessary
+                }
+
+                // Try using replaceCode instead of runCode for large code blocks
+                // replaceCode is better for replacing existing code
+                let result;
+                try {
+                    // First try replaceCode (better for large code)
+                    result = await chuckRef.current.replaceCode(generatedChuckCode);
+                    console.log('✅ ChucK code replaced successfully');
+                } catch (replaceErr: any) {
+                    // If replaceCode fails, try runCode
+                    console.log('⚠️ replaceCode failed, trying runCode...');
+                    result = await chuckRef.current.runCode(generatedChuckCode);
+                }
+                console.log('✅ ChucK code executed successfully with effects routing');
+                if (errorMessages.length > 0) {
+                    console.warn('⚠️ ChucK warnings captured:', errorMessages);
+                }
+            } catch (err: any) {
+                // Restore original chuckPrint
+                chuckRef.current.chuckPrint = originalChuckPrint;
+                
+                // Log captured error messages
+                if (errorMessages.length > 0) {
+                    console.error('❌ ChucK error messages:', errorMessages);
+                }
+                
+                // Handle ErrnoError (file system errors) more gracefully
+                // Errno 20 typically means "Not a directory" - often non-critical file access issues
+                if (err?.name === 'ErrnoError' || err?.message?.includes('ErrnoError') || err?.errno === 20) {
+                    // Suppress these errors - they're often expected when files aren't preloaded or paths don't exist
+                    // Only log in development mode and only if it's not errno 20 (which is very common)
+                    if (process.env.NODE_ENV === 'development' && err?.errno !== 20) {
+                        console.debug('⚠️ ChucK file system error (non-critical, errno:', err?.errno, '):', err?.message || err);
+                    }
+                    // Don't propagate the error - these are expected in some cases
+                    return;
+                } else {
+                    // Handle string errors (WebChucK sometimes throws strings)
+                    if (typeof err === 'string') {
+                        console.error('❌ Failed to run ChucK code:', err);
+                        // Check for ChucK-specific error messages
+                        if (errorMessages.length > 0) {
+                            console.error('ChucK reported these errors:', errorMessages);
+                        } else {
+                            console.error('⚠️ No ChucK error messages captured - error might be a syntax issue');
+                            console.error('Try copying the generated code to WebChucK IDE to see the exact error');
+                        }
+                    } else {
+                        // More detailed error logging for Error objects
+                        console.error('❌ Failed to run ChucK code');
+                        console.error('Error object:', err);
+                        console.error('Error type:', typeof err);
+                        console.error('Error constructor:', err?.constructor?.name);
+                        console.error('Error keys:', Object.keys(err || {}));
+                        console.error('Error details:', {
+                            name: err?.name,
+                            message: err?.message,
+                            stack: err?.stack,
+                            toString: err?.toString(),
+                            errno: err?.errno,
+                            code: err?.code,
+                            // Try to get any other properties
+                            ...(typeof err === 'object' ? err : {})
+                        });
+                    }
+                    
+                    // Check for ChucK-specific error messages
+                    if (errorMessages.length > 0) {
+                        console.error('ChucK reported these errors:', errorMessages);
+                    }
+                    
+                    console.error('Generated code length:', generatedChuckCode.length);
+                    // Log first 1000 chars of code for debugging
+                    if (generatedChuckCode.length > 0) {
+                        console.error('Code preview (first 1000 chars):', generatedChuckCode.substring(0, 1000));
+                        // Also log last 500 chars in case error is near the end
+                        if (generatedChuckCode.length > 1000) {
+                            console.error('Code preview (last 500 chars):', generatedChuckCode.substring(generatedChuckCode.length - 500));
+                        }
+                        // Log middle section to catch errors there
+                        const midPoint = Math.floor(generatedChuckCode.length / 2);
+                        console.error('Code preview (middle 500 chars):', generatedChuckCode.substring(midPoint - 250, midPoint + 250));
+                    }
+                }
+            } finally {
+                // Restore original chuckPrint if not already restored
+                if (chuckRef.current && chuckRef.current.chuckPrint !== originalChuckPrint) {
+                    chuckRef.current.chuckPrint = originalChuckPrint;
+                }
+            }
+        }
         setIsRunning(true);
 
     }
 
     const stopChuckInstance = async () => {
         console.log("Stopping ChucK instance... ", chuckRef.current);
-        chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
-        chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
+        try {
+            chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
+            chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
+        } catch (err: any) {
+            // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
+            if (err?.name === 'ErrnoError' && err?.errno === 20) {
+                // Silently ignore - this is a common non-critical file system error
+            } else {
+                console.warn('Error stopping ChucK instance:', err);
+            }
+        }
         setIsRunning(false);
         return;
     }

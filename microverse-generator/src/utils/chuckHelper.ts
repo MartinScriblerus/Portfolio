@@ -8,7 +8,7 @@ import { EffectsSettings, Sources } from "../interfaces/audioTypes";
 
 
 
-export function buildSourceData(sourceName: keyof typeof universalSources.current) {
+export function buildSourceData(sourceName: keyof Sources) {
   const src: any = universalSources.current?.[sourceName];
   if (!src?.effects) {
     return {
@@ -189,7 +189,21 @@ export async function processSourceFX(
   targets: SignalChainTargets,
   universalSources: Sources | undefined
 ) {
+  if (!universalSources || !fxList || fxList.length === 0) {
+    return; // Early return if no sources or effects
+  }
+  
+  // Ensure targets arrays are initialized
+  if (!targets.signalChain) targets.signalChain = [];
+  if (!targets.signalChainDeclarations) targets.signalChainDeclarations = [];
+  if (!targets.valuesReadout) targets.valuesReadout = [];
+  if (!targets.valuesReadoutDeclarations) targets.valuesReadoutDeclarations = [];
+  
   for (const fx of fxList) {
+    if (!fx || !fx.Type || !fx.VarName) {
+      console.warn('Invalid FX object:', fx);
+      continue;
+    }
     // console.log("SANITY FXFX: ", fx);
     const type = fx.Type;
     // const varName = `${fx.VarName}_${fxRadioValue}`;
@@ -212,15 +226,21 @@ export async function processSourceFX(
       continue;
     }
 
+    // Ensure presets exists
+    if (!fx.presets || typeof fx.presets !== 'object') {
+      console.warn(`FX ${fx.VarName} has no presets object, skipping`);
+      continue;
+    }
+
     // const lines = isArrayEffect ? (fx.presets?.lines?.value ?? 1) : undefined;
 
 
     let addedEffect: any = isArrayEffect
-      ? `${type} ${varName}[${fx.presets.lines.value || 1}] => `
+      ? `${type} ${varName}[${fx.presets?.lines?.value || 1}] => `
       : `${varName} => `;
 
     const addedEffectDeclaration = isArrayEffect
-      ? `${type} ${varName}[${fx.presets.lines.value || 1}]; `
+      ? `${type} ${varName}[${fx.presets?.lines?.value || 1}]; `
       : `${type} ${varName}; `;
 
 
@@ -401,7 +421,7 @@ export const getChuckCode = (
     
     // "" => global string currentSrc;
     // SAFER DYNAMIC FILES
-    [${filesArray[0]}] @=> string files[];
+    ${filesArray} @=> string files[];
 
     
     // Global variables and events
@@ -468,9 +488,9 @@ export const getChuckCode = (
     ${Object.values(safeValuesReadoutAudioInDeclarations).map((value: any) => value).join(' ')}
 
 
-    ${hid} => Hid hi;                
-
-    HidMsg msg;             
+    // Hid not used - commented out
+    // ${hid} => Hid hi;                
+    // HidMsg msg;             
 
 
     ${numeratorSignature} => global int numeratorSignature;

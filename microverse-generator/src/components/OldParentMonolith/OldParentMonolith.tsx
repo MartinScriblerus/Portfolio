@@ -9,7 +9,7 @@ import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import dynamic from 'next/dynamic';
 import EffectDropdown from '../EffectsDropdown';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Box, Select, Button, Typography } from '@mui/material';
+import { Box, Select, Button, Typography, ButtonGroup } from '@mui/material';
 import { OBERHEIM_TEAL, HERITAGE_GOLD } from '../../constants';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 
@@ -35,6 +35,7 @@ import { useOldMonolithStore } from '../../store/useOldMonolithStore';
 import { useBeatGridStore } from '../../store/useBeatGridStore';
 import AudioMixer from './OldAudioMixer';
 import FXRouting from './OldFXRouting';
+import STKManagerDropdown from './OldSTKManagerDropdown';
 import useAudioAnalysisAndMIDI from './useAudioAnalysisAndMIDI';
 // import Streamgraph from '../VizxHelpers/Steamgraph'; // Temporarily disabled - data format mismatch
 // import BrushChart from '../VizxHelpers/BrushChart'; // Available if needed
@@ -208,12 +209,15 @@ function RightDrawer(props: RightDrawerProps) {
   const handleToggleSolos = (_: string) => {};
   
   // FX tab related variables and functions
-  const fxRadioValue = props.fxRadioValue || 'osc1';
+  const fxRadioValue = props.fxRadioValue || useOldMonolithStore(s => s.fxRadioValue);
+  const setFxRadioValue = useOldMonolithStore(s => s.setFxRadioValue);
   const [stkValues, setStkValues] = useState<any[]>([]);
   const updateStkKnobs = () => {}; // Stub function - should be implemented or passed as prop
   const [clickFXChain, setClickFXChain] = useState('');
   const handleClickName = () => {};
-  const updateFXInputRadio = () => {};
+  const updateFXInputRadio = (value: string) => {
+    setFxRadioValue(value as any);
+  };
   const handleUpdateCheckedFXList = () => {};
   const handleCheckedFXToShow = () => {};
   const [checkedEffectsListHook, setCheckedEffectsListHook] = useState<any[]>([]);
@@ -648,71 +652,226 @@ function RightDrawer(props: RightDrawerProps) {
         )}
         {tab === 'fx' && (
           <div style={{ padding: 12 }}>
-            {/* STK Manager */}
-            <Box sx={{ padding: '8px', backgroundColor: 'rgba(28,28,28,0.78)', marginBottom: '16px' }}>
-              <STKManagerDropdown 
-                updateStkKnobs={updateStkKnobs} 
-                stkValues={stkValues} 
-                setStkValues={setStkValues} 
-              />
+            {/* FX Routing Toolbar - Radio Buttons */}
+            <Box sx={{ marginBottom: '16px' }}>
+              <ButtonGroup 
+                variant="outlined" 
+                aria-label="FX source selection"
+                sx={{
+                  width: '100%',
+                  display: 'flex',
+                  '& .MuiButton-root': {
+                    flex: 1,
+                    color: 'rgba(255,255,255,0.78)',
+                    borderColor: 'rgba(255,255,255,0.2)',
+                    '&:hover': {
+                      borderColor: OBERHEIM_TEAL,
+                      backgroundColor: 'rgba(98, 245, 255, 0.1)',
+                    },
+                    '&.Mui-selected': {
+                      backgroundColor: OBERHEIM_TEAL,
+                      color: '#000',
+                      borderColor: OBERHEIM_TEAL,
+                      '&:hover': {
+                        backgroundColor: OBERHEIM_TEAL,
+                      },
+                    },
+                  },
+                }}
+              >
+                <Button
+                  variant={fxRadioValue === 'osc1' ? 'contained' : 'outlined'}
+                  onClick={() => setFxRadioValue('osc1')}
+                  sx={{
+                    backgroundColor: fxRadioValue === 'osc1' ? OBERHEIM_TEAL : 'transparent',
+                    color: fxRadioValue === 'osc1' ? '#000' : 'rgba(255,255,255,0.78)',
+                  }}
+                >
+                  Synth
+                </Button>
+                <Button
+                  variant={fxRadioValue === 'sampler' ? 'contained' : 'outlined'}
+                  onClick={() => setFxRadioValue('sampler')}
+                  sx={{
+                    backgroundColor: fxRadioValue === 'sampler' ? OBERHEIM_TEAL : 'transparent',
+                    color: fxRadioValue === 'sampler' ? '#000' : 'rgba(255,255,255,0.78)',
+                  }}
+                >
+                  Sampler
+                </Button>
+                <Button
+                  variant={fxRadioValue === 'stk1' ? 'contained' : 'outlined'}
+                  onClick={() => setFxRadioValue('stk1')}
+                  sx={{
+                    backgroundColor: fxRadioValue === 'stk1' ? OBERHEIM_TEAL : 'transparent',
+                    color: fxRadioValue === 'stk1' ? '#000' : 'rgba(255,255,255,0.78)',
+                  }}
+                >
+                  STK
+                </Button>
+                <Button
+                  variant={fxRadioValue === 'audioin' ? 'contained' : 'outlined'}
+                  onClick={() => setFxRadioValue('audioin')}
+                  sx={{
+                    backgroundColor: fxRadioValue === 'audioin' ? OBERHEIM_TEAL : 'transparent',
+                    color: fxRadioValue === 'audioin' ? '#000' : 'rgba(255,255,255,0.78)',
+                  }}
+                >
+                  AudioIn
+                </Button>
+              </ButtonGroup>
             </Box>
 
-            {/* Audio In Effect Dropdown */}
-            <Box
-              id='effect-dropdown-container'
-              sx={{
-                pointerEvents: showAudioInDropdown ? 'auto' : 'none',
-                opacity: showAudioInDropdown ? 1 : 0.5,
-                marginBottom: '16px',
-              }}
-            >
-              <EffectDropdown
-                chuckRef={chuckRefForEffect}
-                updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
-                showAudioInDropdown={showAudioInDropdown}
-              />
-            </Box>
+            {/* Conditional rendering based on fxRadioValue */}
+            {fxRadioValue === 'audioin' && (
+              <Box
+                id='effect-dropdown-container'
+                sx={{
+                  pointerEvents: showAudioInDropdown ? 'auto' : 'none',
+                  opacity: showAudioInDropdown ? 1 : 0.5,
+                  marginBottom: '16px',
+                }}
+              >
+                <EffectDropdown
+                  chuckRef={chuckRefForEffect}
+                  updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
+                  showAudioInDropdown={showAudioInDropdown}
+                />
+              </Box>
+            )}
 
-            {/* FX Routing (General Effects) */}
-            {/* <Box sx={{ position: 'relative', color: 'rgba(255,255,255,0.78)', marginBottom: '16px' }}> */}
-              <FXRouting
-                key={`fx_${fxRadioValue}` + fxRadioValue}
-                fxData={universalSourcesRef?.current?.[fxRadioValue]?.effects || {}}
-                width={440}
-                height={440}
-                updateCheckedFXList={handleUpdateCheckedFXList}
-                fxGroupsArrayList={[]}
-                checkedFXList={[]}
-                fxFX={[]}
-                handleClickName={handleClickName}
-                setClickFXChain={setClickFXChain}
-                clickFXChain={clickFXChain}
-                updateFXInputRadio={updateFXInputRadio}
-                fxRadioValue={fxRadioValue}
-                setStkValues={setStkValues}
-                stkValues={stkValues}
-                currentScreen={'synth'}
-                playUploadedFile={playUploadedFile}
-                lastFileUpload={lastFileUpload.current}
-                updateFileUploads={updateFileUploads}
-                handleCheckedFXToShow={handleCheckedFXToShow}
-                checkedEffectsListHook={checkedEffectsListHook}
-                setCheckedEffectsListHook={setCheckedEffectsListHook}
-              />
-            {/* </Box> */}
+            {fxRadioValue === 'stk1' && (
+              <>
+                {/* STK Manager */}
+                <Box sx={{ padding: '8px', backgroundColor: 'rgba(28,28,28,0.78)', marginBottom: '16px' }}>
+                  <STKManagerDropdown 
+                    updateStkKnobs={updateStkKnobs} 
+                    stkValues={stkValues} 
+                    setStkValues={setStkValues} 
+                  />
+                </Box>
 
-            {/* Pedalboard */}
-            {/* <Box sx={{ marginTop: '16px' }}> */}
-              <ReactDiagramsPedalboard
-                universalSources={universalSourcesRef}
-                currentChain={currentChain}
-                sourceName={fxRadioValue}
-                width={440}
-                height={200}
-                handleCheckedEffectsToShow={handleCheckedFXToShow}
-                getNewFX={getNewFX}
-              />
-            {/* </Box> */}
+                {/* FX Routing for STK */}
+                <FXRouting
+                  key={`fx_${fxRadioValue}` + fxRadioValue}
+                  fxData={universalSourcesRef?.current?.[fxRadioValue]?.effects || {}}
+                  width={440}
+                  height={440}
+                  updateCheckedFXList={handleUpdateCheckedFXList}
+                  fxGroupsArrayList={[]}
+                  checkedFXList={[]}
+                  fxFX={[]}
+                  handleClickName={handleClickName}
+                  setClickFXChain={setClickFXChain}
+                  clickFXChain={clickFXChain}
+                  updateFXInputRadio={updateFXInputRadio}
+                  fxRadioValue={fxRadioValue}
+                  setStkValues={setStkValues}
+                  stkValues={stkValues}
+                  currentScreen={'synth'}
+                  playUploadedFile={playUploadedFile}
+                  lastFileUpload={lastFileUpload.current}
+                  updateFileUploads={updateFileUploads}
+                  handleCheckedFXToShow={handleCheckedFXToShow}
+                  checkedEffectsListHook={checkedEffectsListHook}
+                  setCheckedEffectsListHook={setCheckedEffectsListHook}
+                />
+              </>
+            )}
+
+            {(fxRadioValue === 'osc1' || fxRadioValue === 'sampler') && (
+              <>
+                {/* Available Effects List - shows all effects that can be added */}
+                <Box sx={{ marginBottom: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '8px', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                  <Typography variant="caption" sx={{ color: OBERHEIM_TEAL, mb: 1, display: 'block', fontWeight: 600 }}>
+                    Available Effects for {fxRadioValue === 'osc1' ? 'Synth' : 'Sampler'}
+                  </Typography>
+                  {universalSourcesRef?.current?.[fxRadioValue]?.effects ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: '300px', overflowY: 'auto' }}>
+                      {Object.entries(universalSourcesRef.current[fxRadioValue].effects).map(([fxKey, fx]: [string, any]) => (
+                        <Box 
+                          key={fxKey}
+                          sx={{ 
+                            padding: '8px', 
+                            backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.2)' : 'rgba(255,255,255,0.05)',
+                            border: `1px solid ${fx?.On ? OBERHEIM_TEAL : 'rgba(255,255,255,0.1)'}`,
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            '&:hover': {
+                              backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.3)' : 'rgba(255,255,255,0.1)',
+                            }
+                          }}
+                          onClick={() => {
+                            // Toggle effect on/off
+                            if (universalSourcesRef?.current?.[fxRadioValue]?.effects?.[fxKey]) {
+                              universalSourcesRef.current[fxRadioValue].effects[fxKey].On = !fx?.On;
+                              // Trigger re-render
+                              handleUpdateCheckedFXList();
+                            }
+                          }}
+                        >
+                          <Typography variant="body2" sx={{ color: fx?.On ? OBERHEIM_TEAL : 'rgba(255,255,255,0.7)', fontWeight: fx?.On ? 600 : 400 }}>
+                            {fx?.Type || fxKey} {fx?.On ? '✓ ON' : 'OFF'}
+                          </Typography>
+                          {fx?.VarName && (
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                              {fx.VarName}
+                            </Typography>
+                          )}
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : (
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block', fontStyle: 'italic' }}>
+                      Effects loading...
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* FX Routing Component */}
+                <Box sx={{ marginBottom: '16px', minHeight: '200px' }}>
+                  <FXRouting
+                    key={`fx_${fxRadioValue}` + fxRadioValue}
+                    fxData={universalSourcesRef?.current?.[fxRadioValue]?.effects || {}}
+                    width={440}
+                    height={440}
+                    updateCheckedFXList={handleUpdateCheckedFXList}
+                    fxGroupsArrayList={[]}
+                    checkedFXList={[]}
+                    fxFX={[]}
+                    handleClickName={handleClickName}
+                    setClickFXChain={setClickFXChain}
+                    clickFXChain={clickFXChain}
+                    updateFXInputRadio={updateFXInputRadio}
+                    fxRadioValue={fxRadioValue}
+                    setStkValues={setStkValues}
+                    stkValues={stkValues}
+                    currentScreen={'synth'}
+                    playUploadedFile={playUploadedFile}
+                    lastFileUpload={lastFileUpload.current}
+                    updateFileUploads={updateFileUploads}
+                    handleCheckedFXToShow={handleCheckedFXToShow}
+                    checkedEffectsListHook={checkedEffectsListHook}
+                    setCheckedEffectsListHook={setCheckedEffectsListHook}
+                  />
+                </Box>
+              </>
+            )}
+
+            {/* Pedalboard - shown for all sources except audioin */}
+            {fxRadioValue !== 'audioin' && (
+              <Box sx={{ marginTop: '16px' }}>
+                <ReactDiagramsPedalboard
+                  universalSources={universalSourcesRef}
+                  currentChain={currentChain}
+                  sourceName={fxRadioValue}
+                  width={440}
+                  height={200}
+                  handleCheckedEffectsToShow={handleCheckedFXToShow}
+                  getNewFX={getNewFX}
+                />
+              </Box>
+            )}
           </div>
         )}
       </main>
@@ -957,10 +1116,115 @@ export default function OldParentMonolith(
     cS = currentSelectionsRef.current;
     return cS; 
   };
-  const handleLatestSamples = async () => {};
+  const updateCellFiles = useBeatGridStore((s) => s.updateCellFiles);
+  const currentSelectedCell = useBeatGridStore((s) => s.currentSelectedCell);
+  
+  const handleLatestSamples = async (fileNames: string[], x: number, y: number) => {
+    // Get all available files (preloaded + uploaded) to convert names to indices
+    const preloadedFiles = [
+      "DR-55Snare.wav",
+      "DR-55Kick.wav", 
+      "DR-55Hat.wav",
+      "DR-55Pop.wav",
+      "Conga.wav"
+    ];
+    const uploadedNames = filesToProcessRef.current ? (Array.isArray(filesToProcessRef.current) ? filesToProcessRef.current.map((f: any) => f?.filename || f?.name).filter(Boolean) : []) : [];
+    const allAvailableFiles = Array.from(new Set([...preloadedFiles, ...uploadedNames]));
+    
+    // Convert file names to indices
+    const fileIndices = fileNames
+      .map((fileName: string) => allAvailableFiles.indexOf(fileName))
+      .filter((idx: number) => idx !== -1);
+    
+    if (fileIndices.length === 0) {
+      console.warn('[handleLatestSamples] No valid file indices found for:', fileNames);
+      return;
+    }
+    
+    // Get pattern options
+    const patOptions = [0, 2, 4, 8, 16];
+    const patternValue = patOptions[doAutoAssignPatternNumber] || 0;
+    
+    // Get grid dimensions
+    const nCol = Number(numeratorSignature) * Number(denominatorSignature);
+    const nRow = Number(denominatorSignature);
+    
+    // Determine which cells to assign to
+    const cellsToAssign: Array<{ x: number; y: number }> = [];
+    
+    if (patternValue === 0) {
+      // Just the current cell
+      cellsToAssign.push({ x, y });
+    } else {
+      // Pattern-based: assign to all cells that match the pattern
+      // Match the highlighting logic: ((16 * (y - 1) + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
+      const startCellIndex = 16 * (y - 1) + x;
+      const patternStep = 16 / patternValue;
+      
+      for (let row = 1; row <= nRow; row++) {
+        for (let col = 0; col < nCol; col++) {
+          const cellIndex = 16 * (row - 1) + col;
+          const offset = cellIndex - startCellIndex;
+          // Use modulo to handle wrapping, matching the highlighting logic
+          if (offset % patternStep === 0) {
+            cellsToAssign.push({ x: col, y: row });
+          }
+        }
+      }
+    }
+    
+    // Assign files to all highlighted cells
+    console.log(`[handleLatestSamples] Assigning files to ${cellsToAssign.length} cells:`, cellsToAssign);
+    cellsToAssign.forEach(({ x: cellX, y: cellY }) => {
+      updateCellFiles(fileIndices, cellX, cellY);
+    });
+    
+    // Bump grid version to trigger updates
+    useBeatGridStore.getState().bumpGridVersion();
+  };
+  
   const updateCellNotes = useBeatGridStore((s) => s.updateCellNotes);
   const handleLatestNotes = async (notes: string[], x: number, y: number) => {
-    updateCellNotes(notes, x, y);
+    // Get pattern options
+    const patOptions = [0, 2, 4, 8, 16];
+    const patternValue = patOptions[doAutoAssignPatternNumber] || 0;
+    
+    // Get grid dimensions
+    const nCol = Number(numeratorSignature) * Number(denominatorSignature);
+    const nRow = Number(denominatorSignature);
+    
+    // Determine which cells to assign to
+    const cellsToAssign: Array<{ x: number; y: number }> = [];
+    
+    if (patternValue === 0) {
+      // Just the current cell
+      cellsToAssign.push({ x, y });
+    } else {
+      // Pattern-based: assign to all cells that match the pattern
+      // Match the highlighting logic: ((16 * (y - 1) + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
+      const startCellIndex = 16 * (y - 1) + x;
+      const patternStep = 16 / patternValue;
+      
+      for (let row = 1; row <= nRow; row++) {
+        for (let col = 0; col < nCol; col++) {
+          const cellIndex = 16 * (row - 1) + col;
+          const offset = cellIndex - startCellIndex;
+          // Use modulo to handle wrapping, matching the highlighting logic
+          if (offset % patternStep === 0) {
+            cellsToAssign.push({ x: col, y: row });
+          }
+        }
+      }
+    }
+    
+    // Assign notes to all highlighted cells
+    console.log(`[handleLatestNotes] Assigning notes to ${cellsToAssign.length} cells:`, cellsToAssign);
+    cellsToAssign.forEach(({ x: cellX, y: cellY }) => {
+      updateCellNotes(notes, cellX, cellY);
+    });
+    
+    // Bump grid version to trigger updates
+    useBeatGridStore.getState().bumpGridVersion();
   };
   const mTFreqs: number[] = [];
   const mTMidiNums: number[] = [];
@@ -983,7 +1247,6 @@ export default function OldParentMonolith(
   const handleNoteBuilder = (focus: string) => setNoteBuilderFocusBG(focus);
   const handleNoteLengthUpdate = (_e: any, _cellData: any, _newVal: any) => {};
   const handleNoteVelocityUpdate = (_e: any, _cellData: any) => {};
-  const [currentSelectedCell] = useState({ x: 0, y: 0 });
   // Original range restored - MIDI 0-127 allows wider range but keeping original working values
   const [octaveMax] = useState(4);
   const [octaveMin] = useState(1);

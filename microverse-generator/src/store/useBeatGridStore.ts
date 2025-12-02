@@ -25,6 +25,7 @@ type BeatGridState = {
   setMasterPatternsHashHook: (patterns: Record<string, Record<string, any>>) => void;
   updateCellSubdivisions: (num: number, x: number, y: number) => void;
   updateCellNotes: (notes: string[], x: number, y: number) => void;
+  updateCellFiles: (fileNums: number[], x: number, y: number) => void;
   markCellUpdated: (x: number, y: number) => void;
   bumpGridVersion: () => void;
   setCurrentNoteVals: (vals: any) => void;
@@ -158,6 +159,40 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
     try {
       const gv = get().gridVersion;
       console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, notes });
+      typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, cell: { x, y } } }));
+    } catch {}
+  },
+  
+  updateCellFiles: (fileNums, x, y) => {
+    console.log(`[useBeatGridStore] updateCellFiles: cell[${x}, ${y}] =`, fileNums);
+    const state = get();
+    const yKey = String(y);
+    const xKey = String(x);
+    
+    set((state) => {
+      const updated = { ...state.masterPatternsHashHook };
+      if (!updated[yKey]) {
+        updated[yKey] = {};
+      }
+      updated[yKey] = { ...updated[yKey] };
+      updated[yKey][xKey] = {
+        ...(updated[yKey][xKey] || {}),
+        fileNums: fileNums
+      };
+      
+      return {
+        masterPatternsHashHook: updated,
+        masterPatternsHashHookUpdated: {
+          ...state.masterPatternsHashHookUpdated,
+          [`${y}_${x}`]: Date.now()
+        },
+        gridVersion: state.gridVersion + 1,
+      };
+    });
+    
+    try {
+      const gv = get().gridVersion;
+      console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, fileNums });
       typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, cell: { x, y } } }));
     } catch {}
   },
