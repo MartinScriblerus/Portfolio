@@ -44,3 +44,29 @@ You don’t have to ever use `eject`. The curated feature set is suitable for sm
 You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
 
 To learn React, check out the [React documentation](https://reactjs.org/).
+
+## FastAPI backend (optional)
+
+This repo includes a `fastapi/` folder with a FastAPI app that provides endpoints used by the legacy file tools:
+
+- POST `/analyze_audio` (multipart file upload)
+- POST `/transpose_sample` (JSON)
+
+How to run locally (in a separate terminal):
+
+1. Create and activate a Python virtual environment, then install requirements:
+	 - macOS/Linux (zsh):
+		 - python3 -m venv .venv
+		 - source .venv/bin/activate
+		 - pip install -r fastapi/requirements.txt
+2. Start the server:
+	 - uvicorn fastapi.main:app --reload --port 8000
+
+Notes:
+- CORS is already enabled for http://localhost:3000.
+- The frontend calls to these endpoints are currently disabled and safely no-op to avoid failures if the backend is not running.
+	- See `src/components/OldParentMonolith/OldFileWindow.tsx` (functions `uploadAudioFile` and `transposeAudio`). Remove the early returns to re-enable.
+- The server defines `/analyze_audio` without a trailing slash; prefer that exact path in the client.
+
+Housekeeping:
+- The `fastapi/` folder contains some local dev artifacts (e.g., virtualenvs) and demo/test scripts. Only `main.py`, `requirements.txt`, and modules directly imported by `main.py` are required at runtime. You can safely exclude `.venv/`, `venv/`, and test/demo files from version control.

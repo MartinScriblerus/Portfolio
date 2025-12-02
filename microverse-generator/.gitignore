@@ -1,5 +1,47 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+venv/
+env/
+ENV/
+
+CursorRecoveryBackup/
+.cursor/
+
+# TypeScript build artifacts
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# User uploads
+uploadedFiles/
+
+# OS files (you have .DS_Store but add these too)
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Build outputs
+dist/
+out/
+.next/
+
+# Environment files (catch-all)
+.env*
+!.env.example
+
+fastapi/venv/ 
+fastapi/temp_uploads/
+fastapi/separated/
+
 # dependencies
 /node_modules
 /.pnp

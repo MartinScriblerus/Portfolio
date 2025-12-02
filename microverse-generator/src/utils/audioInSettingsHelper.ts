@@ -11,39 +11,36 @@ import { create } from 'zustand';
 type AudioInSettings = { [key: string]: number };
 
 const defaultAudioInSettings: AudioInSettings = {
-        'grain_stretch': 10.0,
-        'grain_rate': 0.5,
+        // 'grain_stretch': 1.0,
+        'grain_rate': 500.0,
         'grain_length': 1000.0,
-        'grain_maxlength': 16000.0,
+        'grain_maxlength': 8000.0,
         'grain_grains': 32.0,
         'tape_delaylength': 500.0,
         'tape_loop': 1.0,
-        'tape_gain': 0.5,
-        'random_reverse_listen': 1.0,
-        'random_reverse_influence': 0.8,
-        'random_reverse_reversegain': 0.9,
-        'random_reverse_maxbufferlength': 4000.0,
-        'random_reverse_envelopeduration': 2000.0,
+        'tape_gain': 500.0,
+        // 'random_reverse_listen': 1.0,
+        'random_reverse_influence': 500.0,
+        'random_reverse_reversegain': 700.0,
+        'random_reverse_maxbufferlength': 2000.0,
+        'random_reverse_envelopeduration': 5000.0,
+        "random_reverse_rate": -1000.0,
+        "random_reverse_maxtimebetweenmultiplier": 2.0,
         
-        'random_reverse_maxtimebetween': 1000.0,
-        'clapping_record': 1.0,
-        'clapping_play': 1.0,
-        'clapping_length': 8000.0,
+        'clapping_length': 0.0,
         'clapping_voices': 4.0,
-        'clapping_speed': 0.8,
-        'clapping_bi': 0.0,
-        'clapping_random': 1.0,
-        'clapping_spread': 1.0,
-        'clapping_maxbuffermultiplier': 8.0,
-        'lisa_trigger_listen': 1.0,
+        'clapping_speed': 1010.0,
+        'clapping_maxbuffer': 4.0,
+
+
         'lisa_trigger_length': 1000.0,
         'lisa_trigger_minlength': 250.0,
         'lisa_trigger_rampup': 2.0,
         'lisa_trigger_rampdown': 2.0,
-        'lisa_trigger_rate': -1.25,
+        'lisa_trigger_rate': -1250.0,
         'lisa_trigger_bufferwindow': 0.5,
         'lisa_trigger_envwindow': 2.0,
-        'asymptotic_chopper_listen': 1.0,
+        // 'asymptotic_chopper_listen': 1.0,
         'asymptotic_chopper_length': 100.0,
         'asymptotic_chopper_minlengthdivisor': 40.0,
         'asymptotic_chopper_maxlengthmultiplier': 10.0,
@@ -80,11 +77,11 @@ export function getGrainStretchClass(
             inlet => mic[0] => env => outlet;
             inlet => mic[1] => env => outlet;
 
-            Std.ftoi(audioInSettingsHelperHash["grain_stretch"]) => int m_stretching;
-            Std.ftoi(audioInSettingsHelperHash["grain_grains"]) => int m_grains;
-            audioInSettingsHelperHash["grain_rate"] => float m_rate;
-            Std.ftoi(audioInSettingsHelperHash["grain_length"])::ms => dur m_bufferLength;
-            maxLength(Std.ftoi(audioInSettingsHelperHash["grain_maxlength"])::ms);
+            1 => int m_stretching;
+            Std.ftoi(${defaultAudioInSettings["grain_grains"]}) => int m_grains;
+            ${defaultAudioInSettings["grain_rate"]} => float m_rate;
+            Std.ftoi(${defaultAudioInSettings["grain_length"]})::ms => dur m_bufferLength;
+            maxLength(Std.ftoi(${defaultAudioInSettings["grain_maxlength"]})::ms);
 
             fun void stretch(int s) {
                 if (s == 1) {
@@ -192,7 +189,7 @@ export function getTapeClass(
             inlet => NRev nRA => Delay del => ADSR env => Gain g => outlet;
             g => del;
 
-            nRA.mix(audioInSettingsHelperHash["tape_gain"]);
+            nRA.mix(audioInSettingsHelperHash["tape_gain"]/1000);
 
             env.set(0::ms, (BeatMsInts/10)::ms, 0.75, (Std.ftoi(audioInSettingsHelperHash["tape_delaylength"]))::ms);
             delayLength((Std.ftoi(audioInSettingsHelperHash["tape_delaylength"]))::ms);
@@ -201,6 +198,7 @@ export function getTapeClass(
 
             fun void delayLength(dur d) {
                 del.max(d);
+                
                 del.delay(d);
             }
 
@@ -234,13 +232,12 @@ export function getRandomReverseClass(
             inlet => LiSa mic => Gain r => outlet;
             inlet => Gain g => ADSR env => outlet;
 
-            Std.ftoi(audioInSettingsHelperHash["random_reverse_listen"]) => int m_listen;
-            Std.ftoi(audioInSettingsHelperHash["random_reverse_maxbufferlength"])::ms => dur m_maxBufferLength;
-            Std.ftoi(audioInSettingsHelperHash["random_reverse_maxbufferlength"])::ms => dur m_bufferLength;
-            audioInSettingsHelperHash["random_reverse_influence"] => float m_influence;
-            audioInSettingsHelperHash["random_reverse_reversegain"] => g.gain;
-            Std.ftoi(audioInSettingsHelperHash["random_reverse_envelopeduration"])::ms => dur m_envDuration;
-            Std.ftoi(audioInSettingsHelperHash["random_reverse_maxtimebetween"])::ms => dur m_maxTimeBetween;
+            0 => int m_listen;
+            (BeatMsInts)::ms => dur m_maxBufferLength;
+            (BeatMsInts)::ms => dur m_bufferLength;
+            ( audioInSettingsHelperHash["random_reverse_influence"] / 1000.0 ) => float m_influence;
+            (Std.ftoi(audioInSettingsHelperHash["random_reverse_envelopeduration"]))::ms => dur m_envDuration;
+            (BeatMsInts)::ms => dur m_maxTimeBetween;
 
             // envelope
             env.attackTime(m_envDuration);
@@ -262,7 +259,7 @@ export function getRandomReverseClass(
             }
 
             fun void setReverseGain(float g) {
-                r.gain((g * 0.8));
+                r.gain(g);
             }
 
             fun void setMaxBufferLength(dur l) {
@@ -306,12 +303,87 @@ export function getRandomReverseClass(
                 mic.play(0);
             }
 
-            fun void updateEnvelope(dur envelopeDur) {
-                env.attackTime(envelopeDur);
-                env.releaseTime(envelopeDur);
-            }
+
         }
     `;
+    // return `
+    //     class RandomReverse extends Chugraph {
+
+    //     inlet => LiSa mic => Gain r => outlet;
+    //     inlet => Gain g => ADSR env => outlet;
+
+    //     0 => int m_listen;
+    //     (audioInSettingsHelperHash["random_reverse_maxbufferlength"] / 1000 )::ms => dur m_maxBufferLength;
+    //     (audioInSettingsHelperHash["random_reverse_maxbufferlength"] / 1000)::ms => dur m_bufferLength;
+    //     audioInSettingsHelperHash["random_reverse_influence"] / 1000 => float m_influence;
+    //     100::ms => dur m_envDuration;
+    //     (Std.ftoi(audioInSettingsHelperHash["random_reverse_envelopeduration"]))::ms => dur m_maxTimeBetween;
+
+    //     // envelope
+    //     env.attackTime(m_envDuration);
+    //     env.releaseTime(m_envDuration);
+    //     env.keyOn();
+
+    //     fun void listen(int l) {
+    //         if (l == 1) {
+    //             1 => m_listen;
+    //             spork ~ listening();
+    //         }
+    //         if (l == 0) {
+    //             0 => m_listen;
+    //         }
+    //     }
+
+    //     fun void setInfluence(float i) {
+    //         i => m_influence;
+    //     }
+
+    //     fun void setReverseGain(float g) {
+    //         r.gain(g);
+    //     }
+
+    //     fun void setMaxBufferLength(dur l) {
+    //         l => m_maxBufferLength;
+    //     }
+
+    //     fun void listening() {
+    //         mic.duration(m_maxBufferLength);
+    //         while (m_listen) {
+    //             if (m_influence >= 0.01) {
+    //                 Math.random2f(0.1, m_influence * 0.95) => float scale;
+    //                 scale * m_bufferLength => dur bufferLength;
+    //                 record(bufferLength);
+    //                 playInReverse(bufferLength);
+    //                 m_maxTimeBetween * Math.fabs(1.0 - m_influence) => now;
+    //             }
+    //             1::samp => now;
+    //         }
+    //     }
+
+    //     fun void record(dur bufferLength) {
+    //         mic.playPos(0::samp);
+    //         mic.record(1);
+    //         bufferLength => now;
+    //         mic.record(0);
+    //     }
+
+    //     fun void playInReverse(dur bufferLength) {
+    //         if (bufferLength < m_envDuration) {
+    //             m_envDuration * 2 => bufferLength;
+    //         }
+    //         env.keyOff();
+    //         mic.play(1);
+    //         mic.playPos(bufferLength);
+    //         mic.rate(-1.0);
+    //         mic.rampUp(m_envDuration);
+    //         bufferLength - m_envDuration => now;
+    //         mic.rampDown(m_envDuration);
+    //         env.keyOn();
+    //         m_envDuration => now;
+    //         mic.play(0);
+    //     }
+    //     }
+    // `;
 };
 
 export function getReichClass(
@@ -322,18 +394,18 @@ export function getReichClass(
 
             inlet => LiSa mic => outlet;
 
-            Std.ftoi(audioInSettingsHelperHash["clapping_record"]) => int m_record;
-            Std.ftoi(audioInSettingsHelperHash["clapping_play"]) => int m_play;
+            0 => int m_record;
+            0 => int m_play;
 
-            (Std.ftoi(audioInSettingsHelperHash["clapping_length"]))::ms => dur m_length;
+            Std.ftoi(audioInSettingsHelperHash["clapping_length"])::ms => dur m_length;
             Std.ftoi(audioInSettingsHelperHash["clapping_voices"]) => int m_voices;
-            audioInSettingsHelperHash["clapping_speed"] / 1000 => float m_speed;
+            Std.ftoi(audioInSettingsHelperHash["clapping_speed"])/1000 => float m_speed;
 
-            Std.ftoi(audioInSettingsHelperHash["clapping_bi"]) => int m_bi;
-            Std.ftoi(audioInSettingsHelperHash["clapping_random"]) => int m_random;
-            Std.ftoi(audioInSettingsHelperHash["clapping_spread"]) => int m_spread;
+            false => int m_bi;
+            false => int m_random;
+            false => int m_spread;
 
-            maxBufferLength((Std.ftoi(audioInSettingsHelperHash["clapping_maxbuffermultiplier"] * BeatMsInts))::ms);
+            maxBufferLength(2000::ms);
 
             fun void maxBufferLength(dur l) {
                 mic.duration(l);
@@ -438,65 +510,108 @@ export function getLisaTriggerClass(
 ): string {
     return `
         class LisaTrigger extends Chugraph {
-            inlet => LiSa mic => outlet;
-            mic.bi(1);
+            inlet => Envelope e => LiSa10 loopme => outlet;
+            // direct
+            adc => e => dac;
 
-            Std.ftoi(audioInSettingsHelperHash["lisa_trigger_listen"]) => int m_listen;
-            (BeatMsInts)::ms => dur m_bufferLength;
-            Std.ftoi(audioInSettingsHelperHash["lisa_trigger_length"])::ms => dur m_maxBufferLength;
-            Std.ftoi(audioInSettingsHelperHash["lisa_trigger_minlength"])::ms => dur m_minimumLength;
-            m_minimumLength => dur m_envLength;
 
-            fun void listen(int lstn) {
-                if (lstn == 1) {
-                    1 => m_listen;
-                    spork ~ listening();
+            // print channel info
+            <<< "LiSa channels:", loopme.channels() >>>;
+
+            // allocate memory in LiSa
+            6::second => loopme.duration;
+
+            // play s for a bit
+            500::ms => now;
+
+            // sweep the freq for fun
+            Envelope pitchmod => blackhole;
+            pitchmod.duration( 2000::ms );
+            // pitchmod.value( s.freq() );
+            pitchmod.target( 220.0 );
+
+            // set times for recording fade in/out and sample loop length
+            100::ms => dur recfadetime;
+            1000::ms => dur mylooplen;
+            // set envelope duration
+            e.duration( recfadetime );
+
+            while (true) {
+                // start recording input; record 1 seconds worth
+                loopme.record(1);
+                // open envelope (can also do without the Envelope and use
+                // loopme.recramp(dur) to set a recording ramp)
+                e.keyOn();
+
+                // calcuate later
+                now + (mylooplen - recfadetime) => time later;
+                // go until now is later (or later)
+                while(now < later)
+                {
+                    // advance time
+                    10::ms => now;
                 }
-                if (lstn == 0) {
-                    0 => m_listen;
-                }
-            }
+                // close envelope
+                e.keyOff();
+                // let fade time pass
+                recfadetime => now;
+                // print
+                <<< "stop recording input into LiSa...", "" >>>;
+                // stop recording input
+                loopme.record(0);
 
-            fun void length(dur l) {
-                l => m_bufferLength;
-            }
+                // disconnect direct input...
+                adc =< dac;
+                // print
+                <<< "disconnect sine and hanging out...", "" >>>;
+                // and hang out for a bit
+                1000::ms => now;
 
-            fun void maxLength(dur l) {
-                l => m_maxBufferLength;
-            }
+                // now, manipulate the sample
+                // get a voicenumber; note that this voice won't actually be
+                // reserved until you play it
+                loopme.getVoice() => int voice1;
 
-            fun void minimumLength(dur l) {
-                m_minimumLength;
-                l => m_envLength;
-            }
+                // we'll play voice 1 forward; then crossfade with voice 2 backwards
+                // set gain
+                loopme.voiceGain( voice1, .5 );
+                // set pan (hard left channel)
+                loopme.pan( voice1, 0 );
+                // play voice 1
+                loopme.play( voice1, 1 );
+                // print
+                <<< "playing LiSa voice 1 ( id:", voice1, ")" >>>;
+                // let time pass
+                (mylooplen - recfadetime) => now;
 
-            fun void listening() {
-                mic.duration(m_maxBufferLength);
-                while (m_listen) {
-                    mic.clear();
-                    mic.recPos(0::samp);
-                    mic.record(1);
-                    m_bufferLength => now;
-                    mic.record(0);
-                    lisaTrig(m_bufferLength);
-                }
-            }
+                // just as voice 1 is going to fade, bring in voice 2
+                loopme.getVoice() => int voice2;
+                // set play rate to go backwards
+                loopme.rate( voice2, .4 );
+                // set play head at the end
+                loopme.playPos( voice2, mylooplen ); 
+                // set gain
+                loopme.voiceGain( voice2, 0.5 );
+                // set pan (hard right channel)
+                loopme.pan( voice2, 1 );
+                // play
+                loopme.play( voice2, 1 );
+                // print
+                <<< "playing LiSa voice 2 ( id:", voice2, ")" >>>;
 
-            fun void lisaTrig(dur bufferLength) {
-                dur bufferStart;
-                m_bufferLength => dur bufferLength;
-                mic.play(1);
-                while (bufferLength > m_minimumLength) {
-                    bufferLength * (Std.ftoi(audioInSettingsHelperHash["lisa_trigger_bufferwindow"])) => bufferLength;
-                    0::ms => bufferStart;
-                    mic.playPos(bufferLength);
-                    mic.rampUp(m_envLength * (Std.ftoi(audioInSettingsHelperHash["lisa_trigger_rampup"])));
-                    mic.rate(audioInSettingsHelperHash["lisa_trigger_rate"]);
-                    bufferLength - m_envLength => now;
-                    mic.rampDown(m_envLength * (Std.ftoi(audioInSettingsHelperHash["lisa_trigger_rampdown"])));
-                    m_envLength * (audioInSettingsHelperHash["lisa_trigger_envwindow"]) => now;
-                }
-                mic.play(0);
+                // wait until voice 1 had finished fading...
+                recfadetime => now;
+                // turn off voice 1
+                loopme.play( voice1, 0 );
+                // print
+                <<< "stopping LiSa voice 1...", "" >>>;
+
+                // wait for voice 2 to finish
+                1000::ms => now;
+
+                // print
+                <<< "program ending...", "" >>>;
+
             }
         }
     `;

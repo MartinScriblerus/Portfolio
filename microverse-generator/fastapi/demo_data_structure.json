@@ -1,0 +1,29 @@
+{
+  "audio_samples": {
+    "jazz": [
+      "jazz_sample1.wav",
+      "jazz_sample2.wav"
+    ],
+    "rock": [
+      "rock_sample1.wav",
+      "rock_sample2.wav"
+    ],
+    "classical": [
+      "classical_sample1.wav",
+      "classical_sample2.wav"
+    ],
+    "electronic": [
+      "electronic_sample1.wav",
+      "electronic_sample2.wav"
+    ]
+  },
+  "test_files": [
+    "test_audio1.wav",
+    "test_audio2.wav"
+  ],
+  "reference_files": [
+    "ref1.wav",
+    "ref2.wav",
+    "ref3.wav"
+  ]
+}

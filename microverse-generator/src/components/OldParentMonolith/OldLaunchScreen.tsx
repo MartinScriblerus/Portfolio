@@ -1,0 +1,63 @@
+"use client";
+
+import React from 'react';
+import { Box, Button } from '@mui/material';
+import { OBERHEIM_TEAL } from '../../constants';
+import { AnimatedTitle } from './OldAnimatedTitle';
+// import OldKeySelector from './OldKeySelector';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+
+type OldLaunchScreenProps = {
+  // audioKey: string;
+  // onKeyChange: (k: string) => void;
+  onStart: () => void;
+};
+
+const OldLaunchScreen: React.FC<OldLaunchScreenProps> = ({ onStart }) => {
+  return (
+    <Box sx={{ 
+      position: 'absolute',
+      inset: 0,
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 99999,
+      pointerEvents: 'auto',
+      background: 'rgba(0,0,0,0.85)'
+    }}>
+      <AnimatedTitle clickedBegin={false} />
+      {/* <Box sx={{ mt: 2, mb: 1 }}>
+        <OldKeySelector value={audioKey} onChange={onKeyChange} />
+      </Box> */}
+      <Button
+        sx={{
+          width: '160px',
+          height: '90px',
+          fontFamily: 'monospace',
+          fontSize: '1em !important',
+          background: OBERHEIM_TEAL,
+          padding: '24px',
+          margin: '16px',
+          pointerEvents: 'auto',
+          zIndex: 9999,
+          color: 'rgba(255,255,255,0.78)',
+          cursor: 'pointer',
+          border: 'rgba(255,255,255,0.78)',
+          '&:hover': { color: '#f5f5f5 !important', 
+            border: 'transparent' },
+        }}
+        variant="contained"
+        id="initChuckButton"
+        onClick={onStart}
+        startIcon={<PlayArrowIcon />}
+      >
+        START
+      </Button>
+    </Box>
+  );
+};
+
+export default OldLaunchScreen;
