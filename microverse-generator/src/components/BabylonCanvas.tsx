@@ -1649,10 +1649,10 @@ export default function BabylonHydraCanvas() {
 
             // Determine selected layout name from UI for the 2D HexKeyboard overlay
             const numNotes = 57;
-            const namesByCategory: Record<'isomorphic'|'tonnetz', string[]> = {
+            const namesByCategory: Record<'isomorphic'|'tonnetz', readonly string[]> = {
                 isomorphic: ['Wicki-Hayden', 'Harmonic Table'],
                 tonnetz: ['Tonnetz (P5 vs M3)', 'Tonnetz (P5 vs m3)'],
-            } as const;
+            };
             const nameList = namesByCategory[category as 'isomorphic'|'tonnetz'] ?? [];
             const chosenName = nameList[(layoutIndex % nameList.length + nameList.length) % nameList.length] || 'Wicki-Hayden';
 
@@ -1904,7 +1904,7 @@ export default function BabylonHydraCanvas() {
     };
 
     // Compute layout name for the 2D overlay from current dropdown selection
-    const namesByCategory: Record<'isomorphic'|'tonnetz', string[]> = {
+    const namesByCategory: Record<'isomorphic'|'tonnetz', readonly string[]> = {
         isomorphic: ['Wicki-Hayden', 'Harmonic Table', 'Janko'],
         tonnetz: ['Tonnetz (P5 vs M3)', 'Tonnetz (P5 vs m3)'],
     } as const;

@@ -33,7 +33,6 @@ import { useKnobModel } from './useKnobModel';
 import { useFileUploads } from './useFileUploads';
 import { useOldMonolithStore } from '../../store/useOldMonolithStore';
 import { useBeatGridStore } from '../../store/useBeatGridStore';
-import STKManagerDropdown from './OldStkManagerDropdown';
 import AudioMixer from './OldAudioMixer';
 import FXRouting from './OldFXRouting';
 import useAudioAnalysisAndMIDI from './useAudioAnalysisAndMIDI';
