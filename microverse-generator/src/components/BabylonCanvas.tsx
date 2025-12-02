@@ -1746,22 +1746,32 @@ export default function BabylonHydraCanvas() {
                         dynamicTexture.scaleTo(canvasWidth, canvasHeight);
                         // Get updated size after scaling
                         const newTexSize = dynamicTexture.getSize();
-                        // Clear with the new size
-                        ctx.clearRect(0, 0, newTexSize.width, newTexSize.height);
+                        // Fill with background color instead of clearing to black
+                        // Use currentAvg if available, otherwise use a dark background
+                        const bgR = currentAvg.r > 0 ? Math.round(currentAvg.r * 255) : 10;
+                        const bgG = currentAvg.g > 0 ? Math.round(currentAvg.g * 255) : 11;
+                        const bgB = currentAvg.b > 0 ? Math.round(currentAvg.b * 255) : 13;
+                        ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
+                        ctx.fillRect(0, 0, newTexSize.width, newTexSize.height);
                     } else {
-                        // Clear the entire texture context before drawing to prevent artifacts
-                        ctx.clearRect(0, 0, texSize.width, texSize.height);
+                        // Fill with background color instead of clearing to black
+                        // Use currentAvg if available, otherwise use a dark background
+                        const bgR = currentAvg.r > 0 ? Math.round(currentAvg.r * 255) : 10;
+                        const bgG = currentAvg.g > 0 ? Math.round(currentAvg.g * 255) : 11;
+                        const bgB = currentAvg.b > 0 ? Math.round(currentAvg.b * 255) : 13;
+                        ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
+                        ctx.fillRect(0, 0, texSize.width, texSize.height);
                     }
                     
                     // Draw the current Hydra canvas frame directly (no scaling needed if sizes match)
                     const finalTexSize = dynamicTexture.getSize();
                     if (finalTexSize.width === canvasWidth && finalTexSize.height === canvasHeight) {
-                        // Direct copy when sizes match exactly
-                        ctx.drawImage(hydraCanvasRef.current, 0, 0);
+                        // Direct copy when sizes match exactly - ensure it covers the entire texture
+                        ctx.drawImage(hydraCanvasRef.current, 0, 0, canvasWidth, canvasHeight, 0, 0, finalTexSize.width, finalTexSize.height);
                     } else {
-                        // Scale if sizes don't match
-                    ctx.drawImage(
-                        hydraCanvasRef.current,
+                        // Scale if sizes don't match - ensure it covers the entire texture
+                        ctx.drawImage(
+                            hydraCanvasRef.current,
                             0, 0, canvasWidth, canvasHeight,
                             0, 0, finalTexSize.width, finalTexSize.height
                         );
@@ -1788,7 +1798,9 @@ export default function BabylonHydraCanvas() {
                         hydraVideoEl.play().catch(()=>{});
                     }
                 }
-                scene.render();
+                if (scene) {
+                    scene.render();
+                }
                 const t = performance.now();
                 if (t - lastHudUpdate > 33) { // ~30fps HUD refresh
                     lastHudUpdate = t;
@@ -1814,7 +1826,9 @@ export default function BabylonHydraCanvas() {
                 hydraCanvas.height = window.innerHeight;
                 // Update dynamic texture size to match Hydra canvas
                 dynamicTexture.scaleTo(hydraCanvas.width, hydraCanvas.height);
-                engine.resize();
+                if (engine) {
+                    engine.resize();
+                }
             };
             window.addEventListener('resize', handleResize);
             // expose cleanup to the outer effect
@@ -1825,7 +1839,9 @@ export default function BabylonHydraCanvas() {
                 try { unsubscribeHydraControls(); } catch {}
                 // Clear cache to prevent memory leaks
                 chainCache.clear();
-                try { engine.dispose(); } catch {}
+                if (engine) {
+                    try { engine.dispose(); } catch {}
+                }
             };
         })();
         return () => { if (typeof disposer === 'function') disposer(); };
