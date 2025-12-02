@@ -406,16 +406,26 @@ function BabylonScene(props: {
         >
             <div 
                 style={{ 
-                    position: 'relative', 
+                    position: 'fixed', 
+                    top: 0,
+                    left: 0,
                     width: '100vw', 
-                    height: '100vh' 
+                    height: '100vh',
+                    pointerEvents: 'none',
+                    zIndex: 0,
                 }}>
                 <canvas
                     style={{
                         minWidth: "1200px", 
                         minHeight: "800px", 
-                        display: "visible",
-                        position: 'relative', 
+                        display: "block",
+                        position: 'absolute', 
+                        top: 0,
+                        left: 0,
+                        width: '100vw',
+                        height: '100vh',
+                        pointerEvents: 'none',
+                        zIndex: 0,
                     }} 
                     id={`babylonCanvas`} 
                     ref={canvasRef}

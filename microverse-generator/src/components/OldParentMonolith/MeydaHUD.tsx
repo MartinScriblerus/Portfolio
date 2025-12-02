@@ -43,7 +43,7 @@ export default function MeydaHUD() {
       right: 16,
       bottom: 16,
       minWidth: 260,
-      background: 'rgba(0,0,0,0.55)',
+      background: 'rgba(255,255,255,0.55)',
       color: '#e8e8e8',
       borderRadius: 1.5,
       p: 1.5,

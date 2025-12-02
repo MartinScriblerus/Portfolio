@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Chuck } from 'webchuck';
+import type { Chuck } from 'webchuck';
 
 export type UseFileUploadsParams = {
   chuck?: Chuck;

@@ -33,13 +33,13 @@ import { useKnobModel } from './useKnobModel';
 import { useFileUploads } from './useFileUploads';
 import { useOldMonolithStore } from '../../store/useOldMonolithStore';
 import { useBeatGridStore } from '../../store/useBeatGridStore';
-// import STKManagerDropdown from './OldStkManagerDropdown';
+import STKManagerDropdown from './OldStkManagerDropdown';
 import AudioMixer from './OldAudioMixer';
 import FXRouting from './OldFXRouting';
 import useAudioAnalysisAndMIDI from './useAudioAnalysisAndMIDI';
 // import Streamgraph from '../VizxHelpers/Steamgraph'; // Temporarily disabled - data format mismatch
 // import BrushChart from '../VizxHelpers/BrushChart'; // Available if needed
-import { Chuck } from 'webchuck';
+import type { Chuck } from 'webchuck';
 
   
 type RightDrawerProps = {
@@ -167,7 +167,33 @@ function RightDrawer(props: RightDrawerProps) {
   useEffect(() => {
     chuckHookRefForMeyda.current = chuckHook;
   }, [chuckHook]);
-  const { meydaData } = useAudioAnalysisAndMIDI(chuckHookRefForMeyda as any, [chuckHook]);
+  // Debugging: track incoming frame rate and last frame timestamp
+  const [debugFps, setDebugFps] = useState<number>(0);
+  const lastFrameTsRef = useRef<number | null>(null);
+  const frameCountRef = useRef<number>(0);
+  const fpsWindowStartRef = useRef<number | null>(null);
+
+  const { meydaData } = useAudioAnalysisAndMIDI(
+    chuckHookRefForMeyda as any,
+    [chuckHook],
+    (audioData: Float32Array) => {
+      // Update ref for WaveformCanvas to consume (copy to avoid mutation issues)
+      latestTimeDomainRef.current = audioData;
+
+      // Update debug counters
+      const now = performance.now();
+      lastFrameTsRef.current = now;
+      frameCountRef.current = (frameCountRef.current || 0) + 1;
+      if (!fpsWindowStartRef.current) fpsWindowStartRef.current = now;
+      const windowMs = now - fpsWindowStartRef.current;
+      if (windowMs >= 500) {
+        const fps = Math.round((frameCountRef.current * 1000) / windowMs);
+        setDebugFps(fps);
+        frameCountRef.current = 0;
+        fpsWindowStartRef.current = now;
+      }
+    }
+  );
   
   // Get clickedBegin from store
   const clickedBegin = useOldMonolithStore(s => s.clickedBegin);
@@ -230,15 +256,16 @@ function RightDrawer(props: RightDrawerProps) {
           onClick={() => { setOpen(true); setTab('grid'); }}
           aria-label="Open grid panel"
           style={{
-            position: 'fixed',
-            right: 8,
-            top: '10%',
+            position: 'absolute',
+            left: 348,
+            top: 22,
+            height: 28,
             transform: 'translateY(-50%)',
             zIndex: 31,
-            padding: '12px 16px',
-            background: 'rgba(10,10,14,0.95)',
+            // padding: '12px 16px',
+            background: '#444',
             border: '1px solid #444',
-            borderRadius: 8,
+            borderRadius: 4,
             color: '#e0e0e0',
             cursor: 'pointer',
             fontSize: 14,
@@ -246,7 +273,7 @@ function RightDrawer(props: RightDrawerProps) {
             boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
           }}
         >
-          Grid Sequencer →
+          Grid →
         </button>
       )}
       <aside
@@ -314,14 +341,20 @@ function RightDrawer(props: RightDrawerProps) {
           {/* isEditing Toggle - Fixed to use hook properly */}
           {/* <EditingModeToggle /> */}
           {/* <div style={{ marginTop: 8 }}> */}
-           {/* {props.fxRadioValue === "sample" &&  */}
-           <Box sx={{ height: '56px', width: '100%' }}>
-            <WaveformCanvas
+          {/* Debug: always render waveform while troubleshooting */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            <div style={{ flex: 1 }}>
+              <WaveformCanvas
                 getSamples={() => latestTimeDomainRef.current}
                 height={56}
                 color="#62f5ff"
               />
-            </Box>
+            </div>
+            <div style={{ minWidth: 80, textAlign: 'right', color: '#9fdfff', fontSize: 11 }}>
+              <div style={{ fontWeight: 600 }}>FPS</div>
+              <div>{debugFps}</div>
+            </div>
+          </div>
             {/* } */}
           {/* </div> */}
         </header>
@@ -437,7 +470,7 @@ function RightDrawer(props: RightDrawerProps) {
               </Select>
             </Box>
 
-            {/* Audio In Effect Dropdown */}
+            {/* Audio In Effect Dropdown
             <Box
               id='effect-dropdown-container'
               sx={{
@@ -451,7 +484,7 @@ function RightDrawer(props: RightDrawerProps) {
                 updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
                 showAudioInDropdown={showAudioInDropdown}
               />
-            </Box>
+            </Box> */}
 
             {/* Meyda Visualizations */}
             {meydaData && typeof meydaData === 'object' && (
@@ -625,8 +658,24 @@ function RightDrawer(props: RightDrawerProps) {
               />
             </Box>
 
+            {/* Audio In Effect Dropdown */}
+            <Box
+              id='effect-dropdown-container'
+              sx={{
+                pointerEvents: showAudioInDropdown ? 'auto' : 'none',
+                opacity: showAudioInDropdown ? 1 : 0.5,
+                marginBottom: '16px',
+              }}
+            >
+              <EffectDropdown
+                chuckRef={chuckRefForEffect}
+                updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
+                showAudioInDropdown={showAudioInDropdown}
+              />
+            </Box>
+
             {/* FX Routing (General Effects) */}
-            <Box sx={{ position: 'relative', color: 'rgba(255,255,255,0.78)', marginBottom: '16px' }}>
+            {/* <Box sx={{ position: 'relative', color: 'rgba(255,255,255,0.78)', marginBottom: '16px' }}> */}
               <FXRouting
                 key={`fx_${fxRadioValue}` + fxRadioValue}
                 fxData={universalSourcesRef?.current?.[fxRadioValue]?.effects || {}}
@@ -651,10 +700,10 @@ function RightDrawer(props: RightDrawerProps) {
                 checkedEffectsListHook={checkedEffectsListHook}
                 setCheckedEffectsListHook={setCheckedEffectsListHook}
               />
-            </Box>
+            {/* </Box> */}
 
             {/* Pedalboard */}
-            <Box sx={{ marginTop: '16px' }}>
+            {/* <Box sx={{ marginTop: '16px' }}> */}
               <ReactDiagramsPedalboard
                 universalSources={universalSourcesRef}
                 currentChain={currentChain}
@@ -664,7 +713,7 @@ function RightDrawer(props: RightDrawerProps) {
                 handleCheckedEffectsToShow={handleCheckedFXToShow}
                 getNewFX={getNewFX}
               />
-            </Box>
+            {/* </Box> */}
           </div>
         )}
       </main>
@@ -674,6 +723,7 @@ function RightDrawer(props: RightDrawerProps) {
 }
 
 type OldParentMonolithProps = {
+  runChuckCode: () => {};
   chuckHook: Chuck;
   selectedDeviceId: string;
   onUpload: (files: FileList | null) => Promise<void>;
@@ -687,7 +737,8 @@ type OldParentMonolithProps = {
 export default function OldParentMonolith(
   props: OldParentMonolithProps
 ) {
-  const { 
+  const {
+    runChuckCode,
     onUpload, 
     chuckHook, 
     selectedDeviceId, 
@@ -777,16 +828,18 @@ export default function OldParentMonolith(
   }, [fxRadioValue, universalSourcesRef.current]);
 
   // Handlers (no-ops for shell)
+  const [isInitializingLocal, setIsInitializingLocal] = useState(false);
+
   const onStart = async () => {
-    // try {
+    setIsInitializingLocal(true);
+    try {
+      // await runChuckCode();
+    } catch (e) {
+      console.error('runChuckCode failed:', e);
+    } finally {
+      setIsInitializingLocal(false);
       setClickedBegin(true);
-    
-      // setIsChuckRunning(true);
-    // } catch (e) {
-    //   // keep UI responsive even if engine init is deferred
-    //   setClickedBegin(true);
-    //   setIsChuckRunning(true);
-    // }
+    }
   };
 
   const updateKeyScaleChord = () => {};
@@ -828,7 +881,7 @@ export default function OldParentMonolith(
   const handleToggleMutes = (_: string) => {};
   const handleToggleSolos = (_: string) => {};
   const [expandedMixerSource, setExpandedMixerSource] = useState('');
-  const [keysVisible] = useState(false);
+  const [keysVisible] = useState(true);
   const [keysReady] = useState(true);
   const [notesAddedDetails] = useState<any[]>([]);
   const organizeRows = async () => {};
@@ -953,9 +1006,11 @@ export default function OldParentMonolith(
   return (
     <>
       {/* Launch Screen */}
-      {!clickedBegin && (
-        <OldLaunchScreen 
-          onStart={onStart} />
+        {!clickedBegin && (
+          <OldLaunchScreen 
+            onStart={onStart}
+            isInitializing={isInitializingLocal}
+          />
       )}
 
       {/* Transport Header */}
@@ -980,7 +1035,7 @@ export default function OldParentMonolith(
       </Box> */}
 
       {/* Right Column */}
-      <Box sx={{ 
+      {/* <Box sx={{ 
         position: 'fixed', 
         right: 0, 
         top: 0, 
@@ -991,7 +1046,7 @@ export default function OldParentMonolith(
         overflowY: 'auto',
         borderLeft: '1px solid rgba(255,255,255,0.1)',
         pointerEvents: 'auto'
-      }}>
+      }}> */}
         {/* Device Selector and Audio In EffectDropdown moved to Mixer tab in RightDrawer */}
         {/* <Box sx={{ padding: '8px' }}>
           <Box className='select-device-id-wrapper' sx={{ marginBottom: '16px' }}>
@@ -1065,7 +1120,7 @@ export default function OldParentMonolith(
           checkedEffectsListHook={checkedEffectsListHook}
           setCheckedEffectsListHook={setCheckedEffectsListHook}
         /> */}
-      </Box>
+      {/* </Box> */}
 
       {/* Middle/Knobs (pointer transparent) */}
       <Box 
@@ -1126,7 +1181,7 @@ export default function OldParentMonolith(
       />
 
       {/* Live analysis HUD (Meyda + MIDI) */}
-      <Box sx={{ pointerEvents: 'none', position: 'fixed', right: 16, top: 80, zIndex: 35 }}>
+      <Box sx={{ pointerEvents: 'none', position: 'fixed', left: 16, bottom: 0, zIndex: 10050 }}>
         <MeydaHUD />
       </Box>
 

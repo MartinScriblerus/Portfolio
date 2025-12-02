@@ -7,7 +7,8 @@ const setupAudioAnalysisWorklet = async (audioContext, setMeydaData) => {
     console.log("Setting up audio analysis worklet: ", audioContext.audioWorklet);
     // console.log(audioContext.audioWorklet);
     try {
-      await audioContext.audioWorklet.addModule('/audio/meydaAudioProcessor.js');
+      // Ensure correct file name (public folder): MeydaAudioProcessor.js
+      await audioContext.audioWorklet.addModule('/audio/MeydaAudioProcessor.js');
       processorRegisteredAnalysis = true;  // Mark as registered  
     
       const meydaNode = new AudioAnalysisNode(audioContext, { processorName: 'meyda-audio-processor' });

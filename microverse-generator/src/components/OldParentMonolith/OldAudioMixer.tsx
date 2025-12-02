@@ -45,10 +45,22 @@ const AudioMixer: React.FC<AudioMixerProps> = ({
                 initialSolos[sourceKey] = universalSources[sourceKey].isSolo; // Default unmuted
                 initialPans[sourceKey] = universalSources[sourceKey].masterPan; // Default pan
             });
-            setVolumes(initialVolumes);
-            setMutes(initialMutes);
-            setSolos(initialSolos);
-            setPans(initialPans);
+            // Only update state when values actually change to avoid infinite re-renders
+            const shallowEq = (a: any, b: any) => {
+                if (a === b) return true;
+                const aKeys = Object.keys(a || {});
+                const bKeys = Object.keys(b || {});
+                if (aKeys.length !== bKeys.length) return false;
+                for (let k of aKeys) {
+                    if (a[k] !== b[k]) return false;
+                }
+                return true;
+            };
+
+            if (!shallowEq(initialVolumes, volumes)) setVolumes(initialVolumes);
+            if (!shallowEq(initialMutes, mutes)) setMutes(initialMutes);
+            if (!shallowEq(initialSolos, solos)) setSolos(initialSolos);
+            if (!shallowEq(initialPans, pans)) setPans(initialPans);
         }
     }, [universalSources]);
 

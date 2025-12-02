@@ -5,6 +5,7 @@ import { Box, Typography, Button } from '@mui/material';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import { useTransportStore } from '../store/useTransportStore';
 import { useTimingStore } from '../hooks/useTimingStore';
+import { chuckRef, filesToProcess, uploadedBlob } from '../../app/state/refs';
 
 /**
  * Timing Controls: BPM, Time Signature, and Subdivision controls
@@ -29,25 +30,58 @@ export default function TimingControls() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'audio/*';
-    input.onchange = (e: any) => {
+    input.onchange = async (e: any) => {
       const files = e.target.files;
       if (files && files.length > 0) {
-        console.log('Files selected:', files);
-        // Handle file upload
+        for (let i = 0; i < files.length; i++) {
+          const f: File | null = files.item(i);
+          if (!f) continue;
+          try {
+            const arrayBuffer = await f.arrayBuffer();
+            const data = new Uint8Array(arrayBuffer);
+            try {
+              filesToProcess.current = filesToProcess.current || [];
+              filesToProcess.current.push({ filename: f.name, data, processed: false });
+            } catch (err) {
+              console.warn('filesToProcess push failed:', err);
+            }
+            try {
+              if (chuckRef && chuckRef.current) {
+                await chuckRef.current.createFile('', f.name, arrayBuffer);
+              }
+            } catch (err) {
+              console.warn('Chuck createFile failed:', err);
+            }
+            try {
+              uploadedBlob.current = new Blob([arrayBuffer], { type: f.type || 'audio/wav' });
+            } catch (err) {}
+            console.log('Files selected and processed:', f.name);
+          } catch (err) {
+            console.error('Failed to read file:', err);
+          }
+        }
       }
     };
     input.click();
   };
 
   return (
-    <Box sx={{  display: 'flex', flexDirection: 'row' }}>
+    <Box 
+      sx={{  
+        display: 'flex', 
+        flexDirection: 'row' 
+      }}
+    >
       <Button
         startIcon={<FileUploadIcon />}
         onClick={handleFileUpload}
         sx={{
           backgroundColor: '#3f51b5',
           color: '#fff',
-          minWidth: '120px',
+          minWidth: '100px',
+          height: '36px',
+          padding: '8px',
+          margin: '8px 8px 8px 0px',
           '&:hover': {
             backgroundColor: '#303f9f',
           },
