@@ -690,18 +690,31 @@ export default function FileWindow({
 
     wavesurfer.on('ready', () => {
       setReady(true);
-      // Add full-file region if none
-      if (regionsRef.current && !regionsRef.current.getRegions().length) {
-        regionsRef.current.addRegion({
-          start: 0,
-          end: wavesurfer.getDuration(),
-          color: 'rgba(255,64,129,0.12)',
-          drag: true,
-          resize: true,
-        });
+      // Prefer using wavesurfer API to add regions (safer: ensures wavesurfer is initialized)
+      const regPlugin = wsRef.current?.getActivePlugins?.()?.regions ?? regionsRef.current;
+      const existingRegions = regPlugin?.getRegions?.() ?? [];
+      if (regPlugin && existingRegions.length === 0) {
+        if (typeof wsRef.current?.addRegion === 'function') {
+          wsRef.current.addRegion({
+            start: 0,
+            end: wavesurfer.getDuration(),
+            color: 'rgba(255,64,129,0.12)',
+            drag: true,
+            resize: true,
+          });
+        } else if (typeof regPlugin.addRegion === 'function') {
+          regPlugin.addRegion({
+            start: 0,
+            end: wavesurfer.getDuration(),
+            color: 'rgba(255,64,129,0.12)',
+            drag: true,
+            resize: true,
+          });
+        }
       }
+
       // Populate regionStart/regionEnd based on first region
-      const regList = regionsRef.current.getRegions();
+      const regList = (regPlugin?.getRegions?.() ?? []);
       if (regList.length) {
         regionStart.current = regList[0].start;
         regionEnd.current = regList[0].end;
@@ -718,13 +731,22 @@ export default function FileWindow({
       console.error('[WaveSurfer] error', e);
     });
 
-    // Track region changes
-    regionsRef.current.on('region-update-end', (region: any) => {
-      regionStart.current = region.start;
-      regionEnd.current = region.end;
-      clippedDuration.current = region.end - region.start;
-      totalDuration.current = wsRef.current?.getDuration() ?? null;
-    });
+    // Track region changes via WaveSurfer events (safer than calling plugin methods pre-init)
+    if (typeof wsRef.current?.on === 'function') {
+      wsRef.current.on('region-update-end', (region: any) => {
+        regionStart.current = region.start;
+        regionEnd.current = region.end;
+        clippedDuration.current = region.end - region.start;
+        totalDuration.current = wsRef.current?.getDuration() ?? null;
+      });
+    } else if (regionsRef.current && typeof regionsRef.current.on === 'function') {
+      regionsRef.current.on('region-update-end', (region: any) => {
+        regionStart.current = region.start;
+        regionEnd.current = region.end;
+        clippedDuration.current = region.end - region.start;
+        totalDuration.current = wsRef.current?.getDuration() ?? null;
+      });
+    }
 
     try {
       wavesurfer.loadBlob(blob);
@@ -887,9 +909,11 @@ if (getMeydaData) {
   // Recompute measure guides if BPM updated (reuse existing pattern)
   const addMeasureGuides = useCallback(
     (bpm: number, numerator = 4, denominator = 4, maxMeasures = 16) => {
-      if (!regionsRef.current || !wsRef.current || !bpm) return;
+      if (!wsRef.current || !bpm) return;
+      const regPlugin = wsRef.current?.getActivePlugins?.()?.regions ?? regionsRef.current;
+      if (!regPlugin) return;
       // Remove existing measure guides
-      const existing = regionsRef.current.getRegions();
+      const existing = regPlugin.getRegions?.() ?? [];
       existing.forEach((r: any) => {
         if (r.data?.guide === 'measure') r.remove();
       });
@@ -901,14 +925,25 @@ if (getMeydaData) {
       let current = 0;
       let count = 0;
       while (current < dur && count < maxMeasures) {
-        regionsRef.current.addRegion({
-          start: current,
-          end: Math.min(current + measureSec, dur),
-          color: 'rgba(0,255,200,0.05)',
-          drag: false,
-          resize: false,
-          data: { guide: 'measure', index: count },
-        });
+        if (typeof wsRef.current.addRegion === 'function') {
+          wsRef.current.addRegion({
+            start: current,
+            end: Math.min(current + measureSec, dur),
+            color: 'rgba(0,255,200,0.05)',
+            drag: false,
+            resize: false,
+            data: { guide: 'measure', index: count },
+          });
+        } else if (typeof regPlugin.addRegion === 'function') {
+          regPlugin.addRegion({
+            start: current,
+            end: Math.min(current + measureSec, dur),
+            color: 'rgba(0,255,200,0.05)',
+            drag: false,
+            resize: false,
+            data: { guide: 'measure', index: count },
+          });
+        }
         current += measureSec;
         count++;
       }

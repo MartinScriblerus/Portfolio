@@ -78,7 +78,7 @@ svg {
 #runChuckCodeButton {
   position: absolute;
   top: 132px;
-  left: 228px;
+  left: 8px;
   border: 1px solid rgba(255,255,255,0.18);
   background: rgba(255,255,255,0.25);
   color: #e9f1ff;
@@ -101,8 +101,8 @@ svg {
 
 #chuckMicButtonWrapper {
   position: absolute;
-  top: 88px;
-  left: 292px;
+  top: 72px;
+  left: 8px;
   border: 1px solid rgba(255,255,255,0.18);
   background: rgba(255,255,255,0.25);
   color: #e9f1ff;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import ClockCounter from './OldClockCounter';
-import { Chuck } from 'webchuck';
+import type { Chuck } from 'webchuck';
 
 type OldTransportHeaderProps = {
   chuckHook?: Chuck;

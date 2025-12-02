@@ -1,4 +1,4 @@
-import { Box, FormLabel, Slider, Autocomplete, TextField, FormControl, InputLabel, Select, MenuItem, FormControlLabel, Switch, Button, ButtonGroup } from "@mui/material";
+import { Box, FormLabel, Slider, Autocomplete, TextField, FormControl, InputLabel, Select, MenuItem, FormControlLabel, Switch, Button, ButtonGroup, Typography } from "@mui/material";
 import React, { cache, useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
 import { Tooltip } from "./BeatGridTooltip";
@@ -480,24 +480,66 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
             (evt) => evt.x === Number(theX) && evt.y === Number(theY) && evt.subdivision === Number(subDiv)
         );
         
+        // Helper function to convert file indices to file names
+        const getFileNamesFromIndices = (indices: number[]): string[] => {
+            if (!filesToProcess || !Array.isArray(filesToProcess)) return [];
+            return indices
+                .map((idx: number) => {
+                    const file = filesToProcess[idx];
+                    return file?.filename ? String(file.filename) : null;
+                })
+                .filter((n): n is string => !!n);
+        };
+        
+        // Get file names from event or from cell's fileNums
+        let fileNames: string[] = [];
+        let noteNames: string[] = [];
+        
         if (event) {
-            // Use fileNames if available, otherwise fall back to fileIdxs
-            filesForThisCell.current = event.fileNames || event.fileIdxs || [];
-            notesForThisCell.current = event.noteNames || [];
+            // Use fileNames if available, else if fileIdxs is present, map to names
+            if (event.fileNames && Array.isArray(event.fileNames)) {
+                fileNames = event.fileNames;
+            } else if (event.fileIdxs && Array.isArray(event.fileIdxs)) {
+                fileNames = getFileNamesFromIndices(event.fileIdxs as number[]);
+            } else {
+                fileNames = [];
+            }
+            noteNames = event.noteNames || [];
         } else {
             // Fallback: find any event for this cell (first subdivision)
             const cellEvent = cache.events.find(
                 (evt) => evt.x === Number(theX) && evt.y === Number(theY)
             );
             if (cellEvent) {
-                filesForThisCell.current = cellEvent.fileNames || cellEvent.fileIdxs || [];
-                notesForThisCell.current = cellEvent.noteNames || [];
-            } else {
-                filesForThisCell.current = [];
-                notesForThisCell.current = [];
+                if (cellEvent.fileNames && Array.isArray(cellEvent.fileNames)) {
+                    fileNames = cellEvent.fileNames;
+                } else if (cellEvent.fileIdxs && Array.isArray(cellEvent.fileIdxs)) {
+                    fileNames = getFileNamesFromIndices(cellEvent.fileIdxs as number[]);
+                } else {
+                    fileNames = [];
+                }
+                noteNames = cellEvent.noteNames || [];
             }
         }
-    }, [currCellString, cacheRef.current.version]);
+        
+        // Also check masterPatternsHashHook for fileNums and convert to file names
+        const cell = masterPatternsHashHook?.[`${theY}`]?.[`${theX}`];
+        if (cell?.fileNums && Array.isArray(cell.fileNums) && cell.fileNums.length > 0) {
+            const fileNumsAsNames = getFileNamesFromIndices(cell.fileNums as number[]);
+            if (fileNumsAsNames.length > 0) {
+                fileNames = Array.from(new Set([...fileNames, ...fileNumsAsNames]));
+            }
+        }
+        
+        // Also check masterPatternsHashHook for noteName
+        if (cell?.noteName) {
+            const cellNoteNames = Array.isArray(cell.noteName) ? cell.noteName : [cell.noteName];
+            noteNames = Array.from(new Set([...noteNames, ...cellNoteNames.filter(Boolean)]));
+        }
+        
+        filesForThisCell.current = fileNames;
+        notesForThisCell.current = noteNames;
+    }, [currCellString, cacheRef.current.version, filesToProcess, masterPatternsHashHook]);
     
     const allShapes = heatmapData.map((d) => {
         if (!xScale || !yScale) return null;
@@ -793,7 +835,6 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     }, [masterPatternsHashHook, currentXVal.current, currentYVal.current, sampleOptions]);
 
     const handleSamplesChange = (vals: Option[]) => {
-        console.log('WTF VALS ', vals, currentXVal.current, currentYVal.current);
         handleLatestSamples(vals.map((o) => o.value), currentXVal.current, currentYVal.current - 1);
     };
 
@@ -817,7 +858,6 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         const yKey = String(currentYVal.current);
         const xKey = String(currentXVal.current);
         const cell = masterPatternsHashHook?.[yKey]?.[xKey];
-        console.log('WTF CELL ', cell, xKey, yKey);
 
         const names = cell?.noteName ? (Array.isArray(cell.noteName) ? cell.noteName : [cell.noteName]).filter(Boolean) : [];
 
@@ -1156,13 +1196,73 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                             id='currentCellFileNoteAssignments' 
                                             sx={{ 
                                                 display: 'flex', 
-                                                flexDirection: 'row', 
-                                                justifyContent: 'space-between',
+                                                flexDirection: 'column', 
+                                                gap: '8px',
+                                                padding: '8px',
+                                                backgroundColor: 'rgba(0,0,0,0.3)',
+                                                borderRadius: '4px',
+                                                marginTop: '8px',
                                             }}
                                         >
+                                            {/* Files assigned to this cell */}
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <Typography variant="caption" sx={{ color: OBERHEIM_TEAL, fontWeight: 600 }}>
+                                                    Files ({filesForThisCell.current.length > 0 ? filesForThisCell.current.length : 'none'}):
+                                                </Typography>
+                                                {filesForThisCell.current && filesForThisCell.current.length > 0 ? (
+                                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                                        {(Array.isArray(filesForThisCell.current) ? filesForThisCell.current : [filesForThisCell.current]).map((file: any, idx: number) => (
+                                                            <Box 
+                                                                key={`file_${idx}`}
+                                                                sx={{ 
+                                                                    padding: '2px 6px', 
+                                                                    backgroundColor: OBERHEIM_TEAL, 
+                                                                    color: '#000',
+                                                                    borderRadius: '3px',
+                                                                    fontSize: '11px',
+                                                                    fontWeight: 500,
+                                                                }}
+                                                            >
+                                                                {typeof file === 'string' ? file : (file?.label || file?.value || file?.filename || String(file))}
+                                                            </Box>
+                                                        ))}
+                                                    </Box>
+                                                ) : (
+                                                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
+                                                        No files assigned
+                                                    </Typography>
+                                                )}
+                                            </Box>
 
-                                            <span>{filesForThisCell.current}</span>
-                                            <span>{notesForThisCell.current}</span>
+                                            {/* Notes assigned to this cell */}
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <Typography variant="caption" sx={{ color: HERITAGE_GOLD, fontWeight: 600 }}>
+                                                    Notes ({notesForThisCell.current.length > 0 ? notesForThisCell.current.length : 'none'}):
+                                                </Typography>
+                                                {notesForThisCell.current && notesForThisCell.current.length > 0 ? (
+                                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                                        {(Array.isArray(notesForThisCell.current) ? notesForThisCell.current : [notesForThisCell.current]).map((note: any, idx: number) => (
+                                                            <Box 
+                                                                key={`note_${idx}`}
+                                                                sx={{ 
+                                                                    padding: '2px 6px', 
+                                                                    backgroundColor: HERITAGE_GOLD, 
+                                                                    color: '#000',
+                                                                    borderRadius: '3px',
+                                                                    fontSize: '11px',
+                                                                    fontWeight: 500,
+                                                                }}
+                                                            >
+                                                                {typeof note === 'string' ? note : (note?.label || note?.value || String(note))}
+                                                            </Box>
+                                                        ))}
+                                                    </Box>
+                                                ) : (
+                                                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
+                                                        No notes assigned
+                                                    </Typography>
+                                                )}
+                                            </Box>
                                             
                                         </Box>
                                         
@@ -1334,7 +1434,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                 {/* Show Sample Input if noteBuilderFocus is "Sample" or "MIDI", otherwise show Notes Selector */}
                                                                 {/* {(noteBuilderFocus === 'Sampler' || noteBuilderFocus === 'MIDI') ? ( */}
                                                                     <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
-                                                                        <FormControl size="small" sx={{ minWidth: '100%' }} 
+                                                                        <Box sx={{ display: "flex", flexDirection: "row", gap: 1, alignItems: "center" }}>
+                                                                            <FormControl size="small" sx={{ minWidth: 'calc(100% - 80px)', flex: 1 }} 
                                                                             disabled={
                                                                                 // !sampleVoiceEnabled || 
                                                                                 uploadedNames.length === 0}
@@ -1380,10 +1481,72 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                                 
                                                                             </Select>
                                                                         </FormControl>
+                                                                            <Button
+                                                                                size="small"
+                                                                                variant="contained"
+                                                                                onClick={async () => {
+                                                                                    if (sampleFileName) {
+                                                                                        await handleLatestSamples([sampleFileName], currentXVal.current, currentYVal.current);
+                                                                                        // Clear the dropdown after assignment
+                                                                                        setSampleFileName(null);
+                                                                                    }
+                                                                                }}
+                                                                                disabled={!sampleFileName || uploadedNames.length === 0}
+                                                                                sx={{
+                                                                                    minWidth: '70px',
+                                                                                    backgroundColor: OBERHEIM_TEAL,
+                                                                                    color: '#000',
+                                                                                    fontWeight: 600,
+                                                                                    '&:hover': {
+                                                                                        backgroundColor: OBERHEIM_TEAL,
+                                                                                        opacity: 0.9,
+                                                                                    },
+                                                                                    '&:disabled': {
+                                                                                        backgroundColor: 'rgba(255,255,255,0.1)',
+                                                                                        color: 'rgba(255,255,255,0.3)',
+                                                                                    },
+                                                                                }}
+                                                                            >
+                                                                                Assign
+                                                                            </Button>
+                                                                        </Box>
                                                                     </Box>
 
-                                                                    <Box sx={{ width: "100%" }}>
-                                                                        <ParameterMultiSelect options={notesOptions} value={notesSelected} placeholder="Select Notes" onChange={handleNotesChange} />
+                                                                    <Box sx={{ width: "100%", display: "flex", flexDirection: "row", gap: 1, alignItems: "flex-start" }}>
+                                                                        <Box sx={{ flex: 1 }}>
+                                                                            <ParameterMultiSelect options={notesOptions} value={notesSelected} placeholder="Select Notes" onChange={handleNotesChange} />
+                                                                        </Box>
+                                                                        <Button
+                                                                            size="small"
+                                                                            variant="contained"
+                                                                            onClick={async () => {
+                                                                                if (notesSelected && notesSelected.length > 0) {
+                                                                                    // Get note values from selected options
+                                                                                    const noteValues = notesSelected.map((o) => o.value);
+                                                                                    await handleLatestNotes(noteValues, currentXVal.current, currentYVal.current);
+                                                                                    // Note: notesSelected will automatically update to show the assigned notes
+                                                                                    // since it's derived from the cell's current notes
+                                                                                }
+                                                                            }}
+                                                                            disabled={!notesSelected || notesSelected.length === 0}
+                                                                            sx={{
+                                                                                minWidth: '70px',
+                                                                                backgroundColor: HERITAGE_GOLD,
+                                                                                color: '#000',
+                                                                                fontWeight: 600,
+                                                                                marginTop: '4px',
+                                                                                '&:hover': {
+                                                                                    backgroundColor: HERITAGE_GOLD,
+                                                                                    opacity: 0.9,
+                                                                                },
+                                                                                '&:disabled': {
+                                                                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                                                                    color: 'rgba(255,255,255,0.3)',
+                                                                                },
+                                                                            }}
+                                                                        >
+                                                                            Assign
+                                                                        </Button>
                                                                     </Box>
                                                                     {/* )
                                                                 )} */}
@@ -1399,29 +1562,28 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                             </Box>
 
                                                             <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
-
-<Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
-    <Box sx={{ padding: "4px", width: "100%" }}>
-        <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</FormLabel>
-        <Slider
-            value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
-            onChange={(e, val) => {
-                const patternMap: Record<number, number> = { 0: 0, 4: 2, 8: 3, 16: 4 };
-                const mapped = patternMap[val as number] ?? 0;
-                handleAssignPatternNumber({ target: { value: mapped.toString() } } as any);
-            }}
-            marks={[{ value: 0, label: '0' }, { value: 4, label: '1' }, { value: 8, label: '2' }, { value: 16, label: '4' }]}
-            min={0}
-            max={16}
-            step={null}
-            sx={{ color: NEON_PINK }}
-        />
-    </Box>
-</Box>
-<Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? HERITAGE_GOLD : OBERHEIM_TEAL}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
-    <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
-</Box>
-</Box>
+                                                                <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
+                                                                    <Box sx={{ padding: "4px", width: "100%" }}>
+                                                                        <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</FormLabel>
+                                                                        <Slider
+                                                                            value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
+                                                                            onChange={(e, val) => {
+                                                                                const patternMap: Record<number, number> = { 0: 0, 4: 2, 8: 3, 16: 4 };
+                                                                                const mapped = patternMap[val as number] ?? 0;
+                                                                                handleAssignPatternNumber({ target: { value: mapped.toString() } } as any);
+                                                                            }}
+                                                                            marks={[{ value: 0, label: '0' }, { value: 4, label: '1' }, { value: 8, label: '2' }, { value: 16, label: '4' }]}
+                                                                            min={0}
+                                                                            max={16}
+                                                                            step={null}
+                                                                            sx={{ color: NEON_PINK }}
+                                                                        />
+                                                                    </Box>
+                                                                </Box>
+                                                                <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? HERITAGE_GOLD : OBERHEIM_TEAL}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
+                                                                    <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
+                                                                </Box>
+                                                            </Box>
 
                                                             {/* Velocity/Length Sliders (existing) */}
                                                             {cellData.current && Object.values(cellData.current).length > 0 && Object.values(cellData.current[0]).length > 0 && (

@@ -1,19 +1,18 @@
 "use client";
 
 import React from 'react';
-import { Box, Button } from '@mui/material';
+import { Box, Button, CircularProgress } from '@mui/material';
 import { OBERHEIM_TEAL } from '../../constants';
 import { AnimatedTitle } from './OldAnimatedTitle';
 // import OldKeySelector from './OldKeySelector';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
 type OldLaunchScreenProps = {
-  // audioKey: string;
-  // onKeyChange: (k: string) => void;
   onStart: () => void;
+  isInitializing?: boolean;
 };
 
-const OldLaunchScreen: React.FC<OldLaunchScreenProps> = ({ onStart }) => {
+const OldLaunchScreen: React.FC<OldLaunchScreenProps> = ({ onStart, isInitializing = false }) => {
   return (
     <Box sx={{ 
       position: 'absolute',
@@ -52,9 +51,10 @@ const OldLaunchScreen: React.FC<OldLaunchScreenProps> = ({ onStart }) => {
         variant="contained"
         id="initChuckButton"
         onClick={onStart}
-        startIcon={<PlayArrowIcon />}
+        startIcon={isInitializing ? <CircularProgress size={18} color="inherit" /> : <PlayArrowIcon />}
+        disabled={isInitializing}
       >
-        START
+        {isInitializing ? 'STARTING...' : 'START'}
       </Button>
     </Box>
   );

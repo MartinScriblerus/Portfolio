@@ -9,7 +9,8 @@ import { useSignalBus } from '../../store/useSignalBus';
 
 export default function useAudioAnalysisAndMIDI(
   chuckRef: React.MutableRefObject<any>,
-  deps: any[] = []
+  deps: any[] = [],
+  onAudioFrame?: (audioData: Float32Array) => void
 ) {
   const [meydaData, setMeydaData] = useState<Partial<MeydaFeaturesObject> | null>(null);
   const [midiData, setMidiData] = useState<any>(null);
@@ -71,8 +72,10 @@ export default function useAudioAnalysisAndMIDI(
       processor.connect(audioContext.destination);
 
       processor.port.onmessage = (event: MessageEvent) => {
-        if ((event as any).data?.audioData) {
+            if ((event as any).data?.audioData) {
           const audioData = (event as any).data.audioData as Float32Array;
+          // Provide raw time-domain frames to optional consumer (e.g., for visualization)
+          try { onAudioFrame && onAudioFrame(audioData.slice(0)); } catch {}
           try {
             const features = Meyda.extract(
               [
