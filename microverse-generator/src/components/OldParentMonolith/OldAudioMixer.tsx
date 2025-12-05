@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Box, Button, IconButton, Slider, Typography } from '@mui/material';
 import VolumeUp from '@mui/icons-material/VolumeUp';
 import VolumeOff from '@mui/icons-material/VolumeOff';
-import { OBERHEIM_TEAL, NEON_PINK, HERITAGE_GOLD, SLATE_GRAY } from '../../constants';
+import { ACCESSIBLE_COLORS } from '../../utils/accessibilityColors';
 import { MixerSlider } from './OldMixerSlider';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -31,8 +31,6 @@ const AudioMixer: React.FC<AudioMixerProps> = ({
     const [mutes, setMutes] = useState<{ [key: string]: boolean }>({});
     const [solos, setSolos] = useState<{ [key: string]: boolean }>({});
     const [pans, setPans] = useState<{ [key: string]: number }>({});
-    const [popupIsOpen, setPopupIsOpen] = useState(false);
-
     useEffect(() => {
         if (universalSources) {
             const initialVolumes: { [key: string]: number } = {};
@@ -64,122 +62,123 @@ const AudioMixer: React.FC<AudioMixerProps> = ({
         }
     }, [universalSources]);
 
-    const handleTogglePopup = () => {
-        setPopupIsOpen(!popupIsOpen);
+    // Source display names
+    const sourceLabels: { [key: string]: string } = {
+        osc1: 'Osc Synth',
+        stk1: 'STK',
+        sampler: 'Sampler',
+        audioin: 'Audio In'
     };
 
     return (
         <Box
             sx={{
-                position: 'absolute',
-                bottom: window.innerHeight > 750 ? "13.5rem" : "1rem",
-                left: "16px",
-                zIndex: 9999,
+                width: '100%',
                 pointerEvents: 'auto',
                 cursor: 'default',
-                backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                padding: '4px',
+                backgroundColor: 'var(--color-dominant-surface, rgba(26,28,32,0.95))',
+                padding: '12px',
                 borderRadius: '8px',
+                border: '1px solid var(--color-tertiary-muted, rgba(74,85,104,0.5))',
                 boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-                // maxHeight: '300px',
-                overflowY: 'auto',
             }}
         >
-            <>
-                <span 
-                    onClick={handleTogglePopup}
-                    style={{
-                        position: 'absolute',
-                        top: '4px',
-                        right: '8px',
-                        cursor: 'pointer',
-                        fontSize: '18px',
-                        fontWeight: 'bold',
-                        display: popupIsOpen ? 'block' : 'none',
-                        color: SLATE_GRAY,
-                        background: popupIsOpen ? 'rgba(0,0,0,0.078 )' : 'transparent',
+            <Typography variant="h6" sx={{ 
+                color: 'var(--color-subdominant-primary, #00D9FF)', 
+                mb: 2,
+                fontSize: '16px',
+                fontWeight: 600
+            }}>
+                Audio Mixer
+            </Typography>
+            {universalSources && Object.keys(universalSources).map((sourceKey) => (
+                <Box 
+                    key={sourceKey} 
+                    sx={{ 
+                        display: 'flex', 
+                        flexDirection: 'column',
+                        alignItems: 'flex-start', 
+                        mb: 3,
+                        padding: '12px',
+                        backgroundColor: 'rgba(0,0,0,0.2)',
+                        borderRadius: '6px',
+                        border: '1px solid var(--color-tertiary-muted, rgba(74,85,104,0.3))',
                     }}
-                ><CloseIcon /></span>
-                {popupIsOpen
-                    ? <>
-                        <Typography variant="h6" sx={{ color: OBERHEIM_TEAL, mb: 1 }}>Audio Mixer</Typography>
-                        {universalSources && Object.keys(universalSources).map((sourceKey) => (
-                            <Box key={sourceKey} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                <IconButton onClick={() => {
-                                    const newMuteState = !mutes[sourceKey];
-                                    setMutes({ ...mutes, [sourceKey]: newMuteState });
-                                    handleToggleMutes(sourceKey);
-                                }}>
-                                    {mutes[sourceKey] ? <VolumeOff sx={{ color: NEON_PINK }} /> : <VolumeUp sx={{ color: OBERHEIM_TEAL }} />}
-                                </IconButton>
-                                {/* <IconButton onClick={() => {
-                                    const newSoloState = !solos[sourceKey];
-                                    setSolos({ ...solos, [sourceKey]: newSoloState });
-                                    handleToggleSolos(sourceKey);
-                                }}>
-                                    {solos[sourceKey] ? <VolumeOff sx={{ color: NEON_PINK }} /> : <VolumeUp sx={{ color: OBERHEIM_TEAL }} />}
-                                </IconButton> */}
-                                <MixerSlider
-                                    label={`${sourceKey} Gain`}
-                                    value={volumes[sourceKey] ?? 50}
-                                    onChange={(_, newValue) => {
-                                        setVolumes({ ...volumes, [sourceKey]: newValue });
-                                        handleUpdateVolumes(sourceKey, newValue);
-                                    }}
-                                    min={0}
-                                    max={100}
-                                    step={1}
-                                    color={OBERHEIM_TEAL}
-                                />
-                                <MixerSlider
-                                    label={`${sourceKey} Pan` }
-                                    value={pans[sourceKey] ?? 0}
-                                    onChange={(_, newValue) => {
-                                        setPans({ ...pans, [sourceKey]: newValue });
-                                        handleUpdatePans(sourceKey, newValue);
-                                    }}
-                                    min={-1}
-                                    max={1}
-                                    step={0.01}
-                                    color={HERITAGE_GOLD}
-                                />
-                                <Button 
-                                    size="small"
-                                    sx={{
-                                        rotate: "-90deg", 
-                                    }}
-                                    onClick={() => {
-                                        setExpandedMixerSource(expandedMixerSource === sourceKey ? '' : sourceKey);
-                                    }}
-                                    variant="text">
-                                    {/* Expand  */}
-                                    {/* {` ${getExpandText(sourceKey)}`} */}
-                                    {expandedMixerSource === sourceKey ? <ExpandLessIcon sx={{ color: OBERHEIM_TEAL }} /> : <ExpandMoreIcon sx={{ color: OBERHEIM_TEAL }} />}
-                                </Button>
-                            </Box>
-                        ))} 
-                    </>
-                    : <></>
-                }
-            </>
-            <Button 
-                onClick={handleTogglePopup}
-                sx={{
-                    // marginTop: '8px',
-                    width: '100%',
-                    maxWidth: '120px',
-                    backgroundColor: 'rgba(28,28,28,0.78)',
-                    color: 'rgba(245,245,245,0.78)',
-                    border: `1px solid ${OBERHEIM_TEAL}`,
-                    display: popupIsOpen ? 'none' : 'block',
-                    '&:hover': {
-                        backgroundColor: OBERHEIM_TEAL,
-                        color: 'rgba(28,28,28,0.78)',
-                        border: `1px solid ${OBERHEIM_TEAL}`,
-                    }
-                }}
-                variant="contained"
-            >Mixer</Button>
+                >
+                    <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mb: 1 }}>
+                        <Typography variant="subtitle2" sx={{ 
+                            color: 'var(--color-dominant-text, #F5F7FA)', 
+                            minWidth: '100px',
+                            fontSize: '14px',
+                            fontWeight: 500
+                        }}>
+                            {sourceLabels[sourceKey] || sourceKey}
+                        </Typography>
+                        <IconButton 
+                            size="small"
+                            onClick={() => {
+                                const newMuteState = !mutes[sourceKey];
+                                setMutes({ ...mutes, [sourceKey]: newMuteState });
+                                handleToggleMutes(sourceKey);
+                            }}
+                            sx={{
+                                marginLeft: 'auto',
+                                color: mutes[sourceKey] 
+                                    ? 'var(--color-subdominant-secondary, #FF6B9D)' 
+                                    : 'var(--color-subdominant-primary, #00D9FF)'
+                            }}
+                        >
+                            {mutes[sourceKey] ? <VolumeOff /> : <VolumeUp />}
+                        </IconButton>
+                    </Box>
+                    <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                        <Box>
+                            <Typography variant="caption" sx={{ 
+                                color: 'var(--color-dominant-text, rgba(245,247,250,0.8))',
+                                fontSize: '11px',
+                                display: 'block',
+                                mb: 0.5
+                            }}>
+                                Volume
+                            </Typography>
+                            <MixerSlider
+                                label={`${sourceKey} Gain`}
+                                value={volumes[sourceKey] ?? 50}
+                                onChange={(_, newValue) => {
+                                    setVolumes({ ...volumes, [sourceKey]: newValue });
+                                    handleUpdateVolumes(sourceKey, newValue);
+                                }}
+                                min={0}
+                                max={100}
+                                step={1}
+                                color={ACCESSIBLE_COLORS.subdominant.primary}
+                            />
+                        </Box>
+                        <Box>
+                            <Typography variant="caption" sx={{ 
+                                color: 'var(--color-dominant-text, rgba(245,247,250,0.8))',
+                                fontSize: '11px',
+                                display: 'block',
+                                mb: 0.5
+                            }}>
+                                Pan
+                            </Typography>
+                            <MixerSlider
+                                label={`${sourceKey} Pan` }
+                                value={pans[sourceKey] ?? 0}
+                                onChange={(_, newValue) => {
+                                    setPans({ ...pans, [sourceKey]: newValue });
+                                    handleUpdatePans(sourceKey, newValue);
+                                }}
+                                min={-1}
+                                max={1}
+                                step={0.01}
+                                color={ACCESSIBLE_COLORS.tertiary.warning}
+                            />
+                        </Box>
+                    </Box>
+                </Box>
+            ))} 
         </Box>
     )
 };

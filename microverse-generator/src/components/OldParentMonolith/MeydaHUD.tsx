@@ -5,8 +5,15 @@ import useAudioAnalysisAndMIDI from './useAudioAnalysisAndMIDI';
 import { chuckRef } from '../../../app/state/refs';
 import { useClipAnalysisStore } from '../../store/useClipAnalysisStore';
 import { useSignalBus } from '../../store/useSignalBus';
+import { useVisStore } from '../../store/useVisStore';
 
 export default function MeydaHUD() {
+  const introActive = useVisStore(s => s.intro.active);
+  
+  // Hide until intro is skipped
+  if (introActive) {
+    return null;
+  }
   const { meydaData, midiData } = useAudioAnalysisAndMIDI(chuckRef as any, []);
   const [pinned, setPinned] = useState<any | null>(null);
   const byFile = useClipAnalysisStore(s => s.byFile);
@@ -43,8 +50,9 @@ export default function MeydaHUD() {
       left: 16,
       bottom: 16,
       minWidth: 260,
-      background: 'rgba(255,255,255,0.078)',
-      color: '#e8e8e8',
+      background: 'var(--color-dominant-surface, rgba(26,28,32,0.95))',
+      color: 'var(--color-dominant-text, #e8e8e8)',
+      border: '1px solid var(--color-tertiary-muted, rgba(74,85,104,0.5))',
       borderRadius: 1.5,
       p: 1.5,
       pointerEvents: 'none',

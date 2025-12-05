@@ -1,6 +1,8 @@
 'use client';
 import { act, useEffect, useRef, useState } from 'react';
 import type { Chuck } from 'webchuck';
+import { HID } from 'webchuck';
+import { KeyboardHIDManager } from '../utils/keyboardHIDManager';
 import { 
     getAsymptoticChopperClass, 
     getGrainStretchClass, 
@@ -71,14 +73,17 @@ function EffectDropdown({ chuckRef, updateSelectedAudioInSetting, showAudioInDro
     const [minimizeAudioInDropdown, setMinimizeAudioInDropdown] = useState(false);
 
     return (
-        <div style={{ width: '100%' }}>
+        <div style={{ width: '100%', marginTop: 0 }}>
             <div
                 style={{
                     padding: '10px 12px',
                     cursor: 'pointer',
-                    borderBottom: '1px solid rgba(255,255,255,0.12)',
+                    borderBottom: '1px solid var(--color-tertiary-muted, rgba(74,85,104,0.5))',
                     userSelect: 'none',
-                    background: 'royalblue'
+                    background: 'var(--color-dominant-surface, rgba(26,28,32,0.95))',
+                    color: 'var(--color-dominant-text, #F5F7FA)',
+                    borderRadius: '4px 4px 0 0',
+                    transition: 'all 0.2s ease',
                 }}
                 onClick={() => {
                     if (selected === '' && !minimizeAudioInDropdown) {
@@ -88,12 +93,23 @@ function EffectDropdown({ chuckRef, updateSelectedAudioInSetting, showAudioInDro
                     }
                     setSelected('');
                 }}
+                onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--color-subdominant-primary, #00D9FF)';
+                    e.currentTarget.style.color = 'var(--color-subdominant-text, #0A0B0D)';
+                }}
+                onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'var(--color-dominant-surface, rgba(26,28,32,0.95))';
+                    e.currentTarget.style.color = 'var(--color-dominant-text, #F5F7FA)';
+                }}
             >
                 {selected || 'Select Effect'}
                 <span
                     className="effects-dropdown-arrow"
                     style={{
                         rotate: selected ? '180deg' : '0deg',
+                        float: 'right',
+                        fontSize: '12px',
+                        opacity: 0.7,
                     }}
                 >
                     ▼
@@ -185,10 +201,14 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
             <div style={{ fontWeight: 600, marginBottom: 8 }}>{effect} Controls</div>
             {sliderNames.map((name, i) => (
                 <div key={name.name} style={{ marginBottom: 10 }}>
-                    <label style={{ fontSize: 13, color: '#e9f1ff', marginBottom: 2, display: 'block' }}>
+                    <label 
+                        htmlFor={`effect-slider-${effect}-${i}`}
+                        style={{ fontSize: 13, color: '#e9f1ff', marginBottom: 2, display: 'block' }}
+                    >
                         {name.name}
                     </label>
                     <input
+                        id={`effect-slider-${effect}-${i}`}
                         type="range"
                         min={name.min}
                         max={name.max}
@@ -201,9 +221,13 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
                                 return newVals;
                             });
                         }}
+                        aria-label={`${name.name} slider, current value ${values[i]}`}
+                        aria-valuemin={name.min}
+                        aria-valuemax={name.max}
+                        aria-valuenow={values[i]}
                         style={{ zIndex: 99999, width: 180, accentColor: '#6cf', height: 4 }}
                     />
-                    <span style={{ marginLeft: 10, fontSize: 12, color: '#b7d6ff' }}>{values[i]}</span>
+                    <span style={{ marginLeft: 10, fontSize: 12, color: '#b7d6ff' }} aria-live="polite">{values[i]}</span>
                 </div>
             ))}
         </div>
@@ -225,6 +249,8 @@ export default function ChuckSetup() {
     const [deviceOptions, setDeviceOptions] = useState<MediaDeviceInfo[]>([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
     const [chuckHook, setChuckHook] = useState<Chuck | any>({});
+    const hidRef = useRef<HID | null>(null);
+    const keyboardHIDManagerRef = useRef<KeyboardHIDManager | null>(null);
 
     // Initialize universalSources with all effects on mount
     useEffect(() => {
@@ -861,6 +887,21 @@ export default function ChuckSetup() {
             if (chuckRef.current) {
                 setIsRunning(true)
                 globalChuckRef.current = chuckRef.current as any;
+                
+                // Initialize HID for keyboard input
+                try {
+                    console.log('🎹 Initializing HID for keyboard input...');
+                    hidRef.current = await HID.init(chuckRef.current, false, true); // Mouse: false, Keyboard: true
+                    keyboardHIDManagerRef.current = new KeyboardHIDManager(chuckRef.current, hidRef.current);
+                    await keyboardHIDManagerRef.current.setupChuckHIDListener();
+                    await keyboardHIDManagerRef.current.startListening();
+                    console.log('✅ HID keyboard initialized successfully');
+                    
+                    // Expose keyboard manager globally for keyboard components
+                    (window as any).__keyboardHIDManager = keyboardHIDManagerRef.current;
+                } catch (hidErr) {
+                    console.warn('⚠️ Failed to initialize HID (keyboard will still work via direct events):', hidErr);
+                }
             }
             chuckRef.current && globalAudioCtx.current && await chuckRef.current.connect(globalAudioCtx.current.destination);
         // } catch (err: any) {
@@ -1272,8 +1313,8 @@ export default function ChuckSetup() {
                 id='chuckSetupContainer' 
                 sx={{
                     position: 'absolute',
-                    top: 8,
-                    left: 8,
+                    top: 120,
+                    left: 8, /* Position to the right of RGB panel */
                     display:'flex',
                     alignItems: 'center',
                     gap: '12px',
@@ -1287,6 +1328,7 @@ export default function ChuckSetup() {
                 {initializing && (
                     <Button
                         id='chuckMicButtonWrapper'
+                        aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
                         sx={{
                             cursor: ready ? 'pointer' : 'not-allowed',
                             minWidth: '48px',
@@ -1315,6 +1357,7 @@ export default function ChuckSetup() {
                 {!ready && (
                     <Button
                         id='enableAudioButton'
+                        aria-label="Enable audio context to start audio playback"
                         sx={{
                             minWidth: '96px',
                             minHeight: '36px',
@@ -1329,6 +1372,7 @@ export default function ChuckSetup() {
 
                 <Button
                     id='runChuckCodeButton'
+                    aria-label="Run ChucK audio code"
                     sx={{
                         minWidth: '48px',
                         minHeight: '48px',
@@ -1363,7 +1407,24 @@ export default function ChuckSetup() {
                     }}
                     onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
                 >
-                    <KeyboardIcon sx={{ fontSize: '24px', color: keyboardMode === 'none' ? 'white' : 'lightgreen' }} />
+                    <KeyboardIcon 
+                      sx={{ 
+                        fontSize: '24px', 
+                        color: keyboardMode === 'none' 
+                          ? 'var(--color-dominant-text, white)' 
+                          : 'var(--color-subdominant-primary, #00D9FF)' 
+                      }} 
+                    />
+                    {keyboardMode !== 'none' && (
+                      <span style={{ 
+                        fontSize: '10px', 
+                        marginLeft: '4px',
+                        color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
+                        fontFamily: 'monospace'
+                      }}>
+                        HID active
+                      </span>
+                    )}
                 </Button>
             </Box>
 

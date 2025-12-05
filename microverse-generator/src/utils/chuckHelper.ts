@@ -434,6 +434,20 @@ export const getChuckCode = (
     global Event playAudioIn;
     global Event fxUpdate;
     global Event stkInstFxUpdate;
+    
+    // HID and Hex keyboard events
+    global Event hexNoteOn;
+    global Event hexNoteOff;
+    global int hexMidiNote;
+    global float hexFreq;
+    global int hexVelocity;
+    
+    // HID keyboard events (from JavaScript KeyboardHIDManager)
+    global Event hidNoteOn;
+    global Event hidNoteOff;
+    global int hidMidiNote;
+    global int hidVelocity;
+    global float hidFreq;
     global float bpm; 
     bpm => float bpmInit;
 
@@ -1105,6 +1119,62 @@ export const getChuckCode = (
     }
 
     spork ~ handleRealtimeKeys();          // live play
+    
+    // Hex keyboard note handler
+    fun void handleHexNote() {
+        while (true) {
+            hexNoteOn => now;
+            hexFreq => float freq;
+            hexMidiNote => int midi;
+            hexVelocity => int vel;
+            
+            // Find free voice and play note
+            findFreeVoice() => int v;
+            1 => voiceBusy[v];
+            v => activeVoice[midi];
+            
+            // Set frequency and velocity
+            freq => voice[v].keyOn;
+            vel / 127.0 => voice[v].gain;
+            1 => adsr.keyOn;
+            adsr.set((beatMS)::ms * moogGMDefaults["adsrAttack"], (beatMS)::ms * moogGMDefaults["adsrDecay"], moogGMDefaults["adsrSustain"], (beatMS)::ms * moogGMDefaults["adsrRelease"]);
+            
+            // Wait for note off
+            hexNoteOff => now;
+            1 => voice[v].keyOff;
+            0 => voiceBusy[v];
+            0 => activeVoice[midi];
+        }
+    }
+    spork ~ handleHexNote();
+    
+    // HID keyboard handler (from JavaScript KeyboardHIDManager)
+    fun void handleHIDNote() {
+        while (true) {
+            hidNoteOn => now;
+            hidMidiNote => int midi;
+            hidVelocity => int vel;
+            hidFreq => float freq;
+            
+            // Find free voice and play note
+            findFreeVoice() => int v;
+            1 => voiceBusy[v];
+            v => activeVoice[midi];
+            
+            // Set frequency and velocity
+            freq => voice[v].keyOn;
+            vel / 127.0 => voice[v].gain;
+            1 => adsr.keyOn;
+            adsr.set((beatMS)::ms * moogGMDefaults["adsrAttack"], (beatMS)::ms * moogGMDefaults["adsrDecay"], moogGMDefaults["adsrSustain"], (beatMS)::ms * moogGMDefaults["adsrRelease"]);
+            
+            // Wait for note off
+            hidNoteOff => now;
+            1 => voice[v].keyOff;
+            0 => voiceBusy[v];
+            0 => activeVoice[midi];
+        }
+    }
+    spork ~ handleHIDNote();
 
     while(true)
     {
@@ -1124,7 +1194,7 @@ export const getChuckCode = (
 
             
             
-            0.3 / numVoices => voice[i].gain;
+            0.05 / numVoices => voice[i].gain; // Reduced gain for sequencer loop
             // 1.0 => adsr.gain;
 
             adsr.set(durStep * moogGMDefaults["adsrAttack"], durStep * moogGMDefaults["adsrDecay"], moogGMDefaults["adsrSustain"], durStep * moogGMDefaults["adsrRelease"]);

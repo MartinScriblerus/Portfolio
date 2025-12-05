@@ -59,8 +59,10 @@ export default function useAudioAnalysisAndMIDI(
               if (d?.type === 'features') {
                 const pkt = d as { type: string; ts?: number; features?: Record<string, any> };
                 const features = pkt.features || null;
-                // Update local React state for HUD
-                try { setMeydaData(features as Partial<MeydaFeaturesObject> || null); } catch {}
+                // Update local React state for HUD - use requestAnimationFrame to avoid blocking main thread
+                requestAnimationFrame(() => {
+                  try { setMeydaData(features as Partial<MeydaFeaturesObject> || null); } catch {}
+                });
 
                 // Shared globals for other visuals
                 try {
@@ -147,26 +149,32 @@ export default function useAudioAnalysisAndMIDI(
               const now = performance.now();
               if (now - lastSetRef.current >= MIN_UPDATE_MS) {
                 lastSetRef.current = now;
-                try {
-                  const features = Meyda.extract(
-                    [
-                      'rms',
-                      'mfcc',
-                      'chroma',
-                      'spectralCentroid',
-                      'spectralRolloff',
-                      'zcr',
-                      'energy',
-                      'amplitudeSpectrum'
-                    ],
-                    audioData
-                  );
-                  setMeydaData(features || null);
-                  // record main-thread extraction stats for debugging
-                  (window as any).__meydaDebugMainThreadExtractions = ((window as any).__meydaDebugMainThreadExtractions || 0) + 1;
-                } catch (err) {
-                  // swallow transient extraction errors
-                }
+                // Use requestAnimationFrame to avoid blocking main thread during extraction
+                requestAnimationFrame(() => {
+                  try {
+                    const features = Meyda.extract(
+                      [
+                        'rms',
+                        'mfcc',
+                        'chroma',
+                        'spectralCentroid',
+                        'spectralRolloff',
+                        'zcr',
+                        'energy',
+                        'amplitudeSpectrum'
+                      ],
+                      audioData
+                    );
+                    // Schedule state update in next frame to avoid blocking
+                    requestAnimationFrame(() => {
+                      setMeydaData(features || null);
+                    });
+                    // record main-thread extraction stats for debugging
+                    (window as any).__meydaDebugMainThreadExtractions = ((window as any).__meydaDebugMainThreadExtractions || 0) + 1;
+                  } catch (err) {
+                    // swallow transient extraction errors
+                  }
+                });
               }
             }
           }

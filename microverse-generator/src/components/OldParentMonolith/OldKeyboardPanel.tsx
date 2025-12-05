@@ -192,14 +192,14 @@ export default function OldKeyboardPanel(props: Props) {
     <Box
       sx={{
         // width: 'calc(100vw)',
-        position: 'absolute',
+        position: 'fixed',
         background: 'rgba(0,0,0,0.078 )',
         backgroundColor: 'rgba(0,0,0,0.078 )',
         bottom: '48px',
         left: '0px',
         padding: '8px',
-        pointerEvents: keysVisible ? 'none' : 'auto',
-        zIndex: 100001,
+        pointerEvents: 'auto', // Always allow pointer events for keyboard
+        zIndex: 100002, // Above canvas (z-index 1) and other overlays
       }}
     >
       {/* Keyboard mode toggle + microtonal controls */}
@@ -262,6 +262,7 @@ export default function OldKeyboardPanel(props: Props) {
       )} */}
 
       {/* Render only one keyboard at a time, or none */}
+      {/* HID keyboard input works automatically when ChucK is initialized - press Q-P, Z-M, or 2-9 keys */}
       {keyboardMode === 'piano' ? (
         <Keyboard
           chuckHook={chuckHook}
@@ -279,7 +280,21 @@ export default function OldKeyboardPanel(props: Props) {
           pressedNotes={pressedNotesSet}
           getTunedHz={getTunedHz}
         />
-      ) : <></>}
+      ) : keyboardMode === 'hex' && tune?.scale?.length > 0 ? (
+        <HexKeyboard
+          stepsPerOctave={stepsPerOctave}
+          presetName="Wicki-Hayden"
+          useSharps={useSharps}
+          showFraction={showFraction}
+          interactive={true}
+          onTileClick={(tile) => {
+            const midiNote = 60 + tile.absStep; // C4 base
+            const hz = getHexHz(tile.absStep, tile.pitchIndex);
+            handleNoteOnWrapped(midiNote, 100, hz);
+            setTimeout(() => handleNoteOffWrapped(midiNote), 500);
+          }}
+        />
+      ) : null}
     </Box>
   );
 }

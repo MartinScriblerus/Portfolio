@@ -3,7 +3,8 @@ import React, { cache, useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
 import { Tooltip } from "./BeatGridTooltip";
 import SubdivisionsPicker from "./SubdivisionsPicker";
-import { CORDUROY_RUST, HERITAGE_GOLD, OBERHEIM_TEAL, NEON_PINK, BLUE_CHANNEL } from "../../constants";
+import { BLUE_CHANNEL } from "../../constants";
+import { ACCESSIBLE_COLORS } from "../../utils/accessibilityColors";
 import MingusPopup from "./MingusPopup";
 import GenericRadioButtons from "./GenericRadioButtons";
 import NoteBuilderToggle from "./NoteBuilderToggle";
@@ -558,7 +559,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 key={`main_cell_noteEl_${d.x}_${d.y}_${idx}`}
                                 r={4}
                                 opacity={masterPatternsHashHook[`${d.y}`][`${d.x}`].velocity}
-                                fill={masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName?.join().length > 0 ? HERITAGE_GOLD : "transparent"}
+                                fill={masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName?.join().length > 0 ? ACCESSIBLE_COLORS.tertiary.warning : "transparent"}
                                 id={`fill_noteEl_${d.x}_${d.y}_${idx}`}
                                 x={(xScale(d.x)! + (xScale.bandwidth() * idx) / masterPatternsHashHook[d.y][d.x].subdivisions)}
                                 y={yScale(d.y)}
@@ -570,7 +571,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 key={`main_cell_sampleEl_${d.x}_${d.y}_${idx}`}
                                 r={4}
                                 opacity={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] ? masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].velocity * 2 : 0}
-                                fill={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].fileNums?.join().length > 0 ? OBERHEIM_TEAL : "transparent"}
+                                fill={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].fileNums?.join().length > 0 ? ACCESSIBLE_COLORS.subdominant.primary : "transparent"}
                                 id={`fill_sampleEl_${d.x}_${d.y}_${idx}`}
                                 x={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][d.x] ? (xScale(d.x)! + (xScale.bandwidth() * idx) / masterPatternsHashHook[`${Number(d.y) - 1}`][d.x].subdivisions) : 0}
                                 y={(yScale(d.y) || 0) + yScale.bandwidth() / 3}
@@ -603,16 +604,16 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 fill={
                                     currentBeatCountToDisplay === Number(d.x) && currentNumerCountColToDisplay === Number(d.y) ||
                                         Number(currentSelectedCell.x) === Number(d.x) && Number(currentSelectedCell.y) === Number(d.y)
-                                        ? NEON_PINK
+                                        ? ACCESSIBLE_COLORS.subdominant.secondary
                                         : (currCellString === `${d.x}_${d.y}_${idx}`)
                                         ? BLUE_CHANNEL
                                         : currentBeatCountToDisplay === Number(d.x) || (d.x === hoveredCell?.xLabel && d.y === hoveredCell?.yLabel)
-                                            ? CORDUROY_RUST
-                                            : (Number(d.y) > 0) ? OBERHEIM_TEAL : NEON_PINK
+                                            ? ACCESSIBLE_COLORS.tertiary.warning
+                                            : (Number(d.y) > 0) ? ACCESSIBLE_COLORS.subdominant.primary : ACCESSIBLE_COLORS.subdominant.secondary
                                 }
                                 stroke={
                                     Number(currentSelectedCell.x) === Number(d.x) && Number(currentSelectedCell.y) === Number(d.y)
-                                        ? HERITAGE_GOLD  // More recognizable gold border for selected cell
+                                        ? ACCESSIBLE_COLORS.tertiary.warning  // More recognizable gold border for selected cell
                                         : 'rgba(245,245,245,0.78)'
                                 }
                                 strokeWidth={
@@ -1206,7 +1207,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                         >
                                             {/* Files assigned to this cell */}
                                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                <Typography variant="caption" sx={{ color: OBERHEIM_TEAL, fontWeight: 600 }}>
+                                                <Typography variant="caption" sx={{ color: ACCESSIBLE_COLORS.subdominant.primary, fontWeight: 600 }}>
                                                     Files ({filesForThisCell.current.length > 0 ? filesForThisCell.current.length : 'none'}):
                                                 </Typography>
                                                 {filesForThisCell.current && filesForThisCell.current.length > 0 ? (
@@ -1216,7 +1217,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                 key={`file_${idx}`}
                                                                 sx={{ 
                                                                     padding: '2px 6px', 
-                                                                    backgroundColor: OBERHEIM_TEAL, 
+                                                                    backgroundColor: ACCESSIBLE_COLORS.subdominant.primary, 
                                                                     color: '#000',
                                                                     borderRadius: '3px',
                                                                     fontSize: '11px',
@@ -1236,7 +1237,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
 
                                             {/* Notes assigned to this cell */}
                                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                <Typography variant="caption" sx={{ color: HERITAGE_GOLD, fontWeight: 600 }}>
+                                                <Typography variant="caption" sx={{ color: ACCESSIBLE_COLORS.tertiary.warning, fontWeight: 600 }}>
                                                     Notes ({notesForThisCell.current.length > 0 ? notesForThisCell.current.length : 'none'}):
                                                 </Typography>
                                                 {notesForThisCell.current && notesForThisCell.current.length > 0 ? (
@@ -1246,7 +1247,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                 key={`note_${idx}`}
                                                                 sx={{ 
                                                                     padding: '2px 6px', 
-                                                                    backgroundColor: HERITAGE_GOLD, 
+                                                                    backgroundColor: ACCESSIBLE_COLORS.tertiary.warning, 
                                                                     color: '#000',
                                                                     borderRadius: '3px',
                                                                     fontSize: '11px',
@@ -1326,11 +1327,11 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                 min={0}
                                                                 max={4}
                                                                 step={1}
-                                                                sx={{ color: NEON_PINK }}
+                                                                sx={{ color: ACCESSIBLE_COLORS.subdominant.secondary }}
                                                             />
                                                         </Box>
                                                     </Box>
-                                                    <Box sx={{ display: "inline-flex", flexDirection: "column", justifyContent: "stretch", alignItems: "right", width: "34%", border: `1px solid ${OBERHEIM_TEAL}`, borderRadius: "5px", height: "100%", p: 1 }}>
+                                                    <Box sx={{ display: "inline-flex", flexDirection: "column", justifyContent: "stretch", alignItems: "right", width: "34%", border: `1px solid ${ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", height: "100%", p: 1 }}>
                                                         <ParameterSlider label="Velocity" value={0} min={0} max={12} step={0.01} onChange={() => { }} />
                                                     </Box>
                                                 </Box> */}
@@ -1494,11 +1495,11 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                                 disabled={!sampleFileName || uploadedNames.length === 0}
                                                                                 sx={{
                                                                                     minWidth: '70px',
-                                                                                    backgroundColor: OBERHEIM_TEAL,
+                                                                                    backgroundColor: ACCESSIBLE_COLORS.subdominant.primary,
                                                                                     color: '#000',
                                                                                     fontWeight: 600,
                                                                                     '&:hover': {
-                                                                                        backgroundColor: OBERHEIM_TEAL,
+                                                                                        backgroundColor: ACCESSIBLE_COLORS.subdominant.primary,
                                                                                         opacity: 0.9,
                                                                                     },
                                                                                     '&:disabled': {
@@ -1531,12 +1532,12 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                             disabled={!notesSelected || notesSelected.length === 0}
                                                                             sx={{
                                                                                 minWidth: '70px',
-                                                                                backgroundColor: HERITAGE_GOLD,
+                                                                                backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
                                                                                 color: '#000',
                                                                                 fontWeight: 600,
                                                                                 marginTop: '4px',
                                                                                 '&:hover': {
-                                                                                    backgroundColor: HERITAGE_GOLD,
+                                                                                    backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
                                                                                     opacity: 0.9,
                                                                                 },
                                                                                 '&:disabled': {
@@ -1562,7 +1563,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                             </Box>
 
                                                             <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
-                                                                <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
+                                                                <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? ACCESSIBLE_COLORS.subdominant.secondary : ACCESSIBLE_COLORS.subdominant.primary}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
                                                                     <Box sx={{ padding: "4px", width: "100%" }}>
                                                                         <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</Typography>
                                                                         <Slider
@@ -1576,11 +1577,11 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                             min={0}
                                                                             max={16}
                                                                             step={null}
-                                                                            sx={{ color: NEON_PINK }}
+                                                                            sx={{ color: ACCESSIBLE_COLORS.subdominant.secondary }}
                                                                         />
                                                                     </Box>
                                                                 </Box>
-                                                                <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? HERITAGE_GOLD : OBERHEIM_TEAL}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
+                                                                <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? ACCESSIBLE_COLORS.tertiary.warning : ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
                                                                     <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
                                                                 </Box>
                                                             </Box>
@@ -1615,7 +1616,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     flex: 1,
                                                                     padding: '8px 12px',
                                                                     background: 'rgba(98, 245, 255, 0.2)',
-                                                                    border: `1px solid ${OBERHEIM_TEAL}`,
+                                                                    border: `1px solid ${ACCESSIBLE_COLORS.subdominant.primary}`,
                                                                     borderRadius: '4px',
                                                                     color: 'rgba(245,245,245,0.78)',
                                                                     cursor: 'pointer',
@@ -1631,7 +1632,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     flex: 1,
                                                                     padding: '8px 12px',
                                                                     background: 'rgba(255, 20, 147, 0.2)',
-                                                                    border: `1px solid ${NEON_PINK}`,
+                                                                    border: `1px solid ${ACCESSIBLE_COLORS.subdominant.secondary}`,
                                                                     borderRadius: '4px',
                                                                     color: 'rgba(245,245,245,0.78)',
                                                                     cursor: 'pointer',
@@ -1645,7 +1646,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                     </Box>
                                                     {/* <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
 
-                                                        <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
+                                                        <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? ACCESSIBLE_COLORS.subdominant.secondary : ACCESSIBLE_COLORS.subdominant.primary}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
                                                             <Box sx={{ padding: "4px", width: "100%" }}>
                                                                 <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</Typography>
                                                                 <Slider
@@ -1659,11 +1660,11 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     min={0}
                                                                     max={16}
                                                                     step={null}
-                                                                    sx={{ color: NEON_PINK }}
+                                                                    sx={{ color: ACCESSIBLE_COLORS.subdominant.secondary }}
                                                                 />
                                                             </Box>
                                                         </Box>
-                                                        <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? HERITAGE_GOLD : OBERHEIM_TEAL}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
+                                                        <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? ACCESSIBLE_COLORS.tertiary.warning : ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
                                                             <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
                                                         </Box>
                                                     </Box> */}

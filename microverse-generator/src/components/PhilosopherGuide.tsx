@@ -287,7 +287,11 @@ export default function PhilosopherGuide() {
   if (!task) return null;
 
   return (
-    <div style={{ position: 'absolute', bottom: 16, right: 16, maxWidth: 540, padding: '12px 14px', background: 'rgba(0,0,0,0.5)', color: '#e9f1ff', fontFamily: 'serif', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8 }}>
+    <div 
+      role="region"
+      aria-label="Philosopher guide conversation"
+      style={{ position: 'absolute', bottom: 16, right: 16, maxWidth: 540, padding: '12px 14px', background: 'rgba(0,0,0,0.5)', color: '#e9f1ff', fontFamily: 'serif', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8 }}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8, fontSize: '10px', fontFamily: 'monospace' }}>
         {chat.map((m, i) => (
           <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
@@ -298,13 +302,18 @@ export default function PhilosopherGuide() {
         ))}
       </div>
       <div style={{ margin: 0, marginTop: 12, width: '100%', display: 'flex', gap: 8, flexDirection: 'row' }}>
+        <label htmlFor="philosopher-guide-input" className="sr-only">
+          Describe a visual or auditory or combined effect you'd like to create
+        </label>
         <input
+          id="philosopher-guide-input"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
             lastInputAtRef.current = Date.now();
           }}
           placeholder="write a few sentences detailing what you see and hear..."
+          aria-label="Describe what you see and hear in the visualization"
           style={{
             width: '100%',
             padding: '8px 10px',
@@ -315,10 +324,17 @@ export default function PhilosopherGuide() {
             color: '#e9f1ff',
             maxWidth: '420px'
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !loading && query.trim()) {
+              run();
+            }
+          }}
         />
         <button
+          id="philosopher-guide-send"
           disabled={loading}
           onClick={run}
+          aria-label={loading ? 'Sending message' : 'Send message to philosopher guide'}
           style={{
             marginTop: 8,
             marginLeft: 12,

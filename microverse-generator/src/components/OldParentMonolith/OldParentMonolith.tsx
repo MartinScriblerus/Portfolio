@@ -10,7 +10,7 @@ import dynamic from 'next/dynamic';
 import EffectDropdown from '../EffectsDropdown';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Box, Select, Button, Typography, ButtonGroup } from '@mui/material';
-import { OBERHEIM_TEAL, HERITAGE_GOLD } from '../../constants';
+import { ACCESSIBLE_COLORS } from '../../utils/accessibilityColors';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
@@ -147,6 +147,14 @@ type RightDrawerProps = {
 function RightDrawer(props: RightDrawerProps) {
   const [tab, setTab] = useState<'grid' | 'mixer' | 'fx'>('grid');
   const [open, setOpen] = useState(true);
+  
+  // Update CSS variable for keyboard positioning when drawer state changes
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--keyboard-right-offset', open ? '420px' : '0px');
+      document.documentElement.style.setProperty('--keyboard-width', open ? 'calc(100% - 560px)' : 'calc(100% - 140px)');
+    }
+  }, [open]);
   const latestTimeDomainRef = useRef<Float32Array | null>(null);
   
   // Extract device-related props
@@ -327,17 +335,17 @@ function RightDrawer(props: RightDrawerProps) {
               pointerEvents: 'auto',
               pointer: 'cursor',
               zIndex: 99999,
-            }} onClick={() => { setOpen(true); setTab('grid'); }} aria-pressed={tab === 'grid'}>Grid</Button>
+            }} onClick={() => { setOpen(true); setTab('grid'); }} aria-pressed={tab === 'grid'} aria-label="Open beat grid panel">Grid</Button>
             <Button sx={{
               pointerEvents: 'auto',
               pointer: 'cursor',
               zIndex: 99999,
-            }} onClick={() => { setOpen(true); setTab('mixer'); }} aria-pressed={tab === 'mixer'}>Mixer</Button>
+            }} onClick={() => { setOpen(true); setTab('mixer'); }} aria-pressed={tab === 'mixer'} aria-label="Open audio mixer panel">Mixer</Button>
             <Button sx={{
               pointerEvents: 'auto',
               pointer: 'cursor',
               zIndex: 99999,
-            }} onClick={() => { setOpen(true); setTab('fx'); }} aria-pressed={tab === 'fx'}>FX</Button>
+            }} onClick={() => { setOpen(true); setTab('fx'); }} aria-pressed={tab === 'fx'} aria-label="Open effects panel">FX</Button>
           </Box>
           <Box sx={{ maxHeight: '200px', overflowY: 'auto'}}>
             <TimingControls />
@@ -452,8 +460,31 @@ function RightDrawer(props: RightDrawerProps) {
         )}
         {tab === 'mixer' && (
           <div style={{ padding: 12 }}>
-            {/* Device Selector */}
+            {/* Audio Mixer - Always visible */}
+            {clickedBegin && chuckHook && (
+              <Box sx={{ marginBottom: '24px' }}>
+                <AudioMixer
+                  universalSources={universalSourcesCurrent}
+                  handleUpdateVolumes={handleUpdateVolumes}
+                  handleUpdatePans={handleUpdatePans}
+                  handleToggleMutes={handleToggleMutes}
+                  handleToggleSolos={handleToggleSolos}
+                  expandedMixerSource={expandedMixerSource}
+                  setExpandedMixerSource={setExpandedMixerSource}
+                />
+              </Box>
+            )}
+
+            {/* Device Selector - Moved below mixer */}
             <Box className='select-device-id-wrapper' sx={{ marginBottom: '16px' }}>
+              <Typography variant="caption" sx={{ 
+                color: 'var(--color-dominant-text, rgba(245,247,250,0.8))',
+                display: 'block',
+                mb: 1,
+                fontSize: '12px'
+              }}>
+                Audio Input Device
+              </Typography>
               <Select
                 className='select-device-id-dropdown'
                 value={selectedDeviceId}
@@ -462,6 +493,14 @@ function RightDrawer(props: RightDrawerProps) {
                 sx={{ 
                   cursor: 'pointer',
                   width: '100%',
+                  backgroundColor: 'var(--color-dominant-surface, rgba(26,28,32,0.95))',
+                  color: 'var(--color-dominant-text, #F5F7FA)',
+                  border: '1px solid var(--color-tertiary-muted, rgba(74,85,104,0.5))',
+                  borderRadius: '4px',
+                  padding: '8px',
+                  '&:hover': {
+                    borderColor: 'var(--color-subdominant-primary, #00D9FF)',
+                  }
                 }}
                 disabled={!chuckHook}
               >
@@ -493,7 +532,7 @@ function RightDrawer(props: RightDrawerProps) {
             {/* Meyda Visualizations */}
             {meydaData && typeof meydaData === 'object' && (
               <Box sx={{ marginBottom: '16px', backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px', borderRadius: '4px' }}>
-                <Typography variant="h6" sx={{ color: OBERHEIM_TEAL, mb: 1, fontSize: '14px' }}>
+                <Typography variant="h6" sx={{ color: ACCESSIBLE_COLORS.subdominant.primary, mb: 1, fontSize: '14px' }}>
                   Audio Analysis
                 </Typography>
                 
@@ -534,7 +573,7 @@ function RightDrawer(props: RightDrawerProps) {
                           sx={{
                             flex: 1,
                             height: `${Math.min(100, Math.max(1, (amp * 1000)))}%`,
-                            background: `linear-gradient(to top, ${OBERHEIM_TEAL}, ${HERITAGE_GOLD})`,
+                            background: `linear-gradient(to top, ${ACCESSIBLE_COLORS.subdominant.primary}, ${ACCESSIBLE_COLORS.tertiary.warning})`,
                             minHeight: '1px',
                             transition: 'height 0.1s ease-out'
                           }}
@@ -557,8 +596,8 @@ function RightDrawer(props: RightDrawerProps) {
                           key={i} 
                           sx={{ 
                             height: '100%', 
-                            background: `linear-gradient(to top, ${OBERHEIM_TEAL} ${Math.min(100, Math.max(0, (v + 50) * 2))}%, transparent ${Math.min(100, Math.max(0, (v + 50) * 2))}%)`,
-                            border: `1px solid ${OBERHEIM_TEAL}`,
+                            background: `linear-gradient(to top, ${ACCESSIBLE_COLORS.subdominant.primary} ${Math.min(100, Math.max(0, (v + 50) * 2))}%, transparent ${Math.min(100, Math.max(0, (v + 50) * 2))}%)`,
+                            border: `1px solid ${ACCESSIBLE_COLORS.subdominant.primary}`,
                             borderRadius: '2px'
                           }} 
                           title={`MFCC${i+1}: ${v.toFixed(2)}`} 
@@ -582,8 +621,8 @@ function RightDrawer(props: RightDrawerProps) {
                             key={i} 
                             sx={{ 
                               height: '100%', 
-                              background: `linear-gradient(to top, ${HERITAGE_GOLD} ${Math.min(100, Math.max(0, v * 100))}%, transparent ${Math.min(100, Math.max(0, v * 100))}%)`,
-                              border: `1px solid ${HERITAGE_GOLD}`,
+                              background: `linear-gradient(to top, ${ACCESSIBLE_COLORS.tertiary.warning} ${Math.min(100, Math.max(0, v * 100))}%, transparent ${Math.min(100, Math.max(0, v * 100))}%)`,
+                              border: `1px solid ${ACCESSIBLE_COLORS.tertiary.warning}`,
                               borderRadius: '2px',
                               display: 'flex',
                               alignItems: 'flex-end',
@@ -635,20 +674,6 @@ function RightDrawer(props: RightDrawerProps) {
               </Box>
             )}
 
-            {/* Audio Mixer */}
-            {clickedBegin && chuckHook && (
-              <Box sx={{ position: 'relative', width: '100%' }}>
-                <AudioMixer
-                  universalSources={universalSourcesCurrent}
-                  handleUpdateVolumes={handleUpdateVolumes}
-                  handleUpdatePans={handleUpdatePans}
-                  handleToggleMutes={handleToggleMutes}
-                  handleToggleSolos={handleToggleSolos}
-                  expandedMixerSource={expandedMixerSource}
-                  setExpandedMixerSource={setExpandedMixerSource}
-                />
-              </Box>
-            )}
           </div>
         )}
         {tab === 'fx' && (
@@ -666,15 +691,15 @@ function RightDrawer(props: RightDrawerProps) {
                     color: 'rgba(255,255,255,0.78)',
                     borderColor: 'rgba(255,255,255,0.2)',
                     '&:hover': {
-                      borderColor: OBERHEIM_TEAL,
+                      borderColor: ACCESSIBLE_COLORS.subdominant.primary,
                       backgroundColor: 'rgba(98, 245, 255, 0.1)',
                     },
                     '&.Mui-selected': {
-                      backgroundColor: OBERHEIM_TEAL,
+                      backgroundColor: ACCESSIBLE_COLORS.subdominant.primary,
                       color: '#000',
-                      borderColor: OBERHEIM_TEAL,
+                      borderColor: ACCESSIBLE_COLORS.subdominant.primary,
                       '&:hover': {
-                        backgroundColor: OBERHEIM_TEAL,
+                        backgroundColor: ACCESSIBLE_COLORS.subdominant.primary,
                       },
                     },
                   },
@@ -683,8 +708,10 @@ function RightDrawer(props: RightDrawerProps) {
                 <Button
                   variant={fxRadioValue === 'osc1' ? 'contained' : 'outlined'}
                   onClick={() => setFxRadioValue('osc1')}
+                  aria-label="Select oscillator 1 source"
+                  aria-pressed={fxRadioValue === 'osc1'}
                   sx={{
-                    backgroundColor: fxRadioValue === 'osc1' ? OBERHEIM_TEAL : 'transparent',
+                    backgroundColor: fxRadioValue === 'osc1' ? ACCESSIBLE_COLORS.subdominant.primary : 'transparent',
                     color: fxRadioValue === 'osc1' ? '#000' : 'rgba(255,255,255,0.78)',
                   }}
                 >
@@ -693,8 +720,10 @@ function RightDrawer(props: RightDrawerProps) {
                 <Button
                   variant={fxRadioValue === 'sampler' ? 'contained' : 'outlined'}
                   onClick={() => setFxRadioValue('sampler')}
+                  aria-label="Select sampler source"
+                  aria-pressed={fxRadioValue === 'sampler'}
                   sx={{
-                    backgroundColor: fxRadioValue === 'sampler' ? OBERHEIM_TEAL : 'transparent',
+                    backgroundColor: fxRadioValue === 'sampler' ? ACCESSIBLE_COLORS.subdominant.primary : 'transparent',
                     color: fxRadioValue === 'sampler' ? '#000' : 'rgba(255,255,255,0.78)',
                   }}
                 >
@@ -703,8 +732,10 @@ function RightDrawer(props: RightDrawerProps) {
                 <Button
                   variant={fxRadioValue === 'stk1' ? 'contained' : 'outlined'}
                   onClick={() => setFxRadioValue('stk1')}
+                  aria-label="Select STK source"
+                  aria-pressed={fxRadioValue === 'stk1'}
                   sx={{
-                    backgroundColor: fxRadioValue === 'stk1' ? OBERHEIM_TEAL : 'transparent',
+                    backgroundColor: fxRadioValue === 'stk1' ? ACCESSIBLE_COLORS.subdominant.primary : 'transparent',
                     color: fxRadioValue === 'stk1' ? '#000' : 'rgba(255,255,255,0.78)',
                   }}
                 >
@@ -713,8 +744,10 @@ function RightDrawer(props: RightDrawerProps) {
                 <Button
                   variant={fxRadioValue === 'audioin' ? 'contained' : 'outlined'}
                   onClick={() => setFxRadioValue('audioin')}
+                  aria-label="Select audio input source"
+                  aria-pressed={fxRadioValue === 'audioin'}
                   sx={{
-                    backgroundColor: fxRadioValue === 'audioin' ? OBERHEIM_TEAL : 'transparent',
+                    backgroundColor: fxRadioValue === 'audioin' ? ACCESSIBLE_COLORS.subdominant.primary : 'transparent',
                     color: fxRadioValue === 'audioin' ? '#000' : 'rgba(255,255,255,0.78)',
                   }}
                 >
@@ -784,7 +817,7 @@ function RightDrawer(props: RightDrawerProps) {
               <>
                 {/* Available Effects List - shows all effects that can be added */}
                 <Box sx={{ marginBottom: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '8px', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-                  <Typography variant="caption" sx={{ color: OBERHEIM_TEAL, mb: 1, display: 'block', fontWeight: 600 }}>
+                  <Typography variant="caption" sx={{ color: ACCESSIBLE_COLORS.subdominant.primary, mb: 1, display: 'block', fontWeight: 600 }}>
                     Available Effects for {fxRadioValue === 'osc1' ? 'Synth' : 'Sampler'}
                   </Typography>
                   {universalSourcesRef?.current?.[fxRadioValue]?.effects ? (
@@ -795,7 +828,7 @@ function RightDrawer(props: RightDrawerProps) {
                           sx={{ 
                             padding: '8px', 
                             backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.2)' : 'rgba(255,255,255,0.05)',
-                            border: `1px solid ${fx?.On ? OBERHEIM_TEAL : 'rgba(255,255,255,0.1)'}`,
+                            border: `1px solid ${fx?.On ? ACCESSIBLE_COLORS.subdominant.primary : 'rgba(255,255,255,0.1)'}`,
                             borderRadius: '4px',
                             cursor: 'pointer',
                             '&:hover': {
@@ -811,7 +844,7 @@ function RightDrawer(props: RightDrawerProps) {
                             }
                           }}
                         >
-                          <Typography variant="body2" sx={{ color: fx?.On ? OBERHEIM_TEAL : 'rgba(255,255,255,0.7)', fontWeight: fx?.On ? 600 : 400 }}>
+                          <Typography variant="body2" sx={{ color: fx?.On ? ACCESSIBLE_COLORS.subdominant.primary : 'rgba(255,255,255,0.7)', fontWeight: fx?.On ? 600 : 400 }}>
                             {fx?.Type || fxKey} {fx?.On ? '✓ ON' : 'OFF'}
                           </Typography>
                           {fx?.VarName && (
@@ -1045,6 +1078,27 @@ export default function OldParentMonolith(
   const [notesAddedDetails] = useState<any[]>([]);
   const organizeRows = async () => {};
   const organizeLocalStorageRows = async () => {};
+  
+  // Connect to HID keyboard manager if available
+  useEffect(() => {
+    const manager = (window as any).__keyboardHIDManager;
+    if (manager) {
+      const trigger = {
+        noteOn: (midiNote: number, velocity: number, hz?: number) => {
+          // Trigger note via existing system (will be implemented)
+          console.log('HID noteOn:', midiNote, velocity, hz);
+        },
+        noteOff: (midiNote: number) => {
+          console.log('HID noteOff:', midiNote);
+        },
+      };
+      manager.registerTrigger(trigger);
+      return () => {
+        manager.unregisterTrigger(trigger);
+      };
+    }
+  }, []);
+  
   const noteOnPlay = (_m: number, _v: number) => {};
   const noteOffPlay = (_m: number) => {};
   const compare = (_a: any, _b: any) => 0;
