@@ -126,7 +126,7 @@ export class KeyboardHIDManager {
       ) {
         // Small delay to allow for tab navigation
         setTimeout(() => {
-          const activeElement = document.activeElement;
+          const activeElement = document.activeElement as HTMLElement | null;
           if (
             !activeElement ||
             (activeElement.tagName !== 'INPUT' &&
@@ -143,7 +143,7 @@ export class KeyboardHIDManager {
 
     // Re-enable when clicking on window (not an input)
     const handleWindowFocus = () => {
-      const activeElement = document.activeElement;
+      const activeElement = document.activeElement as HTMLElement | null;
       if (
         !activeElement ||
         (activeElement.tagName !== 'INPUT' &&
@@ -209,17 +209,19 @@ export class KeyboardHIDManager {
     // Send directly to ChucK via global variables and events
     if (this.chuck) {
       try {
+        // Calculate frequency from MIDI note if not provided
+        const freq = hz || (440 * Math.pow(2, (midiNote - 69) / 12));
+        
+        // Set all variables BEFORE broadcasting event to ensure ChucK reads correct values
         await this.chuck.setInt('hidMidiNote', midiNote);
         await this.chuck.setInt('hidVelocity', velocity);
-        if (hz) {
-          await this.chuck.setFloat('hidFreq', hz);
-        } else {
-          // Calculate frequency from MIDI note
-          const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-          await this.chuck.setFloat('hidFreq', freq);
-        }
+        await this.chuck.setFloat('hidFreq', freq);
+        
+        // Small delay to ensure variables are set before event is broadcast
+        await new Promise(resolve => setTimeout(resolve, 1));
+        
         await this.chuck.broadcastEvent('hidNoteOn');
-        console.log(`[HID] Note ON: MIDI ${midiNote}, vel ${velocity}`);
+        console.log(`[HID] Note ON: MIDI ${midiNote}, vel ${velocity}, freq ${freq.toFixed(2)}Hz`);
       } catch (err) {
         console.warn('Error sending HID noteOn to ChucK:', err);
       }

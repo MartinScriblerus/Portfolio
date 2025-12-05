@@ -1151,27 +1151,35 @@ export const getChuckCode = (
     // HID keyboard handler (from JavaScript KeyboardHIDManager)
     fun void handleHIDNote() {
         while (true) {
+            // Wait for note on event
             hidNoteOn => now;
+            
+            // Read variables immediately after event (they should be set before broadcast)
             hidMidiNote => int midi;
             hidVelocity => int vel;
             hidFreq => float freq;
             
+            // Debug: log the values to verify events are received
+            <<< "HID Note ON: MIDI", midi, "vel", vel, "freq", freq >>>;
+            
             // Find free voice and play note
             findFreeVoice() => int v;
-            1 => voiceBusy[v];
-            v => activeVoice[midi];
-            
-            // Set frequency and velocity
-            freq => voice[v].keyOn;
-            vel / 127.0 => voice[v].gain;
-            1 => adsr.keyOn;
-            adsr.set((beatMS)::ms * moogGMDefaults["adsrAttack"], (beatMS)::ms * moogGMDefaults["adsrDecay"], moogGMDefaults["adsrSustain"], (beatMS)::ms * moogGMDefaults["adsrRelease"]);
-            
-            // Wait for note off
-            hidNoteOff => now;
-            1 => voice[v].keyOff;
-            0 => voiceBusy[v];
-            0 => activeVoice[midi];
+            if (v >= 0) {
+                1 => voiceBusy[v];
+                v => activeVoice[midi];
+                
+                // Set frequency and velocity
+                freq => voice[v].keyOn;
+                vel / 127.0 => voice[v].gain;
+                1 => adsr.keyOn;
+                adsr.set((beatMS)::ms * moogGMDefaults["adsrAttack"], (beatMS)::ms * moogGMDefaults["adsrDecay"], moogGMDefaults["adsrSustain"], (beatMS)::ms * moogGMDefaults["adsrRelease"]);
+                
+                // Wait for note off
+                hidNoteOff => now;
+                1 => voice[v].keyOff;
+                0 => voiceBusy[v];
+                0 => activeVoice[midi];
+            }
         }
     }
     spork ~ handleHIDNote();

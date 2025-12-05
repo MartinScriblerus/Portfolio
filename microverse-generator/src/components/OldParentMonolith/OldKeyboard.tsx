@@ -358,6 +358,7 @@ const Keyboard = ({
         }
     }, [mingusKeyboardData, mingusChordsData]);
 
+
     return (
         <div
             id="keyboardWrapper"
@@ -383,6 +384,8 @@ const Keyboard = ({
                     maxHeight: '200px',
                     overflowX: 'auto',
                     overflowY: 'visible',
+                    overscrollBehaviorX: 'contain', // Prevent scroll chaining
+                    overscrollBehaviorY: 'none',
                 }}
             >
                 <ul id="keyboard" key={'keyboard'} style={{ 

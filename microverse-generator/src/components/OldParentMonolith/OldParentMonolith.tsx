@@ -5,7 +5,7 @@ import { useTransportStore } from '../../store/useTransportStore';
 import { computeGridConfig } from '../../utils/gridMath';
 import { deriveGridParams } from '../../utils/siteHelpers';
 import { WaveformCanvas } from '../WaveformCanvas';
-import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
+// import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import dynamic from 'next/dynamic';
 import EffectDropdown from '../EffectsDropdown';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -242,11 +242,11 @@ function RightDrawer(props: RightDrawerProps) {
     console.log('[RightDrawer] Mounted, open:', open, 'tab:', tab);
   }, [open, tab]);
 
-  useGlobalShortcuts({
-    toggleGrid: () => { setOpen(true); setTab('grid'); },
-    toggleMixer: () => { setOpen(true); setTab('mixer'); },
-    toggleFx: () => { setOpen(true); setTab('fx'); },
-  });
+  // useGlobalShortcuts({
+  //   toggleGrid: () => { setOpen(true); setTab('grid'); },
+  //   toggleMixer: () => { setOpen(true); setTab('mixer'); },
+  //   toggleFx: () => { setOpen(true); setTab('fx'); },
+  // });
 
   // Select values individually to avoid creating new object on every render
   const bpm = useTransportStore(s => s.bpm);
@@ -827,7 +827,7 @@ function RightDrawer(props: RightDrawerProps) {
                           key={fxKey}
                           sx={{ 
                             padding: '8px', 
-                            backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.2)' : 'rgba(255,255,255,0.05)',
+                            // backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.2)' : 'rgba(255,255,255,0.05)',
                             border: `1px solid ${fx?.On ? ACCESSIBLE_COLORS.subdominant.primary : 'rgba(255,255,255,0.1)'}`,
                             borderRadius: '4px',
                             cursor: 'pointer',

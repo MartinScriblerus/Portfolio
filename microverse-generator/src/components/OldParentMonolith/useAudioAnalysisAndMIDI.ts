@@ -59,10 +59,16 @@ export default function useAudioAnalysisAndMIDI(
               if (d?.type === 'features') {
                 const pkt = d as { type: string; ts?: number; features?: Record<string, any> };
                 const features = pkt.features || null;
-                // Update local React state for HUD - use requestAnimationFrame to avoid blocking main thread
-                requestAnimationFrame(() => {
-                  try { setMeydaData(features as Partial<MeydaFeaturesObject> || null); } catch {}
-                });
+                
+                // Strictly throttle state updates to 60 FPS to avoid blocking main thread
+                const now = performance.now();
+                if (now - lastStateUpdateRef.current >= MIN_UPDATE_MS) {
+                  lastStateUpdateRef.current = now;
+                  // Use requestAnimationFrame to schedule update in next frame (non-blocking)
+                  requestAnimationFrame(() => {
+                    try { setMeydaData(features as Partial<MeydaFeaturesObject> || null); } catch {}
+                  });
+                }
 
                 // Shared globals for other visuals
                 try {
@@ -116,10 +122,11 @@ export default function useAudioAnalysisAndMIDI(
         console.warn('[useAudioAnalysisAndMIDI] Failed to connect processor:', e);
       }
 
-      // Throttle Meyda extraction and React updates to reduce main-thread work.
-      // We still forward raw frames to an optional consumer and to the worker for heavier analysis.
+      // Strictly cap updates at 60 FPS: 1000ms / 60fps = 16.67ms per frame
+      // This ensures audio visualization doesn't slow down Babylon or the grid
       const lastSetRef = { current: 0 } as { current: number };
-      const MIN_UPDATE_MS = 16; // ~60 FPS (throttle for smoother visuals)
+      const MIN_UPDATE_MS = 1000 / 60; // ~16.67ms for exactly 60 FPS
+      const lastStateUpdateRef = { current: 0 } as { current: number };
 
       // Add a message listener (use addEventListener to avoid overwriting other handlers)
       onProcessorMessage = (event: MessageEvent) => {
@@ -146,9 +153,16 @@ export default function useAudioAnalysisAndMIDI(
                       }
                     }
                   } else {
+              // Main thread fallback - should NOT be used if worker is available
+              // This is a fallback only and should be avoided to keep main thread free for Babylon/grid
               const now = performance.now();
               if (now - lastSetRef.current >= MIN_UPDATE_MS) {
                 lastSetRef.current = now;
+                // Warn if main thread extraction is being used (indicates worker failure)
+                if (!(window as any).__meydaMainThreadWarningShown) {
+                  console.warn('[useAudioAnalysisAndMIDI] ⚠️ Main thread extraction active - worker unavailable. This may impact performance.');
+                  (window as any).__meydaMainThreadWarningShown = true;
+                }
                 // Use requestAnimationFrame to avoid blocking main thread during extraction
                 requestAnimationFrame(() => {
                   try {
@@ -165,10 +179,14 @@ export default function useAudioAnalysisAndMIDI(
                       ],
                       audioData
                     );
-                    // Schedule state update in next frame to avoid blocking
-                    requestAnimationFrame(() => {
-                      setMeydaData(features || null);
-                    });
+                    // Schedule state update with throttling to avoid blocking
+                    const updateNow = performance.now();
+                    if (updateNow - lastStateUpdateRef.current >= MIN_UPDATE_MS) {
+                      lastStateUpdateRef.current = updateNow;
+                      requestAnimationFrame(() => {
+                        setMeydaData(features || null);
+                      });
+                    }
                     // record main-thread extraction stats for debugging
                     (window as any).__meydaDebugMainThreadExtractions = ((window as any).__meydaDebugMainThreadExtractions || 0) + 1;
                   } catch (err) {

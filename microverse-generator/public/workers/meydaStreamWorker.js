@@ -11,8 +11,8 @@ let config = {
   features: ["rms", "zcr", "spectralCentroid", "loudness"]
 };
 
-// Minimum ms between posting feature messages back to main thread (throttle to ~60 FPS)
-const MIN_POST_MS = 16;
+// Strictly cap at 60 FPS: 1000ms / 60fps = 16.67ms per frame
+const MIN_POST_MS = 1000 / 60; // ~16.67ms for exactly 60 FPS
 let _lastPost = 0;
 
 const ensureMeyda = () => {

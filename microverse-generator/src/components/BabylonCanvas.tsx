@@ -1327,30 +1327,30 @@ export default function BabylonHydraCanvas() {
             buildHydraPipeline(0);
 
             // Minimal keyboard toggles for demo:
-            const onKey = (e: KeyboardEvent) => {
-                const k = e.key.toLowerCase();
-                const store = useVisStore.getState();
-                switch (k) {
-                    case '1': store.setStrongMode(!store.strongMode); console.log('Strength scale', store.strengthScale()); break;
-                    case 's': store.toggleOp('saturate' as any); break;
-                    case 'c': store.toggleOp('contrast' as any); break;
-                    case 'b': store.toggleOp('brightness' as any); break;
-                    case 'h': store.toggleOp('hue' as any); break;
-                    case 'i': store.toggleOp('invert' as any); break;
-                    case 'o': store.toggleOp('posterize' as any); break;
-                    case 'p': store.toggleOp('pixelate' as any); break;
-                    case 'k': store.toggleOp('kaleid' as any); break;
-                    case 'r': store.toggleOp('rotate' as any); break;
-                    case 'l': store.toggleOp('scale' as any); break;
-                    case 'x': store.toggleOp('scrollX' as any); break;
-                    case 'y': store.toggleOp('scrollY' as any); break;
-                    case 'm': store.toggleOp('modulate' as any); break;
-                    case 'u': store.toggleOp('modulateHue' as any); break;
-                    case 'g': store.toggleOp('colorama' as any); break;
-                    default: return;
-                }
-            };
-            window.addEventListener('keydown', onKey);
+            // const onKey = (e: KeyboardEvent) => {
+            //     const k = e.key.toLowerCase();
+            //     const store = useVisStore.getState();
+            //     switch (k) {
+            //         case '1': store.setStrongMode(!store.strongMode); console.log('Strength scale', store.strengthScale()); break;
+            //         case 's': store.toggleOp('saturate' as any); break;
+            //         case 'c': store.toggleOp('contrast' as any); break;
+            //         case 'b': store.toggleOp('brightness' as any); break;
+            //         case 'h': store.toggleOp('hue' as any); break;
+            //         case 'i': store.toggleOp('invert' as any); break;
+            //         case 'o': store.toggleOp('posterize' as any); break;
+            //         case 'p': store.toggleOp('pixelate' as any); break;
+            //         case 'k': store.toggleOp('kaleid' as any); break;
+            //         case 'r': store.toggleOp('rotate' as any); break;
+            //         case 'l': store.toggleOp('scale' as any); break;
+            //         case 'x': store.toggleOp('scrollX' as any); break;
+            //         case 'y': store.toggleOp('scrollY' as any); break;
+            //         case 'm': store.toggleOp('modulate' as any); break;
+            //         case 'u': store.toggleOp('modulateHue' as any); break;
+            //         case 'g': store.toggleOp('colorama' as any); break;
+            //         default: return;
+            //     }
+            // };
+            // window.addEventListener('keydown', onKey);
 
             // ------------------------------
             // Babylon setup
@@ -1849,7 +1849,7 @@ export default function BabylonHydraCanvas() {
             disposer = () => {
                 renderLoopRunning = false; // Stop render loop
                 window.removeEventListener('resize', handleResize);
-                window.removeEventListener('keydown', onKey);
+                // window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
                 try { unsubscribeHydraControls(); } catch {}
                 // Clear cache to prevent memory leaks

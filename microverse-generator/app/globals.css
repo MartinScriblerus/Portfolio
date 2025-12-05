@@ -202,11 +202,17 @@ button:disabled {
   margin-top: 0rem;
   left: -6px;
   width: calc(100% + 36px);
-  overflow-x: hidden;
+  overflow-x: auto; /* Allow horizontal scrolling when screen is too small */
+  overflow-y: hidden;
   list-style: none;
   margin: 0;
   padding: 0;
   flex-wrap: nowrap; /* Prevent wrapping */
+  /* Prevent browser navigation on horizontal scroll (trackpad gestures) */
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  scroll-behavior: smooth;
 }
 
 /* Octave wrapper - contains both white and black keys */
@@ -325,8 +331,8 @@ li.vizKey.white.half {
 
 #runChuckCodeButton {
   position: absolute;
-  top: 72px;
-  left: 8px;
+  top: 72px !important;
+  left: 0px !important;
   border: 2px solid var(--color-subdominant-primary);
   background: var(--color-dominant-surface);
   color: var(--color-subdominant-primary);
@@ -358,8 +364,8 @@ li.vizKey.white.half {
 
 #chuckMicButtonWrapper {
   position: absolute;
-  /* top: 72px; */
-  left: 8px;
+  top: 72px !important;
+  left: 64px !important;
   border: 2px solid var(--color-subdominant-primary);
   background: var(--color-dominant-surface);
   color: var(--color-subdominant-primary);
@@ -716,4 +722,10 @@ li.vizKey.white.half {
   z-index: 6;
   width: 4rem;
   height: 4rem;
+}
+
+/* Remove right: 0 from MUI Modal/Dialog root */
+.MuiModal-root.MuiDialog-root,
+.MuiModal-root[class*="MuiDialog-root"] {
+  right: auto !important;
 }

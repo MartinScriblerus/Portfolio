@@ -818,7 +818,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                 step={step}
                 valueLabelDisplay="auto"
                 onChange={onChange}
-                sx={{ width: "80%", color: 'rgba(245,245,245,0.78)', backgroundColor: 'rgba(28,28,28,0.78)' }}
+                sx={{ width: "80%",  padding: "4px", margin: "4px", color: 'rgba(245,245,245,0.78)', backgroundColor: 'rgba(28,28,28,0.78)' }}
             />
         </Box>
     );
@@ -1552,15 +1552,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     {/* )
                                                                 )} */}
                                                             </Box>
-                                                            {/* Velocity and Volume Sliders */}
-                                                            <Box sx={{ display: "flex", flexDirection: "row", gap: 2, width: "100%" }}>
-                                                                <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                                                                    <ParameterSlider label="Note Velocity" value={noteVelocityValue} min={0} max={1} step={0.01} onChange={handleNoteVelocityUpdateLocal} />
-                                                                </Box>
-                                                                <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                                                                    <ParameterSlider label="Volume" value={noteVolumeValue} min={0} max={1} step={0.01} onChange={handleNoteVolumeUpdateLocal} />
-                                                                </Box>
-                                                            </Box>
+                                                            
+
 
                                                             <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
                                                                 <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? ACCESSIBLE_COLORS.subdominant.secondary : ACCESSIBLE_COLORS.subdominant.primary}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
@@ -1577,7 +1570,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                             min={0}
                                                                             max={16}
                                                                             step={null}
-                                                                            sx={{ color: ACCESSIBLE_COLORS.subdominant.secondary }}
+                                                                            sx={{  paddingLeft: "4px", color: ACCESSIBLE_COLORS.subdominant.secondary }}
                                                                         />
                                                                     </Box>
                                                                 </Box>
@@ -1592,6 +1585,16 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     <VelocityLengthSliders handleNoteLengthUpdate={handleNoteLengthUpdate} cellData={cellData.current} maxLen={Number(+doAutoAssignPatternNumber) !== 0 ? Number(+doAutoAssignPatternNumber) : 1} chuckIsRunning={isChuckRunning} masterPatterns={masterPatternsHashHook[`${currentYVal.current}`][`${currentXVal.current}`]} />
                                                                 </Box>
                                                             )}
+
+                                                                                                                        {/* Velocity and Volume Sliders */}
+                                                                                                                        <Box sx={{ display: "flex", flexDirection: "row", gap: 2, width: "100%" }}>
+                                                                <Box sx={{ flex: 1, display: "flex", padding: "4px", flexDirection: "column" }}>
+                                                                    <ParameterSlider label="Note Velocity" value={noteVelocityValue} min={0} max={1} step={0.01} onChange={handleNoteVelocityUpdateLocal} />
+                                                                </Box>
+                                                                <Box sx={{ flex: 1, display: "flex", padding: "4px", flexDirection: "column" }}>
+                                                                    <ParameterSlider label="Volume" value={noteVolumeValue} min={0} max={1} step={0.01} onChange={handleNoteVolumeUpdateLocal} />
+                                                                </Box>
+                                                            </Box>
                                                         </Box>
 
 
