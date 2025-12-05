@@ -73,15 +73,35 @@ export async function POST(req: NextRequest) {
     if (!text || typeof text !== 'string') {
       return new Response(JSON.stringify({ error: 'text is required' }), { status: 400 });
     }
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    
+    // Validate environment variables
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!url || !key) {
+      return new Response(JSON.stringify({ 
+        error: 'Supabase not configured',
+        details: 'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables'
+      }), { status: 500 });
+    }
+    
     const supabase = createClient(url, key);
 
     const qvec = await getEmbed(text);
     const { data: allRows, error } = await supabase
       .from('documents')
       .select('id, work, author, content, embedding');
-    if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    
+    if (error) {
+      console.error('[RAG Search] Supabase error:', error);
+      return new Response(JSON.stringify({ 
+        error: 'Database query failed',
+        details: error.message,
+        hint: error.message.includes('resolve') || error.message.includes('ERR_NAME_NOT_RESOLVED') 
+          ? 'Check your Supabase URL and project status. The project may be paused or the URL may be incorrect.' 
+          : undefined
+      }), { status: 500 });
+    }
 
     const sims = (allRows || [])
       .map((r: any) => {
