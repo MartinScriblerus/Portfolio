@@ -51,6 +51,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "ingest:philo": "node scripts/ingest-philo.js",
+    "parse:oblique-strategies": "node scripts/parse-oblique-strategies.js",
+    "check:supabase": "node scripts/check-supabase-config.js",
     "postinstall": "node scripts/copy-ffmpeg.js"
   },
   "devDependencies": {

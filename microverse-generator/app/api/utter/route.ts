@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import fs from 'fs/promises';
+import obliqueStrategiesData from '../../../data/oblique-strategies.json';
 
 // Simple in-memory cache and rate limiter (best-effort in serverless; may reset on cold start)
 const CACHE = new Map<string, { text: string; at: number }>();
@@ -43,8 +44,8 @@ export async function POST(req: NextRequest) {
   // Try style-pack as few-shot hints
   const stylePack = await loadStylePack();
   const mergedBans: string[] = Array.from(new Set([...(stylePack?.bans || []), ...bans]));
-  const persona = style?.persona || 'A knowing, terse, enigma-loving, playful philosopher-narrator.';
-  const tone = style?.tone || 'Early modern clarity inspired by Simon Ockley\'s 1708 translation of Hayy ibn Yaqzan.';
+  const persona = style?.persona || `A terse narrator whose ideals are influenced by the random selection from Oblique Strategies: ${pick(Array.isArray(obliqueStrategiesData?.strategies) ? obliqueStrategiesData.strategies.map((s: any) => s.text) : [])}`;
+  const tone = style?.tone || 'Terse, calm, and precise. Convert old words to new ones, but always choose the less flashy word.';
 
   const llmText = await tryLLM({ query, snippets, keywords, citations, bans: mergedBans, persona, tone, stylePack });
   let outText = (llmText && sanitize(llmText, mergedBans)) || sanitize(ruleBasedFallback({ query, snippets, keywords, citations, stylePack }), mergedBans);

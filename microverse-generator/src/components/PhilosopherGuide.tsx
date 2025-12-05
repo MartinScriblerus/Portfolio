@@ -12,6 +12,7 @@ import { useSignalBus } from '../store/useSignalBus';
 import { 
   // randomCTA, 
   randomStarter } from '../content/prompts';
+import obliqueStrategiesData from '../../data/oblique-strategies.json';
 
 
 
@@ -56,15 +57,20 @@ export default function PhilosopherGuide() {
   // Register a small default sequence of tasks once
   useEffect(() => {
     const s = useAgentStore.getState();
+    
+    // Safely load Oblique Strategies from JSON
+    const obliqueStrategies: string[] = Array.isArray(obliqueStrategiesData?.strategies)
+      ? obliqueStrategiesData.strategies
+          .map((s: { id?: number; text?: string }) => s?.text)
+          .filter((text): text is string => typeof text === 'string' && text.length > 0)
+      : [];
+    
     const initialPrompts = [
-      "How does the paradox resolve?",
-      "What don't we know that we don't know?",
-      "What can't be seen here?",
-      "What can't we ignore here?",
-      // "Note where light meets darkness. What is passing between them?",
-      'Look closely. What patterns emerge?',
-      'Look closely. What principles emerge?'
-    ]
+      "Describe an effect you'd like to create...",
+      "Click start to begin...",
+      ...obliqueStrategies
+    ];
+    
     // Proper random index in [0, length)
     const idx = Math.floor(Math.random() * initialPrompts.length);
     setChat([{ role: 'guide', text: initialPrompts[idx] }])
@@ -153,29 +159,45 @@ export default function PhilosopherGuide() {
       } catch { }
       if (!data || data.length === 0) {
         // If server exact search fails, try approximate RPC
-        data = await matchDocuments(vec, 5, 0.6);
+        try {
+          data = await matchDocuments(vec, 5, 0.6);
+        } catch (matchErr: any) {
+          console.warn('[PhilosopherGuide] matchDocuments failed:', matchErr.message);
+          // Continue to fallback 2
+        }
       }
       // Remove overly-permissive threshold fallback that caused generic matches to dominate
       if (!data || data.length === 0) {
         // fallback 2: exact search RPC (sequential scan)
-        const supabase2 = getSupabaseClient();
-        const { data: exact, error: exErr } = await (supabase2 as any).rpc('match_documents_exact', {
-          query_embedding: vec,
-          match_count: 5,
-        });
-        if (exErr) {
-          console.error('exact search error', exErr);
-        } else {
-          data = exact as MatchRow[];
+        try {
+          const supabase2 = getSupabaseClient();
+          const { data: exact, error: exErr } = await (supabase2 as any).rpc('match_documents_exact', {
+            query_embedding: vec,
+            match_count: 5,
+          });
+          if (exErr) {
+            console.error('[PhilosopherGuide] exact search error', exErr);
+          } else {
+            data = exact as MatchRow[];
+          }
+        } catch (exactErr: any) {
+          console.warn('[PhilosopherGuide] exact search RPC failed:', exactErr.message);
         }
       }
       if (!data || data.length === 0) {
         // fallback 3: fetch some docs directly to validate RLS/connection
-        const supabase = getSupabaseClient();
-        const { data: direct, error: derr } = await supabase.from('documents').select('id, work, author, content').limit(3);
-        if (derr) throw derr;
-        // cast into MatchRow-ish objects without similarity
-        data = (direct ?? []).map((d: any) => ({ ...d, similarity: 0 })) as MatchRow[];
+        try {
+          const supabase = getSupabaseClient();
+          const { data: direct, error: derr } = await supabase.from('documents').select('id, work, author, content').limit(3);
+          if (derr) {
+            console.warn('[PhilosopherGuide] Direct document fetch failed:', derr.message);
+          } else {
+            // cast into MatchRow-ish objects without similarity
+            data = (direct ?? []).map((d: any) => ({ ...d, similarity: 0 })) as MatchRow[];
+          }
+        } catch (directErr: any) {
+          console.warn('[PhilosopherGuide] Direct fetch failed:', directErr.message);
+        }
       }
       let matches = data ?? [];
       // Diversify by author/work to reduce dominance by a single source
@@ -290,7 +312,7 @@ export default function PhilosopherGuide() {
     <div 
       role="region"
       aria-label="Philosopher guide conversation"
-      style={{ position: 'absolute', bottom: 16, right: 16, maxWidth: 540, padding: '12px 14px', background: 'rgba(0,0,0,0.5)', color: '#e9f1ff', fontFamily: 'serif', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8 }}
+      style={{ position: 'absolute', bottom: 240, left: 16, maxWidth: 540, padding: '12px 14px', background: 'rgba(0,0,0,0.5)', color: '#e9f1ff', fontFamily: 'serif', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, zIndex: 999999 }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8, fontSize: '10px', fontFamily: 'monospace' }}>
         {chat.map((m, i) => (
@@ -312,7 +334,7 @@ export default function PhilosopherGuide() {
             setQuery(e.target.value);
             lastInputAtRef.current = Date.now();
           }}
-          placeholder="write a few sentences detailing what you see and hear..."
+          placeholder="begin with writing..."
           aria-label="Describe what you see and hear in the visualization"
           style={{
             width: '100%',
