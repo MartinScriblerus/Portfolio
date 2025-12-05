@@ -474,7 +474,7 @@ export const getChuckCode = (
 
     ${beatInMilliseconds} => global float beatMS; 
 
-
+    <<< "UPDATE_GRID: TEST!!! ", beatMS >>>;
 
 
     ${safeSignalChainDeclarations.map((value: any) => value).join(' ')}
@@ -1171,6 +1171,8 @@ export const getChuckCode = (
 
         <<< "SHREDCOUNT: ", Machine.numShreds(), recurringTickCount, beatMS >>>;
 
+
+         
 
         if (now >= startTimeMeasureLoop + step) {
             

@@ -66,7 +66,8 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
   },
   
   updateCellSubdivisions: (num, x, y) => {
-    console.log(`[useBeatGridStore] updateCellSubdivisions: cell[${x}, ${y}] = ${num}`);
+    const DEBUG_STORE_LOGS = false;
+    if (DEBUG_STORE_LOGS) console.log(`[useBeatGridStore] updateCellSubdivisions: cell[${x}, ${y}] = ${num}`);
     const state = get();
     const yKey = String(y);
     const xKey = String(x);
@@ -124,13 +125,14 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
     try {
       const gv = get().gridVersion;
       // BLAMO -- right here! (cell-level grid change)
-      console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, subdivisions: num });
+      if (DEBUG_STORE_LOGS) console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, subdivisions: num });
       typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, cell: { x, y } } }));
     } catch {}
   },
   
   updateCellNotes: (notes, x, y) => {
-    console.log(`[useBeatGridStore] updateCellNotes: cell[${x}, ${y}] =`, notes);
+    const DEBUG_STORE_LOGS = false;
+    if (DEBUG_STORE_LOGS) console.log(`[useBeatGridStore] updateCellNotes: cell[${x}, ${y}] =`, notes);
     const state = get();
     const yKey = String(y);
     const xKey = String(x);
@@ -158,13 +160,14 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
     
     try {
       const gv = get().gridVersion;
-      console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, notes });
+      if (DEBUG_STORE_LOGS) console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, notes });
       typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, cell: { x, y } } }));
     } catch {}
   },
   
   updateCellFiles: (fileNums, x, y) => {
-    console.log(`[useBeatGridStore] updateCellFiles: cell[${x}, ${y}] =`, fileNums);
+    const DEBUG_STORE_LOGS = false;
+    if (DEBUG_STORE_LOGS) console.log(`[useBeatGridStore] updateCellFiles: cell[${x}, ${y}] =`, fileNums);
     const state = get();
     const yKey = String(y);
     const xKey = String(x);
@@ -192,7 +195,7 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
     
     try {
       const gv = get().gridVersion;
-      console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, fileNums });
+      if (DEBUG_STORE_LOGS) console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, fileNums });
       typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, cell: { x, y } } }));
     } catch {}
   },
@@ -239,8 +242,11 @@ export const createCellSelector = (x: number, y: number) => {
 // Expose store to window for console debugging
 if (typeof window !== 'undefined') {
   (window as any).__beatGridStore = useBeatGridStore;
-  console.log('[useBeatGridStore] Store exposed to window.__beatGridStore');
-  console.log('[useBeatGridStore] Usage: window.__beatGridStore.getState().masterPatternsHashHook');
+  const DEBUG_STORE_LOGS = false;
+  if (DEBUG_STORE_LOGS) {
+    console.log('[useBeatGridStore] Store exposed to window.__beatGridStore');
+    console.log('[useBeatGridStore] Usage: window.__beatGridStore.getState().masterPatternsHashHook');
+  }
 }
 
 export const cellDataEquals = (a: any, b: any): boolean => {

@@ -33,6 +33,7 @@ import { useKnobModel } from './useKnobModel';
 import { useFileUploads } from './useFileUploads';
 import { useOldMonolithStore } from '../../store/useOldMonolithStore';
 import { useBeatGridStore } from '../../store/useBeatGridStore';
+import { useMicrotonalStore } from '../../store/useMicrotonalStore';
 import AudioMixer from './OldAudioMixer';
 import FXRouting from './OldFXRouting';
 import STKManagerDropdown from './OldSTKManagerDropdown';
@@ -1050,6 +1051,19 @@ export default function OldParentMonolith(
   const [noteBuilderFocus] = useState('');
   const [mingusKeyboardData, setMingusKeyboardData] = useState<any>(null);
   const [mingusChordsData, setMingusChordsData] = useState<any>(null);
+  // When Mingus-derived keyboard data arrives, infer EDO (steps per octave)
+  useEffect(() => {
+    try {
+      if (mingusKeyboardData && mingusKeyboardData.data && Array.isArray(mingusKeyboardData.data[0])) {
+        const scaleArr = mingusKeyboardData.data[0];
+        const inferred = Math.max(2, Math.min(96, scaleArr.length || 12));
+        // Update global microtonal store to reflect this EDO
+        useMicrotonalStore.getState().setEdo(inferred);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [mingusKeyboardData]);
   const pressedNotesSet = useRef<Set<number>>(new Set());
 
   // Beat Grid placeholders
@@ -1288,163 +1302,50 @@ export default function OldParentMonolith(
             numeratorSignature={numeratorSignature}
             clockCounterKey={clockCounterKey}
           />
+          <MeydaHUD />
+          <OldKeyboardPanel
+            selectRef={selectRef}
+            tune={tune.current}
+            chuckHook={chuckHook.current}
+            stkValues={stkValues}
+            checkedEffectsListHook={checkedEffectsListHook}
+            handleFXRadioChange={handleFXRadioChange}
+            currentMicroTonalScale={currentMicroTonalScale}
+            handleCheckedFXToShow={handleCheckedFXToShow}
+            setStkValues={setStkValues}
+            updateStkKnobs={() => {}}
+            handleMingusKeyboardData={setMingusKeyboardData}
+            handleMingusChordsData={setMingusChordsData}
+            clickedBegin={clickedBegin}
+            universalSourcesCurrent={universalSourcesCurrent}
+            handleUpdateVolumes={handleUpdateVolumes}
+            handleUpdatePans={handleUpdatePans}
+            handleToggleMutes={handleToggleMutes}
+            handleToggleSolos={handleToggleSolos}
+            expandedMixerSource={expandedMixerSource}
+            setExpandedMixerSource={setExpandedMixerSource}
+            keysVisible={keysVisible}
+            keysReady={keysReady}
+            notesAddedDetails={notesAddedDetails}
+            organizeRows={organizeRows as any}
+            organizeLocalStorageRows={organizeLocalStorageRows as any}
+            noteOnPlay={noteOnPlay}
+            noteOffPlay={noteOffPlay}
+            compare={compare}
+            noteBuilderFocus={noteBuilderFocus}
+            mingusKeyboardData={mingusKeyboardData}
+            mingusChordsData={mingusChordsData}
+            pressedNotesSet={pressedNotesSet.current}
+          />
         </>
       )}
 
-{/* STK Manager moved to FX tab in RightDrawer */}
-      {/* <Box sx={{ padding: '8px', backgroundColor: 'rgba(28,28,28,0.78)' }}>
-        <STKManagerDropdown updateStkKnobs={updateStkKnobs} stkValues={stkValues} setStkValues={setStkValues} />
-      </Box> */}
-
-      {/* Right Column */}
-      {/* <Box sx={{ 
-        position: 'fixed', 
-        right: 0, 
-        top: 0, 
-        width: 240, 
-        height: '100%', 
-        zIndex: 30, 
-        background: 'rgba(20,20,24,0.95)',
-        overflowY: 'auto',
-        borderLeft: '1px solid rgba(255,255,255,0.1)',
-        pointerEvents: 'auto'
-      }}> */}
-        {/* Device Selector and Audio In EffectDropdown moved to Mixer tab in RightDrawer */}
-        {/* <Box sx={{ padding: '8px' }}>
-          <Box className='select-device-id-wrapper' sx={{ marginBottom: '16px' }}>
-
-                <Select
-                    className='select-device-id-dropdown'
-                    value={selectedDeviceId}
-                    onChange={updateAudioInputDevice}
-                    native
-                    sx={{ 
-                      cursor: 'pointer',
-                      width: '100%',
-                    }}
-                    disabled={!chuckHook}
-                >
-                    <option value="">Select Audio Input Device</option>
-                    {deviceOptions.map(device => (
-                        <option key={device.deviceId} value={device.deviceId}>
-                            {device.label || `Device ${device.deviceId}`}
-                        </option>
-                    ))}
-                </Select>
-            </Box>
-
-            <Box
-                id='effect-dropdown-container'
-                sx={{
-                    pointerEvents: showAudioInDropdown ? 'auto' : 'none',
-                    opacity: showAudioInDropdown ? 1 : 0.5,
-                }}
-            >
-                <EffectDropdown
-                    chuckRef={chuckRef}
-                    updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
-                    showAudioInDropdown={showAudioInDropdown}
-                />
-            </Box>
-        </Box> */}
-        {/* FXRouting moved to FX tab in RightDrawer */}
-        {/* <OldLeftColumn
-          onUpload={onUpload} 
-          onSubmit={onSubmit}
-          chuckHook={chuckHook}
-          FileUploadIcon={FileUploadIcon}
-          showBPM={true}
-          bpm={bpm}
-          setBpm={setBpm}
-          beatsNumerator={beatsNumerator}
-          beatsDenominator={beatsDenominator}
-          setChuckUpdateNeeded={setChuckUpdateNeeded}
-          handleChangeBeatsNumerator={handleChangeBeatsNumerator}
-          handleChangeBeatsDenominator={handleChangeBeatsDenominator}
-          updateStkKnobs={() => {}}
-          stkValues={stkValues}
-          setStkValues={setStkValues}
-          fXChainKey={`fx_${fxRadioValue}`}
-          fxRadioValue={fxRadioValue}
-          fxData={universalSourcesRef.current?.[fxRadioValue]?.effects || {}}
-          handleUpdateCheckedFXList={handleUpdateCheckedFXList}
-          fxGroupOptions={[]}
-          checkedFXListCurrent={[]}
-          handleClickName={handleClickName}
-          setClickFXChain={setClickFXChain}
-          clickFXChain={clickFXChain}
-          updateFXInputRadio={updateFXInputRadio}
-          currentScreenCurrent={'synth'}
-          playUploadedFile={playUploadedFile}
-          lastFileUpload={lastFileUpload.current}
-          updateFileUploads={updateFileUploads}
-          handleCheckedFXToShow={handleCheckedFXToShow}
-          checkedEffectsListHook={checkedEffectsListHook}
-          setCheckedEffectsListHook={setCheckedEffectsListHook}
-        /> */}
-      {/* </Box> */}
-
-      {/* Middle/Knobs (pointer transparent) */}
-      <Box 
-      //sx={{ marginLeft: '140px', paddingTop: '56px', pointerEvents: 'none', position: 'relative', zIndex: 10 }} ref={parentDivRef}
-      >
- 
 
 
-      </Box>
-
-      {/* Pedalboard moved to FX tab in RightDrawer */}
-      {/* <Box sx={{ position: 'absolute', right: 16, top: 64 }}>
-        <ReactDiagramsPedalboard
-          universalSources={universalSourcesRef}
-          currentChain={currentChain}
-          sourceName={fxRadioValue}
-          width={440}
-          height={200}
-          handleCheckedEffectsToShow={handleCheckedFXToShow}
-          getNewFX={getNewFX}
-        />
-      </Box> */}
-
-      {/* Keyboard + Mixer Panel */}
-      <OldKeyboardPanel
-        selectRef={selectRef}
-        tune={tune.current}
-        chuckHook={chuckHook.current}
-        stkValues={stkValues}
-        checkedEffectsListHook={checkedEffectsListHook}
-        handleFXRadioChange={handleFXRadioChange}
-        currentMicroTonalScale={currentMicroTonalScale}
-        handleCheckedFXToShow={handleCheckedFXToShow}
-        setStkValues={setStkValues}
-        updateStkKnobs={() => {}}
-        handleMingusKeyboardData={setMingusKeyboardData}
-        handleMingusChordsData={setMingusChordsData}
-        clickedBegin={clickedBegin}
-        universalSourcesCurrent={universalSourcesCurrent}
-        handleUpdateVolumes={handleUpdateVolumes}
-        handleUpdatePans={handleUpdatePans}
-        handleToggleMutes={handleToggleMutes}
-        handleToggleSolos={handleToggleSolos}
-        expandedMixerSource={expandedMixerSource}
-        setExpandedMixerSource={setExpandedMixerSource}
-        keysVisible={keysVisible}
-        keysReady={keysReady}
-        notesAddedDetails={notesAddedDetails}
-        organizeRows={organizeRows as any}
-        organizeLocalStorageRows={organizeLocalStorageRows as any}
-        noteOnPlay={noteOnPlay}
-        noteOffPlay={noteOffPlay}
-        compare={compare}
-        noteBuilderFocus={noteBuilderFocus}
-        mingusKeyboardData={mingusKeyboardData}
-        mingusChordsData={mingusChordsData}
-        pressedNotesSet={pressedNotesSet.current}
-      />
 
       {/* Live analysis HUD (Meyda + MIDI) */}
       <Box sx={{ pointerEvents: 'none', position: 'fixed', left: 16, bottom: 0, zIndex: 10050 }}>
-        <MeydaHUD />
+
       </Box>
 
       {/* Right Drawer with Grid, Timing Controls, etc. */}

@@ -806,9 +806,9 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     }> = ({ label, value, min, max, step = 0.01, onChange }) => (
         <Box sx={{ width: "100%" }}>
             {label && (
-                <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', mb: 0.5 }}>
+                <Typography component="div" sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', mb: 0.5 }}>
                     {label}
-                </FormLabel>
+                </Typography>
             )}
             <Slider
                 value={value}
@@ -1316,7 +1316,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                 {/* <Box sx={{ display: "inline-flex", width: '100%', flexDirecton: "row" }}>
                                                     <Box sx={{ width: "58%", margin: "4px", marginLeft: "16px", borderRadius: "5px", justifyContent: "center", alignItems: "center", paddingLeft: "16px", paddingTop: "8px", height: "100%" }}>
                                                         <Box sx={{ padding: "8px" }}>
-                                                            <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '4px' }}>Pattern Cells</FormLabel>
+                                                            <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '4px' }}>Pattern Cells</Typography>
                                                             <Slider
                                                                 value={doAutoAssignPatternNumber}
                                                                 onChange={(e: Event, val: number | number[]) => {
@@ -1564,7 +1564,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                             <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
                                                                 <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
                                                                     <Box sx={{ padding: "4px", width: "100%" }}>
-                                                                        <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</FormLabel>
+                                                                        <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</Typography>
                                                                         <Slider
                                                                             value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
                                                                             onChange={(e, val) => {
@@ -1647,7 +1647,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
 
                                                         <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? NEON_PINK : OBERHEIM_TEAL}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
                                                             <Box sx={{ padding: "4px", width: "100%" }}>
-                                                                <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</FormLabel>
+                                                                <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</Typography>
                                                                 <Slider
                                                                     value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
                                                                     onChange={(e, val) => {

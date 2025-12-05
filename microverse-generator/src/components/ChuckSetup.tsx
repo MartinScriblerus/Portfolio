@@ -21,6 +21,7 @@ import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import MicIcon from '@mui/icons-material/Mic';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
+import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { Box, Button, InputLabel, Select } from '@mui/material';
 import { 
     filesToProcess, 
@@ -213,6 +214,10 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
 // Main Component
 // -----------------------------
 export default function ChuckSetup() {
+    // Disable verbose debug logging when monitoring performance —
+    // toggle to `true` temporarily if deep debugging is needed.
+    const DEBUG_HEAVY_LOGS = false;
+
     const chuckRef = useRef<Chuck | null>(null);
     const [ready, setReady] = useState(false);
     const [initializing, setInitializing] = useState(true);
@@ -275,17 +280,24 @@ export default function ChuckSetup() {
     const currentSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
     const beatMs = useTimingStore((s: any) => s.beatMs);
+    // Keyboard overlay mode from global store
+    const keyboardMode = useOldMonolithStore(s => s.keyboardMode);
+    const setKeyboardMode = useOldMonolithStore(s => s.setKeyboardMode);
     const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
     const uploadedVFilesRef = useRef<string[]>([]); 
 
     const globalAudioCtx = useRef<AudioContext | null>(null);
+    // Defer AudioContext creation until the user explicitly enables audio (user gesture)
     useEffect(() => {
-        if (!globalAudioCtx.current) {
-            globalAudioCtx.current = new AudioContext();
-        }
         return () => {
-            globalAudioCtx.current?.close();
-            globalAudioCtx.current = null;
+            if (globalAudioCtx.current) {
+                try {
+                    globalAudioCtx.current.close();
+                } catch (e) {
+                    // ignore
+                }
+                globalAudioCtx.current = null;
+            }
         };
     }, []);
 
@@ -338,10 +350,16 @@ export default function ChuckSetup() {
             }
         });
     }
-    const loadWasm = new Promise( function( resolve, reject )
-    {
-        asyncLoadFile( '/webchuck/webchuck.wasm', resolve, reject ); 
-    });
+    // Lazily load the WebChucK wasm only when needed (avoid fetching on module load)
+    let _wasmPromise: Promise<any> | null = null;
+    const loadWasm = () => {
+        if (!_wasmPromise) {
+            _wasmPromise = new Promise(function(resolve, reject) {
+                asyncLoadFile('/webchuck/webchuck.wasm', resolve, reject);
+            });
+        }
+        return _wasmPromise;
+    };
 
     const filesArray = JSON.stringify(SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename));
 
@@ -360,7 +378,7 @@ export default function ChuckSetup() {
 
     let theWasm;
     const chuckMicButton = async () => {
-        theWasm = await loadWasm;
+        theWasm = await loadWasm();
         console.log("here!");
 
         globalAudioCtx.current && await globalAudioCtx.current.resume();
@@ -384,6 +402,9 @@ export default function ChuckSetup() {
                 if (chuckRef.current) {
                     source.connect(chuckRef.current);
                     chuckRef.current.chuckPrint = async (message: string) => {
+                        if (message.includes("UPDATE_GRID")) {
+                            console.log("TK! ", message);
+                        }
                         if (message.includes("TICK")) {
                             const parsedMsg = message.split(":")[1].trim();
 
@@ -464,6 +485,25 @@ export default function ChuckSetup() {
             console.error('AudioContext not ready or AudioWorkletNode not available');
         }
     }
+
+    // Create / resume the AudioContext in response to an explicit user gesture
+    const enableAudio = async () => {
+        try {
+            if (!globalAudioCtx.current) {
+                globalAudioCtx.current = new AudioContext();
+                console.log('[enableAudio] created AudioContext');
+            }
+            if (globalAudioCtx.current.state === 'suspended') {
+                await globalAudioCtx.current.resume();
+                console.log('[enableAudio] resumed AudioContext');
+            }
+            setReady(true);
+            return true;
+        } catch (err) {
+            console.warn('[enableAudio] failed to enable audio:', err);
+            return false;
+        }
+    };
 
     async function handleUpload(files: FileList | null) {
     const list = Array.from(files || []);
@@ -750,14 +790,45 @@ export default function ChuckSetup() {
     };
     
     const runChuckCode = async() => {
-            // Lazy-load the heavy `webchuck` module only when the user requests it
-            const { Chuck } = await import('webchuck');
+        console.log('[runChuckCode] invoked, isRunning=', isRunning);
+        // Attempt to resume the AudioContext immediately (must be called during a user gesture)
+        try {
+            if (!globalAudioCtx.current) {
+                // If AudioContext hasn't been created yet, create/resume it via enableAudio
+                const enabled = await enableAudio();
+                if (!enabled) {
+                    console.error('[runChuckCode] Failed to enable AudioContext - aborting ChucK init');
+                    return;
+                }
+            } else if (globalAudioCtx.current.state === 'suspended') {
+                // Ensure the context is resumed during the user gesture
+                await globalAudioCtx.current.resume();
+                console.log('[runChuckCode] attempted to resume AudioContext (user gesture)');
+            }
+        } catch (resumeErr) {
+            console.warn('[runChuckCode] AudioContext resume attempt failed:', resumeErr);
+        }
+        // Prevent re-entrancy
+        if (isRunning) {
+            console.log('[runChuckCode] already running, ignoring');
+            return;
+        }
+        // Lazy-load the heavy `webchuck` module only when the user requests it
+        let ChuckModule: any = null;
+        try {
+            ChuckModule = await import('webchuck');
+        } catch (impErr) {
+            console.error('[runChuckCode] dynamic import failed:', impErr);
+            throw impErr;
+        }
+        const { Chuck } = ChuckModule;
         let sampleRate = globalAudioCtx.current && globalAudioCtx.current.sampleRate || 44100;
         calculateDisplayDigits(sampleRate);
         if (isRunning) return;
         const chugins: string[] = loadWebChugins();
         chugins.forEach((path) => Chuck.loadChugin(path));
         setShowAudioInDropdown(true);
+        console.log("HEYA!")
         const LOCAL_CHUCK_SRC = '/webchuck/';
         // const serverFilesToPreload = [{ serverFilename: '/model.txt', virtualFilename: 'model.txt' }];
         const serverFilesToPreload: any = [
@@ -784,37 +855,38 @@ export default function ChuckSetup() {
         ];
         const whereIsChuck = LOCAL_CHUCK_SRC;
 
-        try {
+        // try {
             chuckRef.current = globalAudioCtx.current && await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
             // Expose the running ChucK instance globally for Old-* components
             if (chuckRef.current) {
+                setIsRunning(true)
                 globalChuckRef.current = chuckRef.current as any;
             }
             chuckRef.current && globalAudioCtx.current && await chuckRef.current.connect(globalAudioCtx.current.destination);
-        } catch (err: any) {
-            // Suppress ErrnoError errno 20 (file system errors) during initialization - these are often non-critical
-            if (err?.name === 'ErrnoError' && err?.errno === 20) {
-                // Silently ignore - this is a common non-critical file system error during ChucK initialization
-                console.debug('ChucK initialization file system error (non-critical, errno 20) - continuing...');
-                // Try to continue anyway - ChucK might still work
-                if (!chuckRef.current && globalAudioCtx.current) {
-                    try {
-                        chuckRef.current = await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
-                        if (chuckRef.current) {
-                            globalChuckRef.current = chuckRef.current as any;
-                            await chuckRef.current.connect(globalAudioCtx.current.destination);
-                        }
-                    } catch (retryErr: any) {
-                        if (retryErr?.name !== 'ErrnoError' || retryErr?.errno !== 20) {
-                            console.error('Failed to initialize ChucK after retry:', retryErr);
-                        }
-                    }
-                }
-            } else {
-                console.error('Failed to initialize ChucK:', err);
-                throw err; // Re-throw non-ErrnoError errors
-            }
-        }
+        // } catch (err: any) {
+        //     // Suppress ErrnoError errno 20 (file system errors) during initialization - these are often non-critical
+        //     if (err?.name === 'ErrnoError' && err?.errno === 20) {
+        //         // Silently ignore - this is a common non-critical file system error during ChucK initialization
+        //         console.debug('ChucK initialization file system error (non-critical, errno 20) - continuing...');
+        //         // Try to continue anyway - ChucK might still work
+        //         if (!chuckRef.current && globalAudioCtx.current) {
+        //             try {
+        //                 chuckRef.current = await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
+        //                 if (chuckRef.current) {
+        //                     globalChuckRef.current = chuckRef.current as any;
+        //                     await chuckRef.current.connect(globalAudioCtx.current.destination);
+        //                 }
+        //             } catch (retryErr: any) {
+        //                 if (retryErr?.name !== 'ErrnoError' || retryErr?.errno !== 20) {
+        //                     console.error('Failed to initialize ChucK after retry:', retryErr);
+        //                 }
+        //             }
+        //         }
+        //     } else {
+        //         console.error('Failed to initialize ChucK:', err);
+        //         throw err; // Re-throw non-ErrnoError errors
+        //     }
+        // }
 
 
 
@@ -838,29 +910,29 @@ export default function ChuckSetup() {
                     // ============================================================
                     // LOG: Beatgrid data ready for passing to Chuck
                     // ============================================================
-                    console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
-                    console.log('Grid Version:', gridVersion);
-                    console.log('Beatgrid Structure:', beatGridData);
-                    
-                    // Log a flattened view of the data structure
-                    const flattenedCells: any[] = [];
-                    Object.keys(beatGridData).forEach(yKey => {
-                        Object.keys(beatGridData[yKey]).forEach(xKey => {
-                            const cell = beatGridData[yKey][xKey];
-                            flattenedCells.push({
-                                position: { x: Number(xKey), y: Number(yKey) },
-                                subdivisions: cell?.subdivisions,
-                                velocity: cell?.velocity,
-                                length: cell?.length,
-                                fileNums: cell?.fileNums,
-                                noteName: cell?.noteName,
-                                volume: cell?.volume,
+                    if (DEBUG_HEAVY_LOGS) {
+                        console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
+                        console.log('Grid Version:', gridVersion);
+                        console.log('Beatgrid Structure:', beatGridData);
+                        const flattenedCells: any[] = [];
+                        Object.keys(beatGridData).forEach(yKey => {
+                            Object.keys(beatGridData[yKey]).forEach(xKey => {
+                                const cell = beatGridData[yKey][xKey];
+                                flattenedCells.push({
+                                    position: { x: Number(xKey), y: Number(yKey) },
+                                    subdivisions: cell?.subdivisions,
+                                    velocity: cell?.velocity,
+                                    length: cell?.length,
+                                    fileNums: cell?.fileNums,
+                                    noteName: cell?.noteName,
+                                    volume: cell?.volume,
+                                });
                             });
                         });
-                    });
-                    console.log('Flattened Cells:', flattenedCells);
-                    console.log('Total Cells:', flattenedCells.length);
-                    console.groupEnd();
+                        console.log('Flattened Cells:', flattenedCells);
+                        console.log('Total Cells:', flattenedCells.length);
+                        console.groupEnd();
+                    }
                     
                     // ============================================================
                     // SYNCHRONIZE BEATGRID DATA TO CHUCK
@@ -949,8 +1021,14 @@ export default function ChuckSetup() {
             chuckCodeData.hid,
         );
 
-        console.log("Generated ChucK code with effects routing");
-        console.log("SANITY CHUCK DEBUG: ", generatedChuckCode);
+        if (DEBUG_HEAVY_LOGS) {
+            console.log("Generated ChucK code with effects routing");
+            console.log("SANITY CHUCK DEBUG: ", generatedChuckCode);
+        }
+        // Expose generated code for easy inspection in DevTools
+        try {
+            if (typeof window !== 'undefined') (window as any).__lastGeneratedChuck = generatedChuckCode;
+        } catch {}
         
         if (chuckRef.current && chuckCodeData.filesArray) {
             // Set up error message capture
@@ -996,7 +1074,7 @@ export default function ChuckSetup() {
                     // If test fails, the main code will likely fail too, but continue anyway
                 }
 
-                // Clear any existing code first to avoid conflicts
+                // // Clear any existing code first to avoid conflicts
                 try {
                     await chuckRef.current.runCode(`Machine.removeAllShreds();`);
                     await chuckRef.current.runCode(`Machine.resetShredID();`);
@@ -1009,13 +1087,54 @@ export default function ChuckSetup() {
                 let result;
                 try {
                     // First try replaceCode (better for large code)
-                    result = await chuckRef.current.replaceCode(generatedChuckCode);
-                    console.log('✅ ChucK code replaced successfully');
+                   // result = await chuckRef.current.runCode(generatedChuckCode);
+                    
+                   result = await chuckRef.current.runCode(`
+                        global int beatMSNew;
+
+                        Std.ftoi(60000 / 120) => beatMSNew;
+
+                        0 => int newTicker;
+                        SinOsc osc => dac;
+                        fun void sporkedFunction (int newTick) {
+                            440 => osc.freq;
+                            1.0 => osc.gain;
+                            if (newTick % 4 == 0) {
+                                (beatMSNew/20)::ms => now;
+                                 0.0 => osc.gain;
+                                <<< "UPDATE_GRID num shreds in oSCCC: ", Machine.numShreds() >>>;
+                            }
+                            me.exit();
+                        }
+                        while (true) {
+                            <<< "UPDATE_GRID: ", newTicker, (newTicker + 1) / 4, (newTicker + 1) % 4 >>>;
+                            1 => int subdivs;
+                            spork ~ sporkedFunction(newTicker);
+                            (beatMSNew/subdivs)::ms => now;
+                            newTicker + 1 => newTicker;
+
+                            <<< "UPDATE_GRID num shreds: ", Machine.numShreds() >>>;
+                            me.yield();
+                        }
+                    `);
+                    console.log('✅ ChucK code replaced successfully ', result);
                 } catch (replaceErr: any) {
                     // If replaceCode fails, try runCode
-                    console.log('⚠️ replaceCode failed, trying runCode...');
-                    result = await chuckRef.current.runCode(generatedChuckCode);
+                    // console.log('⚠️ replaceCode failed, trying runCode...');
+                    // result = await chuckRef.current.runCode(generatedChuckCode);
+                    // result = await chuckRef.current.runCode(`
+                    //     SinOsc osc => dac;
+                    //     440 => osc.freq;
+                    //     1::week => now;
+                    // `);
                 }
+                                // Clear any existing code first to avoid conflicts
+                // try {
+                //     await chuckRef.current.runCode(`Machine.removeAllShreds();`);
+                //     await chuckRef.current.runCode(`Machine.resetShredID();`);
+                // } catch (clearErr: any) {
+                //     // Ignore clear errors - might not be necessary
+                // }
                 console.log('✅ ChucK code executed successfully with effects routing');
                 if (errorMessages.length > 0) {
                     console.warn('⚠️ ChucK warnings captured:', errorMessages);
@@ -1098,6 +1217,35 @@ export default function ChuckSetup() {
 
     }
 
+    // Expose for debugging from the console
+    try {
+        if (typeof window !== 'undefined') {
+            (window as any).__runChuckCode = runChuckCode;
+            // Helper to resume audio from DevTools if needed
+            (window as any).__resumeAudio = async () => {
+                try {
+                    if (globalAudioCtx.current) {
+                        await globalAudioCtx.current.resume();
+                        console.log('__resumeAudio: resumed AudioContext');
+                        return true;
+                    }
+                } catch (e) {
+                    console.warn('__resumeAudio failed', e);
+                }
+                return false;
+            };
+            // Expose enableAudio helper for DevTools
+            (window as any).__enableAudio = async () => {
+                try {
+                    return await enableAudio();
+                } catch (e) {
+                    console.warn('__enableAudio failed', e);
+                    return false;
+                }
+            };
+        }
+    } catch {}
+
     const stopChuckInstance = async () => {
         console.log("Stopping ChucK instance... ", chuckRef.current);
         try {
@@ -1130,8 +1278,11 @@ export default function ChuckSetup() {
                     alignItems: 'center',
                     gap: '12px',
                     backgroundColor: 'transparent',
-                    zIndex: 10000,
-                    pointerEvents: 'auto',
+                    // Lower the container z-index so HUD/keyboard overlays can appear above it.
+                    // Make container itself non-interactive so it doesn't block underlying overlays,
+                    // but keep child buttons interactive (they explicitly set `pointerEvents: 'auto'`).
+                    zIndex: 200,
+                    pointerEvents: 'none',
                 }}>
                 {initializing && (
                     <Button
@@ -1160,6 +1311,22 @@ export default function ChuckSetup() {
                     </Button>
                 )}
 
+                {/* Enable Audio button: create/resume AudioContext with a user gesture */}
+                {!ready && (
+                    <Button
+                        id='enableAudioButton'
+                        sx={{
+                            minWidth: '96px',
+                            minHeight: '36px',
+                            padding: '6px 10px',
+                            pointerEvents: 'auto',
+                        }}
+                        onClick={enableAudio}
+                    >
+                        Enable Audio
+                    </Button>
+                )}
+
                 <Button
                     id='runChuckCodeButton'
                     sx={{
@@ -1180,6 +1347,23 @@ export default function ChuckSetup() {
                             onClick={stopChuckInstance}
                             sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
                     }
+                </Button>
+                {/* Keyboard toggle (single toggle as requested) */}
+                <Button
+                    id='toggleKeyboardButton'
+                    sx={{
+                        minWidth: '48px',
+                        minHeight: '48px',
+                        padding: '8px',
+                        cursor: 'pointer',
+                        pointerEvents: 'auto',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                    }}
+                    onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
+                >
+                    <KeyboardIcon sx={{ fontSize: '24px', color: keyboardMode === 'none' ? 'white' : 'lightgreen' }} />
                 </Button>
             </Box>
 

@@ -42,7 +42,8 @@ export const useOldMonolithStore = create<OldMonolithState>((set) => ({
   isManagingEffects: false,
   setIsManagingEffects: (v) => set({ isManagingEffects: v }),
 
-  keyboardMode: 'piano',
+  // Default to no keyboard overlay to avoid blocking start screen and expensive builds
+  keyboardMode: 'none',
   setKeyboardMode: (m) => set({ keyboardMode: m }),
 
   sampleVoiceEnabled: false,

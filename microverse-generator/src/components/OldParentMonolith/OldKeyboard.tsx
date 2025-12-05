@@ -1,6 +1,7 @@
 
 import { Box } from '@mui/material';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useMicrotonalStore } from '../../store/useMicrotonalStore';
 
 interface Props {
     chuckHook: any;
@@ -37,6 +38,11 @@ const Keyboard = ({
     pressedNotes,
     getTunedHz,
 }: Props) => {
+    // Subscribe to microtonal store values so we can use them in cache keys
+    const stepsPerOctave = useMicrotonalStore(s => s.stepsPerOctave);
+    const baseMidi = useMicrotonalStore(s => s.baseMidi);
+    const cents = useMicrotonalStore(s => s.cents);
+
     const [keysToDisplay, setKeysToDisplay] = useState<any>([]);
     const addedDetails = useRef<any>(notesAddedDetails);
     const [updateKeysScale, setUpdateKeysScale] = useState<any>([]);
@@ -141,97 +147,165 @@ const Keyboard = ({
     useEffect(() => {
 
         const createKeys = async () => {
-            if (keysReady) {
-                return;
-            }
-
-            const storedNamesUnparsed = localStorage.getItem('keyboard');
-            const storedNames = storedNamesUnparsed ? JSON.parse(storedNamesUnparsed) : {};
-
-            const octaves: Array<any> = [];
-            for (let i = 0; i < 9; i++) {
-                if (storedNames && storedNames.length === 108) {
-                    storedNames.sort(compare);
-                    [`C${i}`, `C♯${i}`, `D${i}`, `D♯${i}`, `E${i}`, `F${i}`, `F♯${i}`, `G${i}`, `G♯${i}`, `A${i}`, `A♯${i}`, `B${i}`].forEach((note) => {
-                        organizeLocalStorageRows(storedNames.find((n: any) => n.note === note));
-                    });
-                } else {
-                    [`C${i}`, `C♯${i}`, `D${i}`, `D♯${i}`, `E${i}`, `F${i}`, `F♯${i}`, `G${i}`, `G♯${i}`, `A${i}`, `A♯${i}`, `B${i}`].forEach((note) => {
-                        organizeRows(i, note);
-                    });
+                if (keysReady) {
+                    return;
                 }
-                
-                const octave: any = i && (
-                    <span id={`octSpanWrapper-${i}`} key={`octSpanWrapper-${i}`}>
-                        <li 
-                            style={{
-                                background: mingusKeyboardData && mingusKeyboardData.length > 1 && mingusKeyboardData[0].includes(`C`) 
-                                ? 'blue' 
-                                : mingusKeyboardData && mingusKeyboardData.length > 1 && mingusKeyboardData[1].includes(`C`) 
-                                    ? 
-                                    'green'
-                                    : 
-                                    ''
-                            }} 
-                            id={`C-${i}`} key={`C-${i}`}                         
-                            onMouseDown={(e) => 
-                            {
-                                e.preventDefault(); 
-                                e.stopPropagation(); 
-                                return tryPlayChuckNote(e);
-                            }}
-                            onMouseUp={(e) => 
-                            {
-                                e.preventDefault(); 
-                                e.stopPropagation(); 
-                                return tryPlayChuckNoteOff(e);
-                            }}
-                            onMouseLeave={(e) => 
-                            {
-                                e.preventDefault(); 
-                                e.stopPropagation(); 
-                                return tryPlayChuckNoteOff(e);
-                            }}
-                            className="vizKey white">{`C${i}`} 
-                        </li>
-                        <li id={`C♯-${i}`} key={`C♯-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`C♯${i}`}</li>
-                        <li id={`D-${i}`} key={`D-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset">{`D${i}`}</li>
-                        <li id={`D♯-${i}`} key={`D♯-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`D♯${i}`}</li>
-                        <li id={`E-${i}`} key={`E-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset half">{`E${i}`}</li>
-                        <li id={`F-${i}`} key={`F-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white">{`F${i}`}</li>
-                        <li id={`F♯-${i}`} key={`F♯-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`F♯${i}`}</li>
-                        <li id={`G-${i}`} key={`G-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset">{`G${i}`}</li>
-                        <li id={`G♯-${i}`} key={`G♯-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`G♯${i}`}</li>
-                        <li id={`A-${i}`} key={`A-${i + 1}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset">{`A${i}`}</li>
-                        <li id={`A♯-${i}`} key={`A♯-${i + 1}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`A♯${i}`}</li>
-                        <li id={`B-${i}`} key={`B-${i + 1}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset half">{`B${i}`}</li>
-                    </span>
-                );
 
-                if (!document.querySelector(`#octSpanWrapper-${i}`)) {
-                    octaves.push(octave);
+                // Read microtonal params from global store
+                const stepsPerOctave = useMicrotonalStore.getState().stepsPerOctave;
+                const baseMidi = useMicrotonalStore.getState().baseMidi;
+                const cents = useMicrotonalStore.getState().cents;
+
+                // Build a cache key based on microtonal settings so we refresh when those change
+                const cacheKey = `keyboard_labels_v1_${stepsPerOctave || 12}_${baseMidi || 60}_${JSON.stringify(cents || [])}`;
+
+                // If we have cached labels in sessionStorage, use them to quickly construct DOM nodes
+                try {
+                    const cached = sessionStorage.getItem(cacheKey);
+                    if (cached) {
+                        const labels: string[] = JSON.parse(cached);
+                        const octaves: any[] = [];
+                        for (let i = 0; i < 9; i++) {
+                            const idxBase = i * (stepsPerOctave || 12);
+                            const octave = (
+                                <span id={`octSpanWrapper-${i}`} key={`octSpanWrapper-${i}`}>
+                                    {/* map labels for this octave into li elements with handlers */}
+                                    {labels.slice(idxBase, idxBase + (stepsPerOctave || 12)).map((noteLabel, k) => {
+                                        const noteId = `${noteLabel}-${i}`;
+                                        const isSharp = noteLabel.includes('♯') || noteLabel.includes('#');
+                                        const className = isSharp ? 'vizKey black' : 'vizKey white';
+                                        return (
+                                            <li
+                                                id={noteId}
+                                                key={noteId}
+                                                className={className + (isSharp ? '' : ' offset')}
+                                                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e); }}
+                                                onMouseUp={(e) => { e.preventDefault(); e.stopPropagation(); return tryPlayChuckNoteOff(e); }}
+                                                onMouseLeave={(e) => { e.preventDefault(); e.stopPropagation(); return tryPlayChuckNoteOff(e); }}
+                                            >
+                                                {noteLabel}
+                                            </li>
+                                        );
+                                    })}
+                                </span>
+                            );
+                            if (!document.querySelector(`#octSpanWrapper-${i}`)) octaves.push(octave);
+                        }
+                        return octaves;
+                    }
+                } catch (e) {
+                    // ignore sessionStorage issues
                 }
-            }
-            return octaves;
-        };
-        if (chuckHook && chuckHook.length > 0 && keysToDisplay.length > 0) return;
-        (async () => {
-            const theKeys = !keysReady && (await createKeys());
-            if (theKeys && keysToDisplay.length < 1) {
-                setKeysToDisplay(theKeys);
-            }
-        })();
-    }, [
-        chuckHook,
-        keysToDisplay.length,
-        keysReady,
-        compare,
-        updateKeysScale,
-        mingusKeyboardData,
-        organizeRows,
-        organizeLocalStorageRows,
-        tryPlayChuckNote,
-    ]);
+
+                // No cache; fall back to original behavior and then cache labels for next time
+                const storedNamesUnparsed = localStorage.getItem('keyboard');
+                const storedNames = storedNamesUnparsed ? JSON.parse(storedNamesUnparsed) : {};
+
+                const octaves: Array<any> = [];
+                const generatedLabels: string[] = [];
+                for (let i = 0; i < 9; i++) {
+                    const perOctaveLabels: string[] = [`C${i}`, `C♯${i}`, `D${i}`, `D♯${i}`, `E${i}`, `F${i}`, `F♯${i}`, `G${i}`, `G♯${i}`, `A${i}`, `A♯${i}`, `B${i}`];
+                    // Record labels (used for caching)
+                    generatedLabels.push(...perOctaveLabels);
+
+                    if (storedNames && storedNames.length === 108) {
+                        storedNames.sort(compare);
+                        perOctaveLabels.forEach((note) => {
+                            organizeLocalStorageRows(storedNames.find((n: any) => n.note === note));
+                        });
+                    } else {
+                        perOctaveLabels.forEach((note) => {
+                            organizeRows(i, note);
+                        });
+                    }
+
+                    const octave: any = i && (
+                        <span id={`octSpanWrapper-${i}`} key={`octSpanWrapper-${i}`}>
+                            <li 
+                                style={{
+                                    background: mingusKeyboardData && mingusKeyboardData.length > 1 && mingusKeyboardData[0].includes(`C`) 
+                                    ? 'blue' 
+                                    : mingusKeyboardData && mingusKeyboardData.length > 1 && mingusKeyboardData[1].includes(`C`) 
+                                        ? 
+                                        'green'
+                                        : 
+                                        ''
+                                }} 
+                                id={`C-${i}`} key={`C-${i}`}                         
+                                onMouseDown={(e) => 
+                                {
+                                    e.preventDefault(); 
+                                    e.stopPropagation(); 
+                                    return tryPlayChuckNote(e);
+                                }}
+                                onMouseUp={(e) => 
+                                {
+                                    e.preventDefault(); 
+                                    e.stopPropagation(); 
+                                    return tryPlayChuckNoteOff(e);
+                                }}
+                                onMouseLeave={(e) => 
+                                {
+                                    e.preventDefault(); 
+                                    e.stopPropagation(); 
+                                    return tryPlayChuckNoteOff(e);
+                                }}
+                                className="vizKey white">{`C${i}`} 
+                            </li>
+                            <li id={`C♯-${i}`} key={`C♯-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`C♯${i}`}</li>
+                            <li id={`D-${i}`} key={`D-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset">{`D${i}`}</li>
+                            <li id={`D♯-${i}`} key={`D♯-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`D♯${i}`}</li>
+                            <li id={`E-${i}`} key={`E-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset half">{`E${i}`}</li>
+                            <li id={`F-${i}`} key={`F-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white">{`F${i}`}</li>
+                            <li id={`F♯-${i}`} key={`F♯-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`F♯${i}`}</li>
+                            <li id={`G-${i}`} key={`G-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset">{`G${i}`}</li>
+                            <li id={`G♯-${i}`} key={`G♯-${i}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`G♯${i}`}</li>
+                            <li id={`A-${i}`} key={`A-${i + 1}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset">{`A${i}`}</li>
+                            <li id={`A♯-${i}`} key={`A♯-${i + 1}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey black">{`A♯${i}`}</li>
+                            <li id={`B-${i}`} key={`B-${i + 1}`} onClick={(e) => {e.preventDefault(); e.stopPropagation(); return tryPlayChuckNote(e);}} className="vizKey white offset half">{`B${i}`}</li>
+                        </span>
+                    );
+
+                    if (!document.querySelector(`#octSpanWrapper-${i}`)) {
+                        octaves.push(octave);
+                    }
+                }
+
+                // Cache generated labels in sessionStorage for faster rebuilds next time
+                try {
+                    const stepsPerOctave = useMicrotonalStore.getState().stepsPerOctave;
+                    const baseMidi = useMicrotonalStore.getState().baseMidi;
+                    const cents = useMicrotonalStore.getState().cents;
+                    const cacheKey2 = `keyboard_labels_v1_${stepsPerOctave || 12}_${baseMidi || 60}_${JSON.stringify(cents || [])}`;
+                    sessionStorage.setItem(cacheKey2, JSON.stringify(generatedLabels));
+                } catch (e) {
+                    // ignore storage failures
+                }
+
+                return octaves;
+            };
+            if (chuckHook && chuckHook.length > 0 && keysToDisplay.length > 0) return;
+            (async () => {
+                const theKeys = !keysReady && (await createKeys());
+                if (theKeys && keysToDisplay.length < 1) {
+                    setKeysToDisplay(theKeys);
+                }
+            })();
+        }, [
+            chuckHook,
+            keysToDisplay.length,
+            keysReady,
+            compare,
+            updateKeysScale,
+            mingusKeyboardData,
+            organizeRows,
+            organizeLocalStorageRows,
+            tryPlayChuckNote,
+            // Recompute cache when microtonal tuning changes
+            stepsPerOctave,
+            cents,
+            baseMidi,
+        ]);
 
     useEffect(() => {
         // console.log("@@@ MINGUS KEYBOARD DATA: ", mingusKeyboardData && mingusKeyboardData.data && mingusKeyboardData.data[0]);

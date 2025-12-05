@@ -40,14 +40,15 @@ export default function MeydaHUD() {
   return (
     <Box sx={{
       position: 'absolute',
-      right: 16,
+      left: 16,
       bottom: 16,
       minWidth: 260,
-      background: 'rgba(255,255,255,0.55)',
+      background: 'rgba(255,255,255,0.078)',
       color: '#e8e8e8',
       borderRadius: 1.5,
       p: 1.5,
       pointerEvents: 'none',
+      zIndex: 99999,
     }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, pointerEvents: 'auto' }}>
         <Typography variant="caption" sx={{ opacity: 0.9 }}>Live Analysis</Typography>

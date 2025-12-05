@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Box, Button, CircularProgress } from '@mui/material';
-import { OBERHEIM_TEAL } from '../../constants';
+import { OBERHEIM_TEAL, SLATE_GRAY } from '../../constants';
 import { AnimatedTitle } from './OldAnimatedTitle';
 // import OldKeySelector from './OldKeySelector';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -33,20 +33,20 @@ const OldLaunchScreen: React.FC<OldLaunchScreenProps> = ({ onStart, isInitializi
       </Box> */}
       <Button
         sx={{
-          width: '160px',
-          height: '90px',
+          width: '120px',
+          height: '68px',
           fontFamily: 'monospace',
-          fontSize: '1em !important',
+          fontSize: '(16/9)em !important',
           background: OBERHEIM_TEAL,
-          padding: '24px',
-          margin: '16px',
+          // padding: '16px',
+          margin: '4px',
           pointerEvents: 'auto',
           zIndex: 9999,
           color: 'rgba(255,255,255,0.78)',
           cursor: 'pointer',
           border: 'rgba(255,255,255,0.78)',
           '&:hover': { color: '#f5f5f5 !important', 
-            border: 'transparent' },
+            border: SLATE_GRAY },
         }}
         variant="contained"
         id="initChuckButton"

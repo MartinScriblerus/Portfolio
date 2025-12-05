@@ -26,107 +26,170 @@ export default function useAudioAnalysisAndMIDI(
     const audioContext: AudioContext = chuckRef.current.context as AudioContext;
 
     // Setup Meyda analysis worklet and worker wiring
-    setupAudioAnalysisWorklet(audioContext, setMeydaData).then(() => {
+    let onProcessorMessage: ((e: MessageEvent) => void) | null = null;
+    let workerReady = false;
+    (async () => {
+      // Await the helper which ensures the module is added and returns a node when possible
+      const meydaNode: any = await setupAudioAnalysisWorklet(audioContext, setMeydaData);
+      if (!meydaNode) return;
       if (processor) return;
-      processor = new AudioWorkletNode(audioContext, 'meyda-audio-processor');
-      if (!workerRef.current) {
-        workerRef.current = new Worker('/workers/meydaWorker.js', { type: 'module' });
-        // workerRef.current.onmessage = (e: MessageEvent) => {
-        //   // Placeholder for potential heavy processing results
-        //   // console.log('Meyda worker message:', e.data);
-        // };
-        workerRef.current.onmessage = (e: MessageEvent) => {
-          const { amp, centroid, onset, bpm, flux } = e.data || {};
-
-          // Single producer for amplitude (smoothing + clamp)
-          if (typeof amp === 'number') {
-            const prev = (window as any).__audioAmp ?? 0;
-            const smoothed = prev + (amp - prev) * 0.2;
-            (window as any).__audioAmp = Math.min(1, Math.max(0, smoothed * 3.2));
+      // Use the node returned by the setup helper (it already created/registered the processor)
+      processor = meydaNode;
+        if (!workerRef.current) {
+          // Attempt to create the stream worker. If this fails (e.g. bare imports in the
+          // public worker are not resolvable in the browser), fall back to main-thread extraction.
+          let created = false;
+            try {
+            // Use a classic worker (no `type: 'module'`) so the worker can use importScripts
+            // (the worker currently tries to load Meyda via importScripts fallback).
+            workerRef.current = new Worker('/workers/meydaStreamWorker.js');
+            created = true;
+              try { (window as any).__meydaDebug = (window as any).__meydaDebug || {}; (window as any).__meydaDebug.workerAttempted = true; (window as any).__meydaDebug.workerCreated = true; } catch {}
+          } catch (e) {
+            console.warn('[useAudioAnalysisAndMIDI] Meyda stream worker creation failed, falling back to main-thread extraction', e);
+            workerRef.current = null;
+            created = false;
+              try { (window as any).__meydaDebug = (window as any).__meydaDebug || {}; (window as any).__meydaDebug.workerAttempted = true; (window as any).__meydaDebug.workerError = String(e); } catch {}
           }
 
-          // Accumulate other features for visuals/timing
-          (window as any).__hydraFeatures = {
-            ...(window as any).__hydraFeatures,
-            centroid,
-            onset,
-            bpm,
-            flux
-          };
+          if (created && workerRef.current) {
+            workerRef.current.onmessage = (e: MessageEvent) => {
+              const d = e.data || {};
+                try { (window as any).__meydaDebug.workerRunning = true; } catch {}
+              if (d?.type === 'features') {
+                const pkt = d as { type: string; ts?: number; features?: Record<string, any> };
+                const features = pkt.features || null;
+                // Update local React state for HUD
+                try { setMeydaData(features as Partial<MeydaFeaturesObject> || null); } catch {}
 
-          // Optional: push to stores if you want global timing/pulse
-          try {
-            if (onset) {
-              useSignalBus.getState().registerOnsetPulse?.();
-              // e.g., useSignalBus.getState().registerOnsetPulse?.();
+                // Shared globals for other visuals
+                try {
+                  if (features) {
+                    const amp = typeof features.rms === 'number' ? features.rms : undefined;
+                    const centroid = typeof features.spectralCentroid === 'number' ? features.spectralCentroid : undefined;
+                    if (typeof amp === 'number') {
+                      const prev = (window as any).__audioAmp ?? 0;
+                      const smoothed = prev + (amp - prev) * 0.2;
+                      (window as any).__audioAmp = Math.min(1, Math.max(0, smoothed * 3.2));
+                    }
+                    (window as any).__hydraFeatures = {
+                      ...(window as any).__hydraFeatures,
+                      centroid: centroid,
+                    };
+                    if (features.onset) {
+                      useSignalBus.getState().registerOnsetPulse?.();
+                    }
+                  }
+                } catch {}
+              } else if (d?.type === 'ready') {
+                workerReady = true;
+                try { (window as any).__meydaDebug = (window as any).__meydaDebug || {}; (window as any).__meydaDebug.ready = true; } catch {}
+              } else if (d?.type === 'error') {
+                workerReady = false;
+                try { (window as any).__meydaDebug = (window as any).__meydaDebug || {}; (window as any).__meydaDebug.error = d.error || true; } catch {}
+                console.warn('[useAudioAnalysisAndMIDI] Meyda worker error:', d.error || d);
+              }
+            };
+
+            // Initialize worker with desired features and hop size
+            try {
+              workerRef.current.postMessage({ type: 'init', sampleRate: audioContext.sampleRate, hopSize: 1024, features: ['rms','zcr','spectralCentroid','loudness','mfcc','chroma','spectralRolloff'] });
+            } catch (e) {
+              console.warn('[useAudioAnalysisAndMIDI] Meyda worker init failed, falling back to main-thread extraction', e);
+              try { workerRef.current.terminate(); } catch {};
+              workerRef.current = null;
             }
-            if (typeof bpm === 'number' && bpm > 30 && bpm < 300) {
-              // e.g., useTimingStore.getState().setBpmExternal?.(bpm);
-            }
-          } catch {}
-        };
-      }
-
-      // Connect ChucK graph to processor and destination
-      chuckRef.current && chuckRef.current.connect(processor);
-      processor.connect(audioContext.destination);
-
-      processor.port.onmessage = (event: MessageEvent) => {
-            if ((event as any).data?.audioData) {
-          const audioData = (event as any).data.audioData as Float32Array;
-          // Provide raw time-domain frames to optional consumer (e.g., for visualization)
-          try { onAudioFrame && onAudioFrame(audioData.slice(0)); } catch {}
-          try {
-            const features = Meyda.extract(
-              [
-                'rms',
-                'mfcc',
-                'chroma',
-                'spectralCentroid',
-                'spectralRolloff',
-                'zcr',
-                'energy',
-                'amplitudeSpectrum'
-              ],
-              audioData
-            );
-            setMeydaData(features || null);
-
-            if (workerRef.current) {
-              workerRef.current.postMessage({
-                audioData: audioData.slice(0),
-                sampleRate: audioContext.sampleRate,
-                features,
-              });
-            }
-
-            // --- Hydra amplitude bridge (impact driver) ---
-            // if (features && typeof features.rms === 'number') {
-            //   // Mild scaling + clamp; tune scalar for sensitivity.
-            //   const raw = features.rms;
-            //   // Optional smoothing to avoid flicker:
-            //   const prev = (window as any).__audioAmp ?? 0;
-            //   const SMOOTH_A = 0.2; // higher = more responsive
-            //   const smoothed = prev + (raw - prev) * SMOOTH_A;
-            //   (window as any).__audioAmp = Math.min(1, Math.max(0, smoothed * 3.2)); // scale factor boosts typical rms (~0.01–0.08) into visible range
-            //   (window as any).__hydraFeatures = {
-            //     rms: raw,
-            //     energy: features.energy,
-            //     centroid: features.spectralCentroid,
-            //     loudness: Array.isArray(features.mfcc) ? features.mfcc[0] : undefined
-            //   };
-            // }
-          } catch (err) {
-            // Swallow transient analysis errors
-            // console.error('Meyda analysis error:', err);
           }
         }
+
+      // Connect ChucK graph to processor and destination
+      try {
+        if (processor) {
+          chuckRef.current && chuckRef.current.connect(processor);
+          processor.connect(audioContext.destination);
+        } else {
+          console.warn('[useAudioAnalysisAndMIDI] Processor is not available to connect');
+        }
+      } catch (e) {
+        console.warn('[useAudioAnalysisAndMIDI] Failed to connect processor:', e);
+      }
+
+      // Throttle Meyda extraction and React updates to reduce main-thread work.
+      // We still forward raw frames to an optional consumer and to the worker for heavier analysis.
+      const lastSetRef = { current: 0 } as { current: number };
+      const MIN_UPDATE_MS = 16; // ~60 FPS (throttle for smoother visuals)
+
+      // Add a message listener (use addEventListener to avoid overwriting other handlers)
+      onProcessorMessage = (event: MessageEvent) => {
+        try {
+          if ((event as any).data?.audioData) {
+            const audioData = (event as any).data.audioData as Float32Array;
+            // Provide raw time-domain frames to optional consumer (e.g., for visualization)
+            try { onAudioFrame && onAudioFrame(audioData.slice(0)); } catch {}
+
+            // If worker is available, forward raw audio to it for extraction. Otherwise
+            // fall back to throttled main-thread Meyda.extract.
+                  if (workerRef.current && workerReady) {
+                    // Throttle posts to worker to avoid excessive main-thread overhead
+                    const now = performance.now();
+                    const lastPosted = (window as any).__meydaDebugLastPosted || 0;
+                    if (now - lastPosted >= MIN_UPDATE_MS) {
+                      try {
+                        const f32 = audioData.slice(0);
+                        workerRef.current.postMessage({ type: 'audio', f32, ts: now }, [f32.buffer]);
+                        (window as any).__meydaDebugLastPosted = now;
+                        (window as any).__meydaDebugPosts = ((window as any).__meydaDebugPosts || 0) + 1;
+                      } catch (e) {
+                        try { workerRef.current.postMessage({ type: 'audio', f32: audioData.slice(0), ts: now }); } catch {}
+                      }
+                    }
+                  } else {
+              const now = performance.now();
+              if (now - lastSetRef.current >= MIN_UPDATE_MS) {
+                lastSetRef.current = now;
+                try {
+                  const features = Meyda.extract(
+                    [
+                      'rms',
+                      'mfcc',
+                      'chroma',
+                      'spectralCentroid',
+                      'spectralRolloff',
+                      'zcr',
+                      'energy',
+                      'amplitudeSpectrum'
+                    ],
+                    audioData
+                  );
+                  setMeydaData(features || null);
+                  // record main-thread extraction stats for debugging
+                  (window as any).__meydaDebugMainThreadExtractions = ((window as any).__meydaDebugMainThreadExtractions || 0) + 1;
+                } catch (err) {
+                  // swallow transient extraction errors
+                }
+              }
+            }
+          }
+        } catch (err) {
+          // swallow any unexpected errors in message handling
+        }
       };
+      try {
+        if (processor && processor.port) {
+          processor.port.addEventListener?.('message', onProcessorMessage as EventListener);
+        } else if (processor && processor.port) {
+          try { processor.port.onmessage = onProcessorMessage as any; } catch {}
+        } else {
+          // no-op if processor is not available
+        }
+      } catch (e) {
+        // swallow
+      }
 
       // analyzer = audioContext.createAnalyser();
       // chuckRef.current && chuckRef.current.connect(analyzer);
       // analyzer.connect(audioContext.destination);
-    });
+    })();
 
     // Setup MIDI via WebMIDI + audio worklet
     const setupMIDI = async () => {
@@ -157,6 +220,14 @@ export default function useAudioAnalysisAndMIDI(
       try {
         workerRef.current && workerRef.current.terminate();
         workerRef.current = null; 
+      } catch {}
+      try {
+        // Remove message listener if we added one
+        if (onProcessorMessage && processor && processor.port && (processor.port as any).removeEventListener) {
+          try { (processor.port as any).removeEventListener('message', onProcessorMessage as EventListener); } catch {}
+        } else if (onProcessorMessage && processor && processor.port) {
+          try { (processor.port as any).onmessage = null; } catch {}
+        }
       } catch {}
       try {
         processor && processor.disconnect();
