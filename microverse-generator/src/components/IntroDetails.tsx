@@ -19,6 +19,8 @@ const IntroDetails = () => {
         >
             <button 
                 disabled={false}
+                aria-label={showDetails ? 'Hide site information' : 'Show site information'}
+                aria-expanded={showDetails}
                 style={{
                     position: 'absolute',
                     top: '30px',
@@ -53,13 +55,23 @@ const IntroDetails = () => {
                             fontFamily: "monospace !important",
                         }}
                     >
-                        <h3>This is a small demo app that extracts tools and techniques from a larger project in progress.</h3>
-                        <br />
-                        <h3>It combines WebChucK, Hydra, Babylon, and a Supabase vector store (no LLM yet) to create a cross-modular feedback loop.</h3>
-                        <br />
-                        <h3>To test the larger project, clone the repo here: https://github.com/MartinScriblerus/SoundSink.</h3>
-                        <br />
-                        <h3>Last updated: Oct 21, 2025 </h3>
+                        <h2>About This Site</h2>
+                        <p>This is a small demo app that extracts tools and techniques from a larger project in progress.</p>
+                        <p>It combines WebChucK, Hydra, Babylon, and a Supabase vector store (no LLM yet) to create a cross-modular feedback loop.</p>
+                        <p>
+                            To test the larger project, visit the{' '}
+                            <a 
+                                href="https://github.com/MartinScriblerus/SoundSink" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                aria-label="SoundSink project repository on GitHub (opens in new tab)"
+                                style={{ color: 'var(--color-subdominant-primary, #00D9FF)' }}
+                            >
+                                SoundSink repository on GitHub
+                            </a>
+                            .
+                        </p>
+                        <p>Last updated: Oct 21, 2025</p>
                     </div>
                 )
             }</>

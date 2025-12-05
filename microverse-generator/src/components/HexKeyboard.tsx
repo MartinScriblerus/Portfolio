@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { LAYOUTS } from '../constants';
 
 type HexKeyboardProps = {
@@ -88,6 +88,21 @@ function HexKeyboard({
   paddingR = 0.5,
 }: HexKeyboardProps) {
   const colors = ['#ff5555','#55ff55','#5555ff','#ffaa00','#aa00ff','#00aaff'];
+  const [, forceUpdate] = useState(0);
+
+  // Subscribe to pressed keys updates for visual feedback
+  useEffect(() => {
+    const manager = (window as any).__keyboardHIDManager;
+    if (manager) {
+      const updatePressedKeys = () => {
+        forceUpdate(prev => prev + 1);
+      };
+      manager.onPressedKeysChange(updatePressedKeys);
+      return () => {
+        // Cleanup if needed
+      };
+    }
+  }, []);
 
   const tiles = useMemo(() => {
     // BFS from center to gather approximately numNotes axial coordinates
@@ -159,7 +174,18 @@ function HexKeyboard({
       <svg {...svgProps}>
         {tilesWithGeom.map((t, i) => {
           const customFill = typeof resolveFill === 'function' ? resolveFill(t.absStep, t.pitchIndex) : undefined;
-          const fill = customFill ?? colors[t.pitchIndex % colors.length];
+          const baseFill = customFill ?? colors[t.pitchIndex % colors.length];
+          // Check if this key is pressed (for visual feedback)
+          const manager = (window as any).__keyboardHIDManager;
+          const pressedKeys = manager?.getPressedKeys() || new Set();
+          // Calculate MIDI note for this tile (approximate)
+          const midiNote = 60 + t.absStep; // C4 base
+          const isPressed = pressedKeys.has(midiNote);
+          const fill = isPressed 
+            ? `var(--color-subdominant-primary, #00D9FF)` 
+            : baseFill;
+          const opacity = isPressed ? 1 : 0.5;
+          const strokeWidth = isPressed ? 2.4 : 1.2;
           const pts = polygonPoints(t.x, t.y, tileRadius);
           let main = '';
           let sub: string | undefined = undefined;
@@ -182,7 +208,7 @@ function HexKeyboard({
           const groupStyle: React.CSSProperties = interactive ? { cursor: onTileClick ? 'pointer' : 'default' } : {};
           return (
             <g key={`${t.q},${t.r}`} style={groupStyle} onClick={onTileClick ? () => onTileClick({ q: t.q, r: t.r, absStep: t.absStep, pitchIndex: t.pitchIndex }) : undefined}>
-              <polygon points={pts} fill={fill} opacity={0.5} stroke={fill} strokeWidth={1.2} />
+              <polygon points={pts} fill={fill} opacity={opacity} stroke={fill} strokeWidth={strokeWidth} />
               <text x={t.x} y={t.y} textAnchor="middle" dominantBaseline="middle" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" fontSize={tileRadius * 0.6} fill="#ffffff" style={{ userSelect: 'none' }}>{main}</text>
               {sub && (
                 <text x={t.x} y={t.y + tileRadius * 0.45} textAnchor="middle" dominantBaseline="hanging" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" fontSize={tileRadius * 0.35} fill="#e8e8e8" style={{ userSelect: 'none' }}>{sub}</text>

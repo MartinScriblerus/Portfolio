@@ -1,7 +1,7 @@
 declare function setupAudioAnalysisWorklet(
   audioContext: AudioContext,
   setMeydaData: (data: any) => void
-): Promise<void>;
+): Promise<any | null>;
 
 export default setupAudioAnalysisWorklet;
 

@@ -39,6 +39,7 @@ export default function BabylonHydraCanvas() {
     const hexScrollRef = useRef<HTMLDivElement>(null);
     const [hexVisible, setHexVisible] = useState(false);
     const previewCtxRef = useRef<AudioContext | null>(null);
+    const introActive = useVisStore(s => s.intro.active);
     
     const [titleText, setTitleText] = useState("Find a cube and click it!");
     const [hud, setHud] = useState({ r:0, g:0, b:0, energy:0, impact:0, pulse:0 });
@@ -298,6 +299,7 @@ export default function BabylonHydraCanvas() {
     useEffect(() => {
         if (!canvasRef.current) return;
         let disposer: (() => void) | undefined;
+        let beforeRenderObserver: any = null;
         // run async setup; capture a cleanup function into `disposer` and return it from the effect
         (async () => {
             const isIntro = true;
@@ -1325,30 +1327,30 @@ export default function BabylonHydraCanvas() {
             buildHydraPipeline(0);
 
             // Minimal keyboard toggles for demo:
-            const onKey = (e: KeyboardEvent) => {
-                const k = e.key.toLowerCase();
-                const store = useVisStore.getState();
-                switch (k) {
-                    case '1': store.setStrongMode(!store.strongMode); console.log('Strength scale', store.strengthScale()); break;
-                    case 's': store.toggleOp('saturate' as any); break;
-                    case 'c': store.toggleOp('contrast' as any); break;
-                    case 'b': store.toggleOp('brightness' as any); break;
-                    case 'h': store.toggleOp('hue' as any); break;
-                    case 'i': store.toggleOp('invert' as any); break;
-                    case 'o': store.toggleOp('posterize' as any); break;
-                    case 'p': store.toggleOp('pixelate' as any); break;
-                    case 'k': store.toggleOp('kaleid' as any); break;
-                    case 'r': store.toggleOp('rotate' as any); break;
-                    case 'l': store.toggleOp('scale' as any); break;
-                    case 'x': store.toggleOp('scrollX' as any); break;
-                    case 'y': store.toggleOp('scrollY' as any); break;
-                    case 'm': store.toggleOp('modulate' as any); break;
-                    case 'u': store.toggleOp('modulateHue' as any); break;
-                    case 'g': store.toggleOp('colorama' as any); break;
-                    default: return;
-                }
-            };
-            window.addEventListener('keydown', onKey);
+            // const onKey = (e: KeyboardEvent) => {
+            //     const k = e.key.toLowerCase();
+            //     const store = useVisStore.getState();
+            //     switch (k) {
+            //         case '1': store.setStrongMode(!store.strongMode); console.log('Strength scale', store.strengthScale()); break;
+            //         case 's': store.toggleOp('saturate' as any); break;
+            //         case 'c': store.toggleOp('contrast' as any); break;
+            //         case 'b': store.toggleOp('brightness' as any); break;
+            //         case 'h': store.toggleOp('hue' as any); break;
+            //         case 'i': store.toggleOp('invert' as any); break;
+            //         case 'o': store.toggleOp('posterize' as any); break;
+            //         case 'p': store.toggleOp('pixelate' as any); break;
+            //         case 'k': store.toggleOp('kaleid' as any); break;
+            //         case 'r': store.toggleOp('rotate' as any); break;
+            //         case 'l': store.toggleOp('scale' as any); break;
+            //         case 'x': store.toggleOp('scrollX' as any); break;
+            //         case 'y': store.toggleOp('scrollY' as any); break;
+            //         case 'm': store.toggleOp('modulate' as any); break;
+            //         case 'u': store.toggleOp('modulateHue' as any); break;
+            //         case 'g': store.toggleOp('colorama' as any); break;
+            //         default: return;
+            //     }
+            // };
+            // window.addEventListener('keydown', onKey);
 
             // ------------------------------
             // Babylon setup
@@ -1561,7 +1563,7 @@ export default function BabylonHydraCanvas() {
                 });
             });
             // add some rotation animation
-            scene.registerBeforeRender(() => {
+            beforeRenderObserver = scene.onBeforeRenderObservable.add(() => {
                 const now = performance.now();
                 manager.cubes.forEach((meta,i) => {
                     const c = meta.mesh;
@@ -1725,15 +1727,14 @@ export default function BabylonHydraCanvas() {
             // ------------------------------
             let lastHudUpdate = 0;
             let frameCount = 0;
-            let lastRenderTime = 0;
-            const RENDER_THROTTLE_MS = 16; // ~60fps max to reduce CPU usage
+            let lastFpsUpdate = 0;
+            let fpsFrameCount = 0;
+            const FPS_UPDATE_INTERVAL = 1000; // Update FPS display every second
             
-            engine.runRenderLoop(() => {
+            let renderLoopRunning = true;
+            const renderLoop = () => {
+                if (!renderLoopRunning) return;
                 const now = performance.now();
-                if (now - lastRenderTime < RENDER_THROTTLE_MS) {
-                    return; // Skip frame if too soon to prevent excessive CPU usage
-                }
-                lastRenderTime = now;
                 
                 const ctx = dynamicTexture.getContext();
                 if (hydraCanvasRef.current && ctx) {
@@ -1802,7 +1803,18 @@ export default function BabylonHydraCanvas() {
                     scene.render();
                 }
                 const t = performance.now();
-                if (t - lastHudUpdate > 33) { // ~30fps HUD refresh
+                fpsFrameCount++;
+                
+                // Update FPS display every second
+                if (t - lastFpsUpdate > FPS_UPDATE_INTERVAL) {
+                    const fps = Math.round((fpsFrameCount * 1000) / (t - lastFpsUpdate));
+                    fpsFrameCount = 0;
+                    lastFpsUpdate = t;
+                    // FPS is now calculated but not displayed - can add to HUD if needed
+                }
+                
+                // Throttle HUD updates to ~30fps to reduce React re-renders
+                if (t - lastHudUpdate > 33) {
                     lastHudUpdate = t;
                     setHud({ r: currentAvg.r, g: currentAvg.g, b: currentAvg.b, energy: currentAvg.energy, impact: hydraState.impact, pulse: backgroundState.pulse });
                     setRGB({ r: currentAvg.r, g: currentAvg.g, b: currentAvg.b, energy: currentAvg.energy });
@@ -1819,7 +1831,9 @@ export default function BabylonHydraCanvas() {
                         }
                     }
                 }
-            });
+            };
+            
+            engine.runRenderLoop(renderLoop);
 
             const handleResize = () => {
                 hydraCanvas.width = window.innerWidth;
@@ -1833,14 +1847,27 @@ export default function BabylonHydraCanvas() {
             window.addEventListener('resize', handleResize);
             // expose cleanup to the outer effect
             disposer = () => {
+                renderLoopRunning = false; // Stop render loop
                 window.removeEventListener('resize', handleResize);
-                window.removeEventListener('keydown', onKey);
+                // window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
                 try { unsubscribeHydraControls(); } catch {}
                 // Clear cache to prevent memory leaks
                 chainCache.clear();
+                if (scene) {
+                    // Unregister beforeRender callbacks
+                    try {
+                        if (beforeRenderObserver) {
+                            scene.onBeforeRenderObservable.remove(beforeRenderObserver);
+                        }
+                        scene.onBeforeRenderObservable.clear();
+                    } catch {}
+                }
                 if (engine) {
-                    try { engine.dispose(); } catch {}
+                    try { 
+                        engine.stopRenderLoop();
+                        engine.dispose(); 
+                    } catch {}
                 }
             };
         })();
@@ -2005,7 +2032,7 @@ export default function BabylonHydraCanvas() {
         } catch { return undefined; }
     }, [tune, Nloc, useSharps]);
 
-    const handleHexTileClick = useCallback(({ absStep }: { absStep: number }) => {
+    const handleHexTileClick = useCallback(async ({ absStep }: { absStep: number }) => {
         try {
             const k = ((absStep % Nloc) + Nloc) % Nloc;
             const o = Math.floor(absStep / Nloc);
@@ -2043,8 +2070,49 @@ export default function BabylonHydraCanvas() {
                 console.log('[HexTileClick] No cell selected in beat grid');
             }
 
-            // Lightweight tone preview via WebAudio (optional, isolated from WebChucK)
-            if (Number.isFinite(f) && typeof window !== 'undefined') {
+            // Trigger ChucK note if ChucK is available
+            // Import chuckRef dynamically to avoid circular dependencies
+            const chuckRefModule = await import('../../app/state/refs');
+            const chuck = (window as any).__chuckRef?.current || (window as any).chuckRef?.current || chuckRefModule.chuckRef.current;
+            if (chuck && Number.isFinite(f)) {
+                try {
+                    // Calculate MIDI note from frequency
+                    const midiNote = Math.round(69 + 12 * Math.log2(f / 440));
+                    // Set note parameters in ChucK
+                    await chuck.setInt('hexMidiNote', midiNote);
+                    await chuck.setFloat('hexFreq', f);
+                    await chuck.setInt('hexVelocity', 100);
+                    // Broadcast note on event
+                    await chuck.broadcastEvent('hexNoteOn');
+                    // Auto-release after 500ms
+                    setTimeout(async () => {
+                        try {
+                            await chuck.broadcastEvent('hexNoteOff');
+                        } catch (e) {
+                            console.warn('Hex note off error:', e);
+                        }
+                    }, 500);
+                } catch (e) {
+                    console.warn('HexTile ChucK note error:', e);
+                    // Fallback to WebAudio preview if ChucK fails
+                    if (typeof window !== 'undefined') {
+                        if (!previewCtxRef.current) previewCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+                        const ctx = previewCtxRef.current!;
+                        if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        try { osc.frequency.setValueAtTime(f, ctx.currentTime); } catch {}
+                        gain.gain.setValueAtTime(0, ctx.currentTime);
+                        gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.005);
+                        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+                        osc.connect(gain).connect(ctx.destination);
+                        osc.start();
+                        osc.stop(ctx.currentTime + 0.2);
+                    }
+                }
+            } else if (Number.isFinite(f) && typeof window !== 'undefined') {
+                // Fallback to WebAudio preview if ChucK not available
                 if (!previewCtxRef.current) previewCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
                 const ctx = previewCtxRef.current!;
                 if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
@@ -2270,32 +2338,29 @@ export default function BabylonHydraCanvas() {
                     pointerEvents: 'auto',
                 }}
             />
+            {/* Top-left controls arranged to avoid overlap */}
+            {/* Hydra Controls - top row, left side */}
             <ControlPanel />
-            {/* <HydraControlsPopup open={hydraControlsOpen} onClose={() => setHydraControlsOpen(false)} /> */}
+            {/* RGB Panel - positioned below Hydra Controls */}
             <div style={{
                 position:'absolute', 
-                top:8, 
-                left:8, 
+                top: 48, /* Below Hydra Controls button (8px + ~40px button height) */
+                left: 8, /* Same left position as ControlPanel */
                 padding:'6px 10px', 
-                background:'rgba(0,0,0,0.45)', 
-                color:'#fff', 
+                background: 'var(--color-dominant-surface, rgba(26,28,32,0.9))', 
+                color: 'var(--color-dominant-text, #fff)', 
                 fontFamily:'monospace', 
                 fontSize:12, 
                 lineHeight:1.3, 
-                border:'1px solid rgba(255,255,255,0.1)', 
+                border: '1px solid var(--color-tertiary-muted, rgba(74,85,104,0.5))', 
                 borderRadius:4, 
                 pointerEvents:'none',
-                zIndex:9999
+                zIndex:9999,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
             }}>
                 <div>r: {hud.r.toFixed(2)} g: {hud.g.toFixed(2)} b: {hud.b.toFixed(2)}</div>
                 <div>energy: {hud.energy.toFixed(2)}</div>
                 <div>impact: {hud.impact.toFixed(2)} bgPulse: {hud.pulse.toFixed(2)}</div>
-                {/* <div style={{opacity:0.8}}>debug: clicks=clicksTotal is local, so we show N/A here unless we lift to store 
-                {/* <div style={{opacity:0.85, marginTop:6}}>
-                    toggles: 1=strength, s/c/b, h, i, o=posterize, p=pixel, k=kaleid, r=rotate, l=scale, x/y=scroll, m, u=modHue, g=colorama
-                </div> */}
-                <div style={{marginTop:6, fontWeight: 700, display:'flex', alignItems:'center', gap:6}}>
-                </div>
             </div>
         </>
     );

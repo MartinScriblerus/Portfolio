@@ -641,6 +641,7 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
           color: '#e8e8e8',
           border: '1px solid rgba(255,255,255,0.1)',
           width: '344px',
+          
         //   maxHeight: '48vh',
         },
       }}

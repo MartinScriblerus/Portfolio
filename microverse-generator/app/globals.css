@@ -3,17 +3,31 @@ html, body, #__next, #root {
   overflow: hidden;
 }
 
+/* Accessible Color Scheme Variables */
+:root {
+  --color-dominant-bg: #0A0B0D;
+  --color-dominant-surface: #1A1C20;
+  --color-dominant-text: #F5F7FA;
+  --color-subdominant-primary: #00D9FF;
+  --color-subdominant-secondary: #FF6B9D;
+  --color-subdominant-text: #0A0B0D;
+  --color-tertiary-muted: #4A5568;
+  --color-tertiary-accent: #8B5CF6;
+  --color-tertiary-warning: #F59E0B;
+}
+
 body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #000;
-  background-color: #000;
+  background: var(--color-dominant-bg);
+  background-color: var(--color-dominant-bg);
+  color: var(--color-dominant-text);
 }
 
 html {
-  background: #000;
-  background-color: #000;
+  background: var(--color-dominant-bg);
+  background-color: var(--color-dominant-bg);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -36,17 +50,29 @@ svg {
 .effects-dropdown-item {
   padding: 10px 12px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--color-tertiary-muted);
   z-index: 9998;
   pointer-events: auto;
+  color: var(--color-dominant-text);
+  background: var(--color-dominant-surface);
+  transition: background-color 0.2s ease;
+}
+
+.effects-dropdown-item:hover,
+.effects-dropdown-item:focus {
+  background: var(--color-subdominant-primary);
+  color: var(--color-subdominant-text);
+  outline: 2px solid var(--color-subdominant-primary);
+  outline-offset: -2px;
 }
 
 .effects-dropdown-wrapper {
-  background: rgba(0,0,0,0.18);
-  border-radius: 4;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+  background: var(--color-dominant-surface);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3); 
   overflow: auto;
   max-height: 340px;
+  border: 1px solid var(--color-tertiary-muted);
 }
 
 .effects-dropdown-arrow {
@@ -55,17 +81,65 @@ svg {
   opacity: 0.7;
 }
 
+/* Screen reader only class */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Focus styles for accessibility */
+*:focus-visible {
+  outline: 2px solid var(--color-subdominant-primary, #00D9FF);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-subdominant-primary, #00D9FF);
+  outline-offset: 2px;
+}
+
+/* Ensure buttons are keyboard accessible */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .select-device-id-wrapper {
   position: absolute;
   top: 92px;
   left: 10px;
-  color: rgba(255,255,255, 0.78);
+  color: var(--color-dominant-text);
   /* z-index: 10000; */
   padding: 10px 12px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--color-tertiary-muted);
   z-index: 9998;
   pointer-events: auto;
+  background: var(--color-dominant-surface);
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.select-device-id-wrapper:hover,
+.select-device-id-wrapper:focus {
+  background: var(--color-subdominant-primary);
+  color: var(--color-subdominant-text);
+  outline: 2px solid var(--color-subdominant-primary);
+  outline-offset: -2px;
 }
 
 .select-device-id-dropdown {
@@ -75,41 +149,239 @@ svg {
   z-index: 9998;
 }
 
+.dropdown-button {
+  background: var(--color-dominant-surface, rgba(26,28,32,0.95));
+  color: var(--color-dominant-text, #F5F7FA);
+  border: 2px solid var(--color-subdominant-primary, #00D9FF);
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: system-ui, -apple-system, sans-serif;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.dropdown-button:hover,
+.dropdown-button:focus {
+  background: var(--color-subdominant-primary, #00D9FF);
+  color: var(--color-subdominant-text, #0A0B0D);
+  outline: 2px solid var(--color-subdominant-primary, #00D9FF);
+  outline-offset: 2px;
+}
+
+/* Piano Keyboard Styles - Based on original design, adapted to avoid right grid */
+/* Keyboard wrapper - responsive width, doesn't overlap right grid */
+#keyboardWrapper {
+  overflow-x: hidden;
+  z-index: 9999;
+  transform: rotateX(13deg); /* Original 3D rotation effect */
+  padding-left: 8px;
+  padding-right: 8px;
+  bottom: 0px;
+  left: 140px; /* Left sidebar width */
+  width: calc(100vw - var(--keyboard-right-offset, 420px)); /* Account for left sidebar (140px), right drawer (420px when open, 0px when closed), and padding (16px total) */
+  position: fixed;
+  pointer-events: auto;
+  transition: width 180ms ease; /* Match drawer transition */
+  box-sizing: border-box; /* Include padding in width calculation */
+  max-width: calc(100vw - var(--keyboard-right-offset, 420px)); /* Ensure it never exceeds calculated width */
+}
+
+#keyboardBox {
+  position: relative;
+  display: inline-block;
+  bottom: -5px;
+  z-index: 100;
+}
+
+#keyboard {
+  position: relative;
+  max-height: 12.5rem;
+  display: flex; /* Use flexbox for stretching */
+  margin-top: 0rem;
+  left: -6px;
+  width: calc(100% + 36px);
+  overflow-x: auto; /* Allow horizontal scrolling when screen is too small */
+  overflow-y: hidden;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex-wrap: nowrap; /* Prevent wrapping */
+  /* Prevent browser navigation on horizontal scroll (trackpad gestures) */
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  scroll-behavior: smooth;
+}
+
+/* Octave wrapper - contains both white and black keys */
+#keyboard > span[id^="octSpanWrapper"],
+span[id^="octSpanWrapper"] {
+  position: relative;
+  display: flex;
+  flex: 1 1 0; /* Allow octaves to stretch equally */
+  min-width: 0; /* Allow shrinking */
+}
+
+/* White keys - stretchable to fill width */
+.vizKey.white,
+.vizKey:not(.black) {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 0.5rem 0;
+  user-select: none;
+  cursor: pointer;
+  height: 12.5rem;
+  min-width: 3.5rem; /* Changed from fixed width to min-width */
+  flex: 1 1 0; /* Allow keys to stretch and fill available space */
+  z-index: 1;
+  border-left: 1px solid hsl(0, 0%, 7%);
+  border-bottom: 1px solid hsl(0, 0%, 73%);
+  border-radius: 0 0 5px 5px;
+  background: linear-gradient(to bottom, #f5f5f5, 0%, hsl(0, 0%, 90%));
+  color: #000000 !important;
+  margin-left: -1px; /* Reduced overlap to prevent gaps */
+  font-family: monospace;
+}
+
+/* First white key shouldn't have negative margin */
+#keyboard > li.vizKey.white:first-child,
+#keyboard > li.vizKey:not(.black):first-child {
+  margin-left: 0;
+}
+
+/* Black keys - positioned absolutely within their octave span, centered between white keys */
+.vizKey.black {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 0.5rem 0;
+  user-select: none;
+  cursor: pointer;
+  height: 8rem;
+  width: 2rem;
+  z-index: 2;
+  border: 1px solid black;
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(90deg, rgba(40,10,0,1) 1%, hsl(0, 0%, 2%) 51%);
+  color: #f5f5f5;
+  font-family: monospace;
+}
+
+/* Position each black key centered at the boundary between adjacent white keys */
+/* Each octave has 7 white keys, each taking 1/7 of the octave width */
+/* Black keys are centered at the boundaries: C-D, D-E, F-G, G-A, A-B */
+/* Black key is 2rem wide, so center it by subtracting 1rem (half width) */
+span[id^="octSpanWrapper"] > li.vizKey.black:nth-child(2) {
+  left: calc((1 / 7) * 100% - 1rem); /* C# centered at C-D boundary (1/7) */
+}
+span[id^="octSpanWrapper"] > li.vizKey.black:nth-child(4) {
+  left: calc((2 / 7) * 100% - 1rem); /* D# centered at D-E boundary (2/7) */
+}
+span[id^="octSpanWrapper"] > li.vizKey.black:nth-child(7) {
+  left: calc((4 / 7) * 100% - 1rem); /* F# centered at F-G boundary (4/7) */
+}
+span[id^="octSpanWrapper"] > li.vizKey.black:nth-child(9) {
+  left: calc((5 / 7) * 100% - 1rem); /* G# centered at G-A boundary (5/7) */
+}
+span[id^="octSpanWrapper"] > li.vizKey.black:nth-child(11) {
+  left: calc((6 / 7) * 100% - 1rem); /* A# centered at A-B boundary (6/7) */
+}
+
+/* Special spacing classes */
+/* E and B keys need extra spacing because they don't have black keys after them */
+/* Use high specificity to override offset class */
+.vizKey.half,
+.vizKey.white.half,
+.vizKey.offset.half,
+li.vizKey.half,
+li.vizKey.white.half {
+  margin-right: 1.1rem !important; /* Force spacing for E and B keys - overrides offset */
+  border-radius: 0 0 3px 3px;
+  /* E comes before F (no black key between), B comes before C (no black key between) */
+}
+
+/* First and last key border radius */
+#keyboard li:first-child {
+  border-radius: 5px 0 5px 5px;
+}
+
+#keyboard li:last-child {
+  border-radius: 0 5px 5px 5px;
+}
+
+/* Active/highlighted key */
+.vizKey.activeVizKey {
+  background: #bfbfbf !important;
+  color: white !important;
+}
+
+/* Hover states */
+.vizKey:hover {
+  opacity: 0.9;
+}
+
+.vizKey.black:hover {
+  opacity: 0.9;
+}
+
 #runChuckCodeButton {
   position: absolute;
-  top: 132px;
-  left: 8px;
-  border: 1px solid rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.25);
-  color: #e9f1ff;
+  top: 72px !important;
+  left: 0px !important;
+  border: 2px solid var(--color-subdominant-primary);
+  background: var(--color-dominant-surface);
+  color: var(--color-subdominant-primary);
   z-index: 99999;
   border-radius: 50%;
   padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#runChuckCodeButton:hover,
+#runChuckCodeButton:focus {
+  background: var(--color-subdominant-primary);
+  color: var(--color-subdominant-text);
+  outline: 2px solid var(--color-subdominant-primary);
+  outline-offset: 2px;
 }
 
 #effect-dropdown-container {
   position: absolute;
-  top: 560px;
   left: 16px;
-  border: 1px solid rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.25);
-  color: #e9f1ff;
-  border-radius: 4;
+  border: 1px solid var(--color-tertiary-muted);
+  background: var(--color-dominant-surface);
+  color: var(--color-dominant-text);
+  border-radius: 4px;
   width: 254px;
   z-index: 10;
 }
 
 #chuckMicButtonWrapper {
   position: absolute;
-  top: 72px;
-  left: 8px;
-  border: 1px solid rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.25);
-  color: #e9f1ff;
+  top: 72px !important;
+  left: 64px !important;
+  border: 2px solid var(--color-subdominant-primary);
+  background: var(--color-dominant-surface);
+  color: var(--color-subdominant-primary);
   z-index: 99999;
   border-radius: 50%;
   padding: 8px;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#chuckMicButtonWrapper:hover,
+#chuckMicButtonWrapper:focus {
+  background: var(--color-subdominant-primary);
+  color: var(--color-subdominant-text);
+  outline: 2px solid var(--color-subdominant-primary);
+  outline-offset: 2px;
 }
 
 
@@ -450,4 +722,10 @@ svg {
   z-index: 6;
   width: 4rem;
   height: 4rem;
+}
+
+/* Remove right: 0 from MUI Modal/Dialog root */
+.MuiModal-root.MuiDialog-root,
+.MuiModal-root[class*="MuiDialog-root"] {
+  right: auto !important;
 }

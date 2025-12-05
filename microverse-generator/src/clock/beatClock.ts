@@ -54,7 +54,11 @@ export function createBeatClock(initial: Transport): BeatClockHandle {
   function loop() {
     if (!running) return;
     const now = performance.now();
-    while (running && now + 1 >= nextPlanned) {
+    // Cap iterations per frame to avoid long blocking loops if the clock falls far behind.
+    const spb = stepsPerBeat();
+    const maxIterations = Math.max(100, spb * 4); // allow some catch-up but prevent runaway
+    let iterations = 0;
+    while (running && now + 1 >= nextPlanned && iterations < maxIterations) {
       const spb = stepsPerBeat();
       const stepInBeat = stepIdx % spb;
       const beatInMeasure = beatIdx % transport.numerator;
@@ -80,6 +84,11 @@ export function createBeatClock(initial: Transport): BeatClockHandle {
         }
       }
       nextPlanned += transport.subdivisionMs;
+      iterations++;
+    }
+    // If we hit the iteration cap, realign nextPlanned to avoid spiraling CPU usage
+    if (iterations >= maxIterations) {
+      nextPlanned = now + transport.subdivisionMs;
     }
     rafId = requestAnimationFrame(loop);
   }
