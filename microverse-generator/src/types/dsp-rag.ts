@@ -21,8 +21,9 @@ export interface DSPDoc {
   chunk_total?: number;
   perceptual_tags: string[]; // e.g., ["bright", "metallic", "sustain"]
   technical_tags: string[]; // e.g., ["comb-filter", "fft", "grain-delay"]
+  ugens?: string[]; // e.g., ["SndBuf", "Granulator", "LPF"] - top-level for DB, also in params for source JSON
   params?: {
-    ugens?: string[]; // e.g., ["SndBuf", "Granulator", "LPF"]
+    ugens?: string[]; // e.g., ["SndBuf", "Granulator", "LPF"] - source JSON format
     typical_ranges?: Record<string, [number, number]>; // e.g., {"grain_ms": [10, 200]}
   };
   example_usage?: string | string[]; // Can be string (legacy) or array of strings. Defaults to [] if null/undefined.
@@ -111,5 +112,7 @@ export interface PatchGenerationResult {
   retrieved_docs: Array<DSPDoc & { similarity: number }>;
   explanation: string; // mapping: user phrase → features → DSP choices
 }
+
+
 
 

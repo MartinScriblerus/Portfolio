@@ -229,3 +229,5 @@ create policy "anon can read dsp_docs" on public.dsp_docs for select using (true
 -- create policy "authenticated can insert dsp_docs" on public.dsp_docs for insert with check (auth.role() = 'authenticated');
 
 
+
+
