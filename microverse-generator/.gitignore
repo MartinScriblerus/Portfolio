@@ -75,3 +75,6 @@ yarn-error.log*
 *.py[cod]
 scripts/raw_content/
 scripts/cleaned_chunks.txt
+
+# Large generated data files (keep local, don't commit)
+data/dsp-training-samples-*.json
