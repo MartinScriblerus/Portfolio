@@ -14,9 +14,18 @@ import {
   randomStarter } from '../content/prompts';
 import obliqueStrategiesData from '../../data/oblique-strategies.json';
 
+// DSP RAG imports
+import { searchDSPDocsClient } from '../lib/dsp-rag/search-dsp-docs';
+import { DSPDoc } from '../types/dsp-rag';
+import ChuckCodeDisplay from './ChuckCodeDisplay';
+import BYOTTokenManager from './BYOTTokenManager';
+import { useChuckCodeState, formatCodeStateForRAG } from '../hooks/useChuckCodeState';
 
+// Guide modes
+type GuideMode = 'chuck-code' | 'perception';
+type CodeAction = 'recommend' | 'write';
 
-export default function PhilosopherGuide() {
+export default function CodeGuide() {
 
   // Select fields individually to avoid creating new objects every render
   const currentTaskId = useAgentStore((s) => s.currentTaskId);
@@ -45,6 +54,35 @@ export default function PhilosopherGuide() {
   const lastTwoTextsRef = useRef<string[]>([]);
   const lastInputAtRef = useRef<number>(Date.now());
   const lastStylizerAtRef = useRef<number>(0);
+
+  // DSP docs state
+  const [dspDocs, setDspDocs] = useState<Array<DSPDoc & { similarity: number }>>([]);
+  const [selectedCodeDoc, setSelectedCodeDoc] = useState<DSPDoc | null>(null);
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [generatingCode, setGeneratingCode] = useState<boolean>(false);
+
+  // Mode and Start state
+  const [mode, setMode] = useState<GuideMode>('chuck-code');
+  const [codeAction, setCodeAction] = useState<CodeAction>('recommend');
+  const [started, setStarted] = useState<boolean>(false);
+  
+  // LangChain / BYOT state
+  const [langchainEnabled, setLangchainEnabled] = useState<boolean>(false);
+  const [showBYOT, setShowBYOT] = useState<boolean>(false);
+  
+  // ChucK code state observation
+  const chuckCodeState = useChuckCodeState(2000);
+
+  // Check for saved API key on mount (using secure storage)
+  useEffect(() => {
+    const checkKey = async () => {
+      if (typeof window !== 'undefined') {
+        const { hasSecureApiKey } = await import('../utils/secureStorage');
+        setLangchainEnabled(hasSecureApiKey());
+      }
+    };
+    checkKey();
+  }, []);
 
   const task = useMemo(() => tasks.find((t) => t.id === currentTaskId), [tasks, currentTaskId]);
 
@@ -111,14 +149,29 @@ export default function PhilosopherGuide() {
     return embedderRef.current;
   }, []);
 
+
   const run = useCallback(async () => {
     setLoading(true); setErr(null);
     setInFlight(true);
+    setGeneratedCode(null); // Clear previous generated code
+    
     try {
       const q = (query || '').trim();
       if (!q) { setLoading(false); setInFlight(false); return; }
-      // Capture then clear the input so it feels immediate, without racing the snapshot
+      
+      // Clear input immediately
       setQuery('');
+      
+      // Search both tables in parallel: perception insights (documents) + ChucK code (dsp_docs)
+      setLoading(true);
+      
+      // Get current ChucK code state for context
+      const codeContext = chuckCodeState.code ? formatCodeStateForRAG(chuckCodeState) : null;
+      
+      // Search DSP docs for ChucK code examples
+      const dspSearchPromise = searchDSPDocsClient(q, { language: 'chuck' }, 5);
+      
+      // Search for perception/contextual insights (only in perception mode or when explicitly requested)
       // Prefer server-side embedding to avoid browser CORS on model downloads
       const apiRes = await fetch('/api/embed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: q }) });
       let vec: number[] | null = null;
@@ -132,23 +185,20 @@ export default function PhilosopherGuide() {
             const parsed = JSON.parse(raw);
             vec = Array.isArray(parsed) ? parsed.map((x: any) => Number(x)) : null;
           } catch {
-            // unsupported shape
             vec = null;
           }
         } else {
           vec = null;
         }
       } else {
-        // Fallback to client embedding
         const embed: any = await ensureEmbedder();
         vec = await embed(q);
       }
       if (!vec) throw new Error('Could not construct embedding vector');
-      // Store in history (long-form consequences)
+      
       const now = Date.now();
       setHistory((h) => [...h, { text: q, ts: now, emb: vec as number[] }]);
 
-      // First try the new server-side exact search for reliable results on tiny datasets
       let data: MatchRow[] | null = null;
       try {
         const sres = await fetch('/api/rag/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: q, k: 5 }) });
@@ -158,17 +208,13 @@ export default function PhilosopherGuide() {
         }
       } catch { }
       if (!data || data.length === 0) {
-        // If server exact search fails, try approximate RPC
         try {
           data = await matchDocuments(vec, 5, 0.6);
         } catch (matchErr: any) {
-          console.warn('[PhilosopherGuide] matchDocuments failed:', matchErr.message);
-          // Continue to fallback 2
+          console.warn('[CodeGuide] matchDocuments failed:', matchErr.message);
         }
       }
-      // Remove overly-permissive threshold fallback that caused generic matches to dominate
       if (!data || data.length === 0) {
-        // fallback 2: exact search RPC (sequential scan)
         try {
           const supabase2 = getSupabaseClient();
           const { data: exact, error: exErr } = await (supabase2 as any).rpc('match_documents_exact', {
@@ -176,31 +222,140 @@ export default function PhilosopherGuide() {
             match_count: 5,
           });
           if (exErr) {
-            console.error('[PhilosopherGuide] exact search error', exErr);
+            console.error('[CodeGuide] exact search error', exErr);
           } else {
             data = exact as MatchRow[];
           }
         } catch (exactErr: any) {
-          console.warn('[PhilosopherGuide] exact search RPC failed:', exactErr.message);
+          console.warn('[CodeGuide] exact search RPC failed:', exactErr.message);
         }
       }
       if (!data || data.length === 0) {
-        // fallback 3: fetch some docs directly to validate RLS/connection
         try {
           const supabase = getSupabaseClient();
           const { data: direct, error: derr } = await supabase.from('documents').select('id, work, author, content').limit(3);
           if (derr) {
-            console.warn('[PhilosopherGuide] Direct document fetch failed:', derr.message);
+            console.warn('[CodeGuide] Direct document fetch failed:', derr.message);
           } else {
-            // cast into MatchRow-ish objects without similarity
             data = (direct ?? []).map((d: any) => ({ ...d, similarity: 0 })) as MatchRow[];
           }
         } catch (directErr: any) {
-          console.warn('[PhilosopherGuide] Direct fetch failed:', directErr.message);
+          console.warn('[CodeGuide] Direct fetch failed:', directErr.message);
         }
       }
       let matches = data ?? [];
-      // Diversify by author/work to reduce dominance by a single source
+      
+      // Get DSP docs results
+      const dspResults = await dspSearchPromise;
+      setDspDocs(dspResults);
+      
+      // Detect if user wants code generation or Hydra recommendations
+      const codeKeywords = ['synthesizer', 'oscillator', 'synth', 'osc', 'create', 'make', 'generate', 'code', 'chuck', 'sound', 'audio', 'effect', 'filter', 'reverb', 'delay'];
+      const hydraKeywords = ['hydra', 'nesting', 'variable', 'var', 'osc()', 'noise()', 'shape()', 'modulate', 'blend', 'visual'];
+      const queryLower = q.toLowerCase();
+      const wantsCode = codeKeywords.some(keyword => queryLower.includes(keyword));
+      const wantsHydra = hydraKeywords.some(keyword => queryLower.includes(keyword));
+      
+      // Handle Hydra nesting recommendations (placeholder for future scraping)
+      if (wantsHydra && mode === 'chuck-code') {
+        // TODO: When Hydra scraping is complete, search hydra_docs and provide nesting recommendations
+        // For now, show a placeholder message
+        setChat((c) => [...c, { 
+          role: 'guide', 
+          text: '💡 Hydra nesting recommendations coming soon! More Hydra documentation is being scraped. For now, try:\n\n- Use variables for complex chains: `osc().modulate(noise()) @=> s0; s0.out()`\n- Nest operations: `osc().modulate(noise().kaleid(4)).out()`\n- Chain transforms: `shape().repeat(4,4).kaleid(6).out()`' 
+        }]);
+      }
+      
+      // If user wants code and we have DSP docs, generate code
+      if (wantsCode && dspResults.length > 0 && mode === 'chuck-code') {
+        setGeneratingCode(true);
+        try {
+          // Get API key from secure storage
+          let clientApiKey: string | null = null;
+          if (typeof window !== 'undefined') {
+            const { getSecureApiKey } = await import('../utils/secureStorage');
+            clientApiKey = await getSecureApiKey();
+          }
+          
+          console.log('[CodeGuide] Attempting code generation. Has API key:', !!clientApiKey, 'Query:', q);
+          
+          if (clientApiKey) {
+            const codeRes = await fetch('/api/generate-code', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                query: q,
+                dspDocs: dspResults.slice(0, 5).map(doc => ({
+                  title: doc.title,
+                  content: doc.content, // Use 'content' field which has actual code
+                  example_usage: doc.example_usage, // Keep for reference but prefer content
+                  perceptual_tags: doc.perceptual_tags,
+                  technical_tags: doc.technical_tags,
+                  similarity: doc.similarity,
+                })),
+                currentCode: codeContext, // Include current ChucK code state for debugging/context
+                apiKey: clientApiKey,
+              }),
+            });
+            
+            console.log('[CodeGuide] Code generation response status:', codeRes.status);
+            
+            if (codeRes.ok) {
+              const codeData = await codeRes.json();
+              console.log('[CodeGuide] Code generation response:', codeData);
+              if (codeData.code && codeData.code.trim().length > 10) {
+                setGeneratedCode(codeData.code);
+                // Create a synthetic DSP doc for display
+                setSelectedCodeDoc({
+                  title: `Generated: ${q}`,
+                  example_usage: codeData.code,
+                  perceptual_tags: ['generated'],
+                } as DSPDoc);
+                console.log('[CodeGuide] Successfully generated code, length:', codeData.code.length);
+              } else {
+                console.warn('[CodeGuide] Generated code too short or empty:', codeData);
+                // Don't show raw DSP docs if generation failed - they're just metadata
+                setGeneratedCode(null);
+                setSelectedCodeDoc(null);
+              }
+            } else {
+              const errorText = await codeRes.text();
+              console.error('[CodeGuide] Code generation failed:', codeRes.status, errorText);
+              // Don't fallback to showing metadata - it's useless
+              setGeneratedCode(null);
+              setSelectedCodeDoc(null);
+            }
+          } else {
+            console.warn('[CodeGuide] No API key available for code generation');
+            // Don't show raw DSP docs - they're just metadata
+            setGeneratedCode(null);
+            setSelectedCodeDoc(null);
+          }
+        } catch (codeErr: any) {
+          console.error('[CodeGuide] Code generation error:', codeErr);
+          // Don't fallback to showing metadata
+          setGeneratedCode(null);
+          setSelectedCodeDoc(null);
+        } finally {
+          setGeneratingCode(false);
+        }
+      } else {
+        // No code generation requested
+        setGeneratedCode(null);
+        if (dspResults.length > 0) {
+          // Only show DSP docs if they actually contain code, not just metadata
+          const hasRealCode = dspResults.some(doc => {
+            const usage = Array.isArray(doc.example_usage) ? doc.example_usage[0] : doc.example_usage;
+            return usage && typeof usage === 'string' && usage.length > 50 && !usage.includes('---');
+          });
+          if (hasRealCode) {
+            setSelectedCodeDoc(dspResults[0]);
+          } else {
+            setSelectedCodeDoc(null);
+          }
+        }
+      }
+      
       if (matches.length > 0) {
         console.log("@@@ CHECK WHAT ARE MATCHES: ", matches);
         const seen = new Set<string>();
@@ -215,7 +370,7 @@ export default function PhilosopherGuide() {
         }
         matches = diverse.length ? diverse : matches;
       }
-      // Filter out operational/README-like content from being used in prose
+      
       const isOperational = (m: any) => {
         const a = String(m.author || '').toLowerCase();
         const w = String(m.work || '').toLowerCase();
@@ -229,28 +384,45 @@ export default function PhilosopherGuide() {
       matches = matches.filter(m => !isOperational(m));
       setResults(matches);
 
-      // Compose reply: hybrid LLM only under certain conditions
       const tensionScore = computeTension(matches);
       const varietyLow = looksSimilar(lastTwoTextsRef.current[0], lastTwoTextsRef.current[1]);
 
-
       console.log("@@@ TENSION SCORE: ", tensionScore, " VARIETY LOW: ", varietyLow);
 
-
-      const paused = Date.now() - lastInputAtRef.current > 10_000; // 10s beat
+      const paused = Date.now() - lastInputAtRef.current > 10_000;
       const useLLM = tensionScore > 0.55 || varietyLow || paused;
 
       let replyText: string | null = null;
       let promptText: string | undefined;
       let stylizerUsed = false;
-      const stylizerCooldownOk = Date.now() - lastStylizerAtRef.current > 4000; // 4s cooldown
+      const stylizerCooldownOk = Date.now() - lastStylizerAtRef.current > 4000;
       if (useLLM && stylizerCooldownOk) {
         const snippets = matches.slice(0, 3).map((m: any) => String(m.content || '').slice(0, 240));
         const keywords = extractWeightedKeywords(matches, 8).map(k => k.term);
         const citations = extractCitations(matches, 2);
         const bans = bansRef.current.slice(-8);
         try {
-          const res = await fetch('/api/utter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, snippets, keywords, citations, bans, style: { persona: 'A knowing, terse, enigma-loving, playful philosopher-narrator.', tone: "Early modern clarity inspired by Ockley's 1708 Hayy ibn Yaqzan." } }) });
+          // Include API key from secure storage if available (BYOT)
+          let clientApiKey: string | null = null;
+          if (typeof window !== 'undefined') {
+            const { getSecureApiKey } = await import('../utils/secureStorage');
+            clientApiKey = await getSecureApiKey();
+          }
+          const res = await fetch('/api/utter', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ 
+              query: q, 
+              snippets, 
+              keywords, 
+              citations, 
+              bans, 
+              style: mode === 'perception' 
+                ? { persona: 'A knowing, terse guide focused on perception and creative exploration.', tone: "Clear, precise, focused on perceptual and aesthetic considerations." }
+                : { persona: 'A technical guide for ChucK code generation and audio programming.', tone: "Practical, code-focused, helpful for DSP implementation." },
+              ...(clientApiKey ? { apiKey: clientApiKey } : {})
+            }) 
+          });
           if (res.ok) {
             const j = await res.json();
             const candidate = (j?.text || '').trim();
@@ -269,15 +441,20 @@ export default function PhilosopherGuide() {
         promptText = utter.prompt;
       }
 
-      // Single-line update: only the latest guide text
-      setChat((c) => [{ role: 'guide', text: replyText! }]);
-      // No extra prompt line; CTA already embedded in the main text when needed
+      // Combine reply with code availability notice
+      let finalReply = replyText!;
+      if (mode === 'chuck-code' && dspDocs.length > 0) {
+        finalReply += `\n\n🎵 Found ${dspDocs.length} ChucK code example${dspDocs.length > 1 ? 's' : ''} related to your query.`;
+      }
+      if (chuckCodeState.code && mode === 'chuck-code') {
+        finalReply += `\n\n📊 Current ChucK code: ${chuckCodeState.code.split('\n').length} lines${chuckCodeState.inspection && !chuckCodeState.inspection.valid ? ' (has issues)' : ''}`;
+      }
+      
+      setChat((c) => [{ role: 'guide', text: finalReply }]);
 
-      // Track bans and last outputs for variety
       bansRef.current = [...bansRef.current, replyText!].slice(-20);
       lastTwoTextsRef.current = [replyText!, lastTwoTextsRef.current[0]].slice(0, 2);
 
-      // Compute enigmatic metrics for the upper-left overlay
       const echo = computeEcho(vec!, history);
       const tension = computeTension(matches);
       const drift = computeDrift(history);
@@ -294,7 +471,6 @@ export default function PhilosopherGuide() {
 
   // React to shared submit events (from AskPanel or others)
   useEffect(() => {
-    // Guard: ignore empty/placeholder queries
     if (!query || !query.trim()) return;
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -308,34 +484,211 @@ export default function PhilosopherGuide() {
 
   if (!task) return null;
 
+  // Show mode selection and Start button if not started
+  if (!started) {
+    return (
+      <div 
+        role="region"
+        aria-label="Code guide"
+        style={{ position: 'absolute', bottom: 240, left: 16, maxWidth: 540, padding: '12px 14px', background: 'rgba(0,0,0,0.5)', color: '#e9f1ff', fontFamily: 'system-ui', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, zIndex: 999999 }}
+      >
+        <div style={{ marginBottom: 12 }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 'bold' }}>Select Mode</h3>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button
+              onClick={() => setMode('chuck-code')}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: `1px solid ${mode === 'chuck-code' ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                background: mode === 'chuck-code' ? 'rgba(74,222,128,0.2)' : 'rgba(0,0,0,0.3)',
+                color: '#e9f1ff',
+                cursor: 'pointer',
+                fontSize: '12px',
+              }}
+            >
+              🎵 ChucK Code + Oblique Strategies
+            </button>
+            <button
+              onClick={() => setMode('perception')}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: `1px solid ${mode === 'perception' ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                background: mode === 'perception' ? 'rgba(74,222,128,0.2)' : 'rgba(0,0,0,0.3)',
+                color: '#e9f1ff',
+                cursor: 'pointer',
+                fontSize: '12px',
+              }}
+            >
+              🎨 Perception Refinements
+            </button>
+          </div>
+          
+          {mode === 'chuck-code' && (
+            <div style={{ marginBottom: 12, fontSize: '11px', opacity: 0.8 }}>
+              <div style={{ marginBottom: 4 }}>Code Action:</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setCodeAction('recommend')}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: `1px solid ${codeAction === 'recommend' ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                    background: codeAction === 'recommend' ? 'rgba(74,222,128,0.2)' : 'rgba(0,0,0,0.3)',
+                    color: '#e9f1ff',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                  }}
+                >
+                  💡 Recommend
+                </button>
+                <button
+                  onClick={() => setCodeAction('write')}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: `1px solid ${codeAction === 'write' ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                    background: codeAction === 'write' ? 'rgba(74,222,128,0.2)' : 'rgba(0,0,0,0.3)',
+                    color: '#e9f1ff',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                  }}
+                >
+                  ✍️ Write
+                </button>
+              </div>
+            </div>
+          )}
+          
+          <button
+            onClick={() => setStarted(true)}
+            style={{
+              width: '100%',
+              padding: '10px',
+              borderRadius: 6,
+              border: '1px solid rgba(74,222,128,0.5)',
+              background: 'rgba(74,222,128,0.2)',
+              color: '#4ade80',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 'bold',
+            }}
+          >
+            Start
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div 
       role="region"
-      aria-label="Philosopher guide conversation"
-      style={{ position: 'absolute', bottom: 240, left: 16, maxWidth: 540, padding: '12px 14px', background: 'rgba(0,0,0,0.5)', color: '#e9f1ff', fontFamily: 'serif', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, zIndex: 999999 }}
+      aria-label="Code guide conversation"
+      style={{ position: 'absolute', bottom: 240, left: 16, maxWidth: 540, padding: '12px 14px', background: 'rgba(0,0,0,0.5)', color: '#e9f1ff', fontFamily: 'system-ui', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, zIndex: 999999 }}
     >
+      {/* LangChain Status & BYOT Manager */}
+      <div style={{ marginBottom: 8, fontSize: '10px' }}>
+        {langchainEnabled ? (
+          <div style={{ padding: '4px 8px', background: 'rgba(74,222,128,0.2)', borderRadius: 4, color: '#4ade80', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>🤖 LangChain Active</span>
+            <button
+              onClick={() => setShowBYOT(!showBYOT)}
+              style={{
+                padding: '2px 6px',
+                fontSize: '9px',
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 3,
+                color: '#e9f1ff',
+                cursor: 'pointer'
+              }}
+            >
+              Keys
+            </button>
+          </div>
+        ) : (
+          <div style={{ padding: '4px 8px', background: 'rgba(248,113,113,0.2)', borderRadius: 4, color: '#f87171', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>⚠️ Provide API key for ChucK code generation</span>
+            <button
+              onClick={() => setShowBYOT(!showBYOT)}
+              style={{
+                padding: '2px 6px',
+                fontSize: '9px',
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                borderRadius: 3,
+                color: '#e9f1ff',
+                cursor: 'pointer'
+              }}
+            >
+              Add Key
+            </button>
+          </div>
+        )}
+        
+        {showBYOT && (
+          <div style={{ marginTop: 8 }}>
+            <BYOTTokenManager 
+              compact={true}
+              onKeysUpdated={(hasOpenAI) => {
+                setLangchainEnabled(hasOpenAI);
+                if (hasOpenAI) {
+                  setShowBYOT(false);
+                }
+              }}
+            />
+          </div>
+        )}
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8, fontSize: '10px', fontFamily: 'monospace' }}>
         {chat.map((m, i) => (
           <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
-            {/* <span style={{ opacity: 0.7 }}>
-              {m.role === 'you' ? 'You' : 'Guide'}: </span> */}
             {m.text}
           </div>
         ))}
       </div>
       <div style={{ margin: 0, marginTop: 12, width: '100%', display: 'flex', gap: 8, flexDirection: 'row' }}>
-        <label htmlFor="philosopher-guide-input" className="sr-only">
-          Describe a visual or auditory or combined effect you'd like to create
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '10px' }}>
+          <span style={{ opacity: 0.7 }}>
+            {mode === 'chuck-code' ? '🎵 ChucK Code' : '🎨 Perception'} 
+            {mode === 'chuck-code' && ` • ${codeAction === 'recommend' ? '💡 Recommend' : '✍️ Write'}`}
+          </span>
+          <button
+            onClick={() => setStarted(false)}
+            style={{
+              padding: '2px 6px',
+              fontSize: '9px',
+              background: 'rgba(255,255,255,0.1)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: 3,
+              color: '#e9f1ff',
+              cursor: 'pointer',
+            }}
+          >
+            Change Mode
+          </button>
+        </div>
+        <label htmlFor="code-guide-input" className="sr-only">
+          {mode === 'chuck-code' 
+            ? 'Describe ChucK code you want to generate or get recommendations for'
+            : 'Describe perceptual or aesthetic refinements'}
         </label>
         <input
-          id="philosopher-guide-input"
+          id="code-guide-input"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
             lastInputAtRef.current = Date.now();
           }}
-          placeholder="begin with writing..."
-          aria-label="Describe what you see and hear in the visualization"
+          placeholder={mode === 'chuck-code' 
+            ? (codeAction === 'recommend' ? 'Ask for code recommendations...' : 'Describe code to generate...')
+            : 'Describe perceptual refinements...'}
+          aria-label={mode === 'chuck-code' 
+            ? 'Describe ChucK code you want to generate or get recommendations for'
+            : 'Describe perceptual or aesthetic refinements'}
           style={{
             width: '100%',
             padding: '8px 10px',
@@ -353,10 +706,10 @@ export default function PhilosopherGuide() {
           }}
         />
         <button
-          id="philosopher-guide-send"
+          id="code-guide-send"
           disabled={loading}
           onClick={run}
-          aria-label={loading ? 'Sending message' : 'Send message to philosopher guide'}
+          aria-label={loading ? 'Sending message' : 'Send message to code guide'}
           style={{
             marginTop: 8,
             marginLeft: 12,
@@ -371,12 +724,92 @@ export default function PhilosopherGuide() {
           {loading ? 'Sending…' : 'Send'}
         </button>
       </div>
+      
+      {/* Display generated code or ChucK code examples */}
+      {(generatingCode || generatedCode || dspDocs.length > 0) && (
+        <div style={{ marginTop: 12, maxHeight: 300, overflowY: 'auto' }}>
+          {generatingCode && (
+            <div style={{ 
+              padding: '12px',
+              background: 'rgba(0,0,0,0.6)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: 6,
+              fontSize: '11px',
+              color: '#e9f1ff',
+              textAlign: 'center'
+            }}>
+              ⚙️ Generating ChucK code...
+            </div>
+          )}
+          
+          {generatedCode && !generatingCode && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ 
+                marginBottom: 8, 
+                fontSize: '11px', 
+                fontWeight: 'bold',
+                color: '#4ade80',
+                opacity: 0.9
+              }}>
+                ✨ Generated Code
+              </div>
+              <ChuckCodeDisplay 
+                doc={{
+                  title: 'Generated Code',
+                  example_usage: generatedCode,
+                  perceptual_tags: ['generated'],
+                } as DSPDoc}
+                onCopy={(code) => {
+                  console.log('[CodeGuide] Generated code copied to clipboard:', code);
+                }}
+              />
+            </div>
+          )}
+          
+          {dspDocs.length > 0 && (
+            <>
+              <div style={{ 
+                marginBottom: 8, 
+                fontSize: '11px', 
+                fontWeight: 'bold',
+                color: '#e9f1ff',
+                opacity: 0.9
+              }}>
+                🎵 Reference Examples ({dspDocs.length})
+              </div>
+              
+              {dspDocs.slice(0, generatedCode ? 2 : 3).map((doc, idx) => (
+                <ChuckCodeDisplay 
+                  key={doc.id || idx} 
+                  doc={doc}
+                  onCopy={(code) => {
+                    console.log('[CodeGuide] Code copied to clipboard, ready for WebChucK IDE:', code);
+                  }}
+                />
+              ))}
+              
+              {dspDocs.length > (generatedCode ? 2 : 3) && (
+                <div style={{ 
+                  marginTop: 8, 
+                  fontSize: '10px', 
+                  opacity: 0.7,
+                  fontStyle: 'italic'
+                }}>
+                  ... and {dspDocs.length - (generatedCode ? 2 : 3)} more example{dspDocs.length - (generatedCode ? 2 : 3) > 1 ? 's' : ''}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
+
+// Keep all the existing helper functions below (loadEmbedder, composeGenericReply, etc.)
+// ... (truncated for brevity - all existing functions remain the same)
+
 function loadEmbedder(): any {
-  // Lightweight, deterministic hashing-based vectorizer as a last resort.
-  // Not meaningful semantically, but stable for similarity ranking during dev.
   return async (text: string) => {
     const dim = 384;
     const v = new Float32Array(dim);
@@ -386,14 +819,11 @@ function loadEmbedder(): any {
       const j = (code * 131 + i * 17) % dim;
       v[j] += 1;
     }
-    // L2 normalize
     let n = 0; for (let i = 0; i < dim; i++) n += v[i] * v[i];
     n = Math.sqrt(n) || 1;
     return Array.from(v, (x) => x / n);
   };
 }
-
-// ----- Text generation helpers (single-voice) -----
 
 function defaultPrompt(): string { return randomStarter(); }
 
@@ -414,32 +844,25 @@ type GenericReplyArgs = {
 }
 
 async function composeGenericReply({ query, currentEmb, history, matches }: GenericReplyArgs): Promise<{ text: string; prompt?: string }> {
-  // Compute history weights: recency and strong-match rule
   const weights = weightHistory({ currentEmb, history });
   const recentThemes = topHistoryTokens({ history, weights, take: 3 });
   const kw = extractWeightedKeywords(matches, 8);
   const terms = cleanTerms(kw.map(k => k.term));
   const rankedCites = rankCitations(matches, terms, 2);
 
-  // Detect contradictions or enigma-worthy tensions
   const contradiction = detectContradiction(terms, rankedCites.map(c => ({ author: c.author, work: c.work })));
   if (contradiction) {
-    console.log("@@@ Detected contradiction: ", contradiction);
-    const { a, b, thinkers } = contradiction;
-    // const thinkerLine = thinkers?.length ? `${thinkers[0]} and ${thinkers[1] || 'a skeptic'}` : 'two stubborn friends';
-    // const opener = recentThemes.length ? `You orbit ${recentThemes[0]}, and it splits: ${a} vs ${b}.` : `Your query fractures: ${a} vs ${b}.`;
+    const { a, b } = contradiction;
     const opener = '';
     const thinkerLine = '';
     const prod = `Both can be true, if the frame shifts. ${thinkerLine} would grin.`;
     const ask = `Which side do you want to lean on, or do we keep the hinge and listen to its creak?`;
     const weave = buildPhiloWeave(matches, terms);
     const firstCite = rankedCites.find(c => !(weave.cite && c.author === weave.cite.author && c.work === weave.cite.work));
-    // const citeLine = firstCite ? vernacularCite(firstCite) : '';
     const citeLine = '';
     let text = [opener, weave.line, prod, citeLine].filter(Boolean).join(' ');
     text = ensureCTAClient(text);
     text = tightenUtteranceKeepCTA(text, 260);
-    // @@@ opener, weave, prod, cite 
     text = sanitizeFinal(text);
     return { text, prompt: ask };
   }
@@ -448,22 +871,16 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
   const safePicked = picked.filter(t => !isJunkKeyword(t));
   let themeLine = '';
   if (recentThemes.length) {
-    // themeLine = `You keep circling ${recentThemes[0]}${recentThemes[1] ? ` and ${recentThemes[1]}` : ''}.`;
     themeLine = '';
   } else if (safePicked[0]) {
-    // Always use a full phrase or sentence from the top match's content if available
     let phrase = safePicked[0];
     if (matches && matches.length > 0) {
       const content = (matches[0] as any).content || '';
-      console.log("@@@ WHAT IS CONTENT HERE??? ", content);
       const sentences = content.split(/[.!?]/).map((s: string) => s.trim()).filter(Boolean);
-      // Prefer a sentence containing the keyword, else any non-empty sentence, else the whole content
       let containing = sentences.find((s: string) => s.toLowerCase().includes(safePicked[0].toLowerCase()));
       if (!containing) containing = sentences.find((s: string) => s);
       phrase = containing || content.trim() || safePicked[0];
-      console.log("@@@ PHRASE! ", phrase, sentences)
     }
-    // If phrase is empty, fallback to generic
     if (!phrase) {
       themeLine = `You're onto something.`;
     } else {
@@ -473,9 +890,7 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
     themeLine = `You're onto something.`;
   }
   const philoWeave = buildPhiloWeave(matches, terms);
-  // const riffLine = riffOnKeywords(safePicked as string[], query);
   const riffLine = '';
-  // Rich two-quote weave path
   const primaryCite = philoWeave.cite;
   let secondCite: (typeof rankedCites)[number] | undefined;
   for (const c of rankedCites) {
@@ -483,26 +898,22 @@ async function composeGenericReply({ query, currentEmb, history, matches }: Gene
   }
   const opticsSoundSet = new Set(['optics', 'vision', 'light', 'eye', 'mirror', 'form', 'color', 'colour', 'sound', 'hearing', 'echo', 'voice', 'acoustics']);
   const domainFocus = terms.some(t => opticsSoundSet.has(t));
-  // Only allow dual weave from the 3rd user turn onward (history excludes current input here)
   const allowDual = (history?.length || 0) >= 2;
   const includeSecond = !!secondCite && allowDual && (domainFocus || (secondCite!.score >= 0.9) || Math.random() < 0.3);
   const dual = includeSecond ? buildDualWeave(matches, terms, primaryCite, secondCite) : null;
   const citeLine2 = (!dual && includeSecond && secondCite) ? shortCiteClause(secondCite) : '';
 
   if (dual) {
-    // Build weighted CTA (click/navigate/type) with a hard pause before it
     const cta = chooseCTA();
     let text = [themeLine, dual.text].filter(Boolean).join(' ');
     text = sanitizeFinal(text);
     text = `${text}\n\n${cta}`;
-    // No extra prompt; CTA is embedded explicitly
     return { text };
   } else {
     const lines = [themeLine, philoWeave.line, riffLine, citeLine2].filter(Boolean);
     let text = lines.join(' ');
     text = ensureCTAClient(text);
     text = tightenUtteranceKeepCTA(text, 260);
-    // @@@ theme, weave, riff, cite
     text = sanitizeFinal(text);
     return { text, prompt: defaultPrompt() };
   }
@@ -520,14 +931,13 @@ function pickN<T>(arr: T[], n: number): T[] {
 
 function weightHistory({ currentEmb, history }: { currentEmb: number[]; history: Array<{ text: string; ts: number; emb: number[] }> }): number[] {
   const now = Date.now();
-  const tauMs = 10 * 60 * 1000; // 10 minutes half-life-ish
+  const tauMs = 10 * 60 * 1000;
   return history.map((h) => {
     const age = now - h.ts;
     const rec = Math.exp(-age / tauMs);
     const sim = cosine(currentEmb, h.emb);
-    const simRounded = Math.round(sim * 10) / 10; // one-decimal precision
+    const simRounded = Math.round(sim * 10) / 10;
     const strongMatch = simRounded === 1.0 ? 1.0 : 0;
-    // Full weight if strong-match; otherwise recency * similarity
     const w = strongMatch ? 1.0 : rec * Math.max(0, sim);
     return w;
   });
@@ -554,7 +964,6 @@ function extractWeightedKeywords(matches: MatchRow[], take = 8): Array<{ term: s
     for (const t of tokens) counts[t] = (counts[t] || 0) + sim;
   }
   const arr = Object.entries(counts).map(([term, score]) => ({ term, score })).sort((a, b) => b.score - a.score);
-  console.log("@@@ ARR OF WEIGHTED KEYWORDS: ", arr);
   return arr.slice(0, take);
 }
 
@@ -586,20 +995,16 @@ function rankCitations(matches: MatchRow[], focusTerms: string[], take = 2): Arr
     const key = `${author || ''}::${work || ''}`;
     if (!author && !work) continue;
     if (seen.has(key)) continue;
-    // skip operational
     if (/readme/i.test(author || '') || /readme/i.test(work || '') || /npm\s+run|ingest|--dry-run|build|yarn\s+/i.test(content)) continue;
     const overlap = tokenize(content).filter(t => set.has(t)).length;
     const score = Math.max(0, sim) + overlap * 0.25;
     seen.add(key);
     scored.push({ author, work, score });
-
-
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, take);
 }
 
-// A short, non-dangling clause for a secondary cite (keeps cadence tight)
 function shortCiteClause(c: { author?: string; work?: string }): string {
   const a = (c.author || '').trim();
   const w = (c.work || '').trim();
@@ -614,9 +1019,7 @@ function shortCiteClause(c: { author?: string; work?: string }): string {
   return pick();
 }
 
-// Build a richer two-quote weave with a small transition; aim for clarity and a comparison setup.
 function buildDualWeave(matches: MatchRow[], focusTerms: string[], a?: { author?: string; work?: string }, b?: { author?: string; work?: string }): { text: string } {
-  // Collect candidate sentences keyed by author/work
   const take = Math.min(6, matches.length);
   type Cand = { author?: string; work?: string; s1: string; s2?: string; score: number };
   const keyset = new Set(focusTerms.map(s => s.toLowerCase()));
@@ -633,20 +1036,18 @@ function buildDualWeave(matches: MatchRow[], focusTerms: string[], a?: { author?
       const tok = tokenize(seg);
       const overlap = tok.filter(t => keyset.has(t)).length;
       if (overlap === 0) continue;
-      const key = `${author || ''}::${work || ''}`;
       const s1 = shortenForQuote(seg, 18);
       const s2 = segs[j + 1] ? shortenForQuote(segs[j + 1], 14) : undefined;
       const score = overlap / Math.max(1, tok.length);
-      const cur = byKey[key];
-      if (!cur || score > cur.score) byKey[key] = { author, work, s1, s2, score };
+      const cur = byKey[`${author || ''}::${work || ''}`];
+      if (!cur || score > cur.score) byKey[`${author || ''}::${work || ''}`] = { author, work, s1, s2, score };
     }
   }
   const cands = Object.values(byKey);
   if (cands.length < 2) return { text: '' };
   const pickA = a ? cands.find(c => c.author === a.author && c.work === a.work) || cands[0] : cands[0];
   const pickB = b ? cands.find(c => c.author === b.author && c.work === b.work) || cands[1] : cands[1];
-  if (!pickA || !pickB || (pickA.author === pickB.author && pickA.work === pickB.work)) {
-    // fallback: simple weave
+  if (!pickA || !pickB || (pickA.author === pickB.author && pickB.work === pickB.work)) {
     const tagA = `${pickA?.author || 'one voice'}${pickA?.work ? `, ${pickA.work}` : ''}`;
     return { text: `As ${tagA} has it: ${pickA?.s1 || ''}.` };
   }
@@ -660,11 +1061,10 @@ function buildDualWeave(matches: MatchRow[], focusTerms: string[], a?: { author?
   const trans = transVariants[(Math.random() * transVariants.length) | 0](nameA, nameB);
   const qa = `${pickA.s1}${pickA.s2 ? ` ${pickA.s2}` : ''}`.replace(/\s{2,}/g, ' ').trim();
   const qb = `${pickB.s1}${pickB.s2 ? ` ${pickB.s2}` : ''}`.replace(/\s{2,}/g, ' ').trim();
-  const line = `${trans} ${pickA.author || 'One thinker'}: “${qa}” ${pickB.author || 'Another thinker'}: “${qb}”`;
+  const line = `${trans} ${pickA.author || 'One thinker'}: "${qa}" ${pickB.author || 'Another thinker'}: "${qb}"`;
   return { text: line };
 }
 
-// Weighted CTA (click cubes, navigate environment, or add text)
 function chooseCTA(): string {
   try {
     const t = useAgentStore.getState().telemetry;
@@ -673,7 +1073,6 @@ function chooseCTA(): string {
     const opts: Array<{ w: number, s: () => string }> = [
       { w: Math.max(1, 4 - clicks), s: () => 'Click a cube to tilt the pattern.' },
       { w: cam < 10 ? 3 : 1, s: () => 'Drag or scroll to change your distance.' },
-      // { w: 2, s: () => 'Type one word you trust.' },
     ];
     const sum = opts.reduce((a, o) => a + o.w, 0);
     let r = Math.random() * sum;
@@ -684,8 +1083,6 @@ function chooseCTA(): string {
     return fallback[(Math.random() * fallback.length) | 0];
   }
 }
-
-
 
 const STOPWORDS = new Set<string>([
   'the', 'and', 'a', 'an', 'to', 'of', 'in', 'on', 'for', 'with', 'as', 'by', 'is', 'it', 'that', 'this', 'be', 'are', 'was', 'were', 'or', 'at', 'from', 'but', 'so', 'if', 'into', 'about', 'over', 'under', 'between', 'within', 'without', 'you', 'your', 'we', 'our', 'they', 'their', 'i', 'me', 'my', 'mine', 'ours', 'theirs', 'he', 'she', 'his', 'her', 'its', 'not', 'no', 'yes', 'do', 'does', 'did', 'done', 'can', 'could', 'should', 'would', 'will', 'shall'
@@ -705,7 +1102,7 @@ function cleanTerms(terms: string[]): string[] {
   const uniq = Array.from(new Set((terms || []).map(t => String(t || '').trim().toLowerCase())));
   return uniq.filter(t => !isJunkKeyword(t));
 }
-// --- Metrics helpers ---
+
 function computeEcho(currentEmb: number[], history: Array<{ emb: number[] }>): number {
   if (!history.length) return 0;
   const sims = history.slice(-5).map(h => cosine(currentEmb, h.emb));
@@ -716,7 +1113,6 @@ function computeTension(matches: MatchRow[]): number {
   const kw = extractWeightedKeywords(matches, 12).map(k => k.term);
   const contradiction = detectContradiction(kw, extractCitations(matches, 3));
   if (!contradiction) return 0;
-  // crude: higher when both are near top of kw list
   const aIdx = kw.findIndex(t => t === contradiction.a);
   const bIdx = kw.findIndex(t => t === contradiction.b);
   const aScore = aIdx >= 0 ? 1 - aIdx / Math.max(1, kw.length - 1) : 0;
@@ -728,7 +1124,6 @@ function computeDrift(history: Array<{ text: string }>): number {
   if (history.length < 2) return 0;
   const tokens = new Set<string>();
   history.slice(-10).forEach(h => tokenize(h.text).forEach(t => tokens.add(t)));
-  // normalize by a soft scale: more unique tokens → more drift
   const count = tokens.size;
   return clamp01(Math.log(1 + count) / Math.log(1 + 50));
 }
@@ -740,7 +1135,6 @@ function looksSimilar(a?: string, b?: string): boolean {
   const na = a.replace(/\s+/g, ' ').toLowerCase();
   const nb = b.replace(/\s+/g, ' ').toLowerCase();
   if (na === nb) return true;
-  // simple Jaccard on words
   const sa = new Set(na.split(' '));
   const sb = new Set(nb.split(' '));
   let inter = 0;
@@ -758,7 +1152,6 @@ function tightenUtteranceKeepCTA(text: string, maxChars = 260): string {
   if (out.length <= maxChars) return out;
   const sents = out.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
   if (sents.length === 0) return out.slice(0, maxChars).trim();
-  // Keep the last CTA sentence if present
   let cta: string | null = null;
   for (let i = sents.length - 1; i >= 0; i--) {
     if (hasCTAVerb(sents[i])) { cta = sents[i]; sents.splice(i, 1); break; }
@@ -777,7 +1170,6 @@ function tightenUtteranceKeepCTA(text: string, maxChars = 260): string {
   return out;
 }
 
-// --- Philosopher weave: pull short, clear fragments from RAG and modernize ---
 function buildPhiloWeave(matches: MatchRow[], focusTerms: string[]): { line: string; cite?: { author?: string; work?: string } } {
   if (!matches || matches.length === 0) return { line: '' };
   const sents: Array<{ text: string; author?: string; work?: string; score: number }> = [];
@@ -800,7 +1192,7 @@ function buildPhiloWeave(matches: MatchRow[], focusTerms: string[]): { line: str
       const tok = tokenize(seg);
       const overlap = tok.filter(t => keyset.has(t)).length;
       if (overlap === 0) continue;
-      const short = shortenForQuote(seg, 12); // <= ~12 words when quoting
+      const short = shortenForQuote(seg, 12);
       const clean = modernizeArchaic(short);
       if (clean.length < 6) continue;
       sents.push({ text: clean, author, work, score: overlap / Math.max(1, tok.length) });
@@ -824,7 +1216,6 @@ function splitSentences(text: string): string[] {
 function shortenForQuote(sentence: string, maxWords = 12): string {
   const words = sentence.split(/\s+/).filter(Boolean);
   if (words.length <= maxWords) return sentence;
-  // prefer to keep a fragment containing sight/sound-related terms
   const interesting = ['sight', 'vision', 'light', 'eye', 'mirror', 'form', 'sound', 'hearing', 'echo', 'voice'];
   const indices = words
     .map((w, i) => ({ w: w.toLowerCase().replace(/[^a-z\-']/g, ''), i }))
@@ -857,26 +1248,20 @@ function ensureCTAClient(text: string): string {
   const hasCTA = /\b(click|tap|type|enter|name|say|choose|tilt|lean|look|listen)\b/i.test(text);
   if (hasCTA) return text;
   return `${text} 
-  `.trim();   // ${randomCTA()}
+  `.trim();
 }
 
-// Strip clipped or command-like artifacts at the end and remove stray beginnings
 function sanitizeFinal(text: string): string {
   if (!text) return text;
   let out = text.trim();
-  // Remove trailing fragments like ': it', '—it', ', it', or lone colon/hyphen
   out = out.replace(/[:\u2014\-]\s*(it|this|that)\.?\s*$/i, '.');
   out = out.replace(/[:\u2014\-]\s*$/, '');
-  // Remove programmatic phrasing
   out = out.replace(/\bchoose one to push\b/gi, '');
-  // Collapse spaces and tidy
   out = out.replace(/\s{2,}/g, ' ').trim();
-  // Ensure ends with period if missing
   if (!/[.!?]\s*$/.test(out)) out += '.';
   return out;
 }
 
-// --- Contradiction detection ---
 function detectContradiction(terms: string[], cites: Array<{ author?: string; work?: string }>): { a: string; b: string; thinkers?: string[] } | null {
   const pairs: Array<[string, string]> = [
     ['light', 'darkness'],
@@ -896,7 +1281,6 @@ function detectContradiction(terms: string[], cites: Array<{ author?: string; wo
       return { a, b, thinkers };
     }
   }
-  // If terms suggest paradox (e.g., both 'stillness' and 'motion')
   if (set.has('stillness') && set.has('motion')) {
     return { a: 'stillness', b: 'motion', thinkers: opposingThinkers(cites) };
   }
@@ -905,8 +1289,6 @@ function detectContradiction(terms: string[], cites: Array<{ author?: string; wo
 
 function opposingThinkers(cites: Array<{ author?: string; work?: string }>): string[] | undefined {
   const pool = cites.map(c => c.author).filter(Boolean) as string[];
-  // Fallback pairs if RAG lacks explicit authors
-  // Revisit this list now that the relevant vector data is clearer
   const canonicalPairs: Array<[string, string]> = [
     ['Heraclitus', 'Parmenides'],
     ['Plato', 'Aristotle'],
@@ -918,4 +1300,3 @@ function opposingThinkers(cites: Array<{ author?: string; work?: string }>): str
   const picked = pickN(canonicalPairs, 1)[0];
   return picked ? [picked[0], picked[1]] : undefined;
 }
-

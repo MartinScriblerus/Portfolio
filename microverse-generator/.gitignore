@@ -78,3 +78,11 @@ scripts/cleaned_chunks.txt
 
 # Large generated data files (keep local, don't commit)
 data/dsp-training-samples-*.json
+
+# YouTube scraper checkpoint files
+*.checkpoint.json
+*.processed-ids.json
+.youtube-oauth-token.json
+
+# Supabase config cache (contains project ref)
+.supabase-config-cache.json
