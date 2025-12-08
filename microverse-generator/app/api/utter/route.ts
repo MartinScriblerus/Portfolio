@@ -20,6 +20,7 @@ type UtterInput = {
   citations?: Array<{ author?: string; work?: string }>; // vernacular cite list
   bans?: string[]; // phrases to avoid repeating
   style?: { persona?: string; tone?: string };
+  apiKey?: string; // Optional: user-provided OpenAI API key (BYOT)
 };
 
 export async function POST(req: NextRequest) {
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => ({}))) as UtterInput;
-  const { query = '', snippets = [], keywords = [], citations = [], bans = [], style } = body;
+  const { query = '', snippets = [], keywords = [], citations = [], bans = [], style, apiKey: clientApiKey } = body;
 
   // Cache key = hash of essential inputs
   const key = hash({ q: query, s: snippets.slice(0, 4), k: keywords.slice(0, 8), c: citations.slice(0, 2), b: bans.slice(0, 8), v: 1 });
@@ -47,7 +48,8 @@ export async function POST(req: NextRequest) {
   const persona = style?.persona || `A terse narrator whose ideals are influenced by the random selection from Oblique Strategies: ${pick(Array.isArray(obliqueStrategiesData?.strategies) ? obliqueStrategiesData.strategies.map((s: any) => s.text) : [])}`;
   const tone = style?.tone || 'Terse, calm, and precise. Convert old words to new ones, but always choose the less flashy word.';
 
-  const llmText = await tryLLM({ query, snippets, keywords, citations, bans: mergedBans, persona, tone, stylePack });
+  const llmText = await tryLLM({ query, snippets, keywords, citations, bans: mergedBans, persona, tone, stylePack, apiKey: clientApiKey });
+  console.log("WHAT IS LLM TEXT? ", llmText);
   let outText = (llmText && sanitize(llmText, mergedBans)) || sanitize(ruleBasedFallback({ query, snippets, keywords, citations, stylePack }), mergedBans);
   outText = clarityFilter(outText);
   outText = ensureCTA(outText);
@@ -83,10 +85,15 @@ async function loadStylePack(): Promise<null | any> {
   }
 }
 
-async function tryLLM(params: { query: string; snippets: string[]; keywords: string[]; citations: Array<{ author?: string; work?: string }>; bans: string[]; persona: string; tone: string; stylePack: any }): Promise<string | null> {
-  const { query, snippets, keywords, citations, bans, persona, tone, stylePack } = params;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+async function tryLLM(params: { query: string; snippets: string[]; keywords: string[]; citations: Array<{ author?: string; work?: string }>; bans: string[]; persona: string; tone: string; stylePack: any; apiKey?: string }): Promise<string | null> {
+  const { query, snippets, keywords, citations, bans, persona, tone, stylePack, apiKey: clientApiKey } = params;
+  // Prefer client-provided key (BYOT), fallback to server env var
+  const apiKey = clientApiKey || process.env.OPENAI_API_KEY;
+  
+  if (!apiKey) {
+    console.warn('[tryLLM] No API key available. Client key provided:', !!clientApiKey, 'Env key exists:', !!process.env.OPENAI_API_KEY);
+    return null;
+  }
 
   const messages = buildPrompt({ query, snippets, keywords, citations, bans, persona, tone, stylePack });
   try {
@@ -102,11 +109,27 @@ async function tryLLM(params: { query: string; snippets: string[]; keywords: str
         frequency_penalty: 0.2,
       })
     });
-    if (!res.ok) return null;
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('[tryLLM] OpenAI API error:', res.status, res.statusText);
+      console.error('[tryLLM] Error details:', errorText);
+      return null;
+    }
+    
     const j = await res.json();
     const text = j?.choices?.[0]?.message?.content?.trim();
+    
+    if (!text) {
+      console.warn('[tryLLM] Empty or missing text in response:', JSON.stringify(j, null, 2));
+    } else {
+      console.log('[tryLLM] Successfully got LLM text, length:', text.length);
+    }
+    
     return text || null;
-  } catch {
+  } catch (error: any) {
+    console.error('[tryLLM] Exception calling OpenAI:', error?.message || String(error));
+    if (error?.stack) console.error('[tryLLM] Stack:', error.stack);
     return null;
   }
 }

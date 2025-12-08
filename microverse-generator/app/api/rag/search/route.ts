@@ -1,6 +1,41 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+// Rate limiting (in-memory, per serverless instance)
+const RL = new Map<string, { count: number; resetAt: number }>();
+const WINDOW_MS = 60_000; // 1 minute
+const MAX_REQ_PER_WINDOW = 50; // More lenient for search endpoint
+
+// Input validation limits
+const MAX_TEXT_LENGTH = 5000;
+const MAX_K = 50;
+
+function rateLimit(id: string): boolean {
+  const now = Date.now();
+  const curr = RL.get(id) || { count: 0, resetAt: now + WINDOW_MS };
+  if (now > curr.resetAt) {
+    curr.count = 0;
+    curr.resetAt = now + WINDOW_MS;
+  }
+  curr.count += 1;
+  RL.set(id, curr);
+  return curr.count <= MAX_REQ_PER_WINDOW;
+}
+
+function sanitizeError(error: any, isProduction = process.env.NODE_ENV === 'production'): string {
+  if (!isProduction) {
+    return error?.message || String(error);
+  }
+  // In production, return generic error messages
+  if (error?.message?.includes('Supabase') || error?.message?.includes('database')) {
+    return 'Database error';
+  }
+  if (error?.message?.includes('resolve') || error?.message?.includes('ERR_NAME_NOT_RESOLVED')) {
+    return 'Service unavailable';
+  }
+  return 'Internal server error';
+}
+
 // Simple in-memory LRU for query embeddings (per serverless instance lifetime)
 type CacheEntry = { key: string; vec: number[]; at: number };
 const EMBED_CACHE_MAX = 40;
@@ -94,12 +129,15 @@ export async function POST(req: NextRequest) {
     
     if (error) {
       console.error('[RAG Search] Supabase error:', error);
+      const isProduction = process.env.NODE_ENV === 'production';
       return new Response(JSON.stringify({ 
-        error: 'Database query failed',
-        details: error.message,
-        hint: error.message.includes('resolve') || error.message.includes('ERR_NAME_NOT_RESOLVED') 
-          ? 'Check your Supabase URL and project status. The project may be paused or the URL may be incorrect.' 
-          : undefined
+        error: sanitizeError(error),
+        ...(isProduction ? {} : { 
+          details: error.message,
+          hint: error.message.includes('resolve') || error.message.includes('ERR_NAME_NOT_RESOLVED') 
+            ? 'Check your Supabase URL and project status. The project may be paused or the URL may be incorrect.' 
+            : undefined
+        })
       }), { status: 500 });
     }
 
@@ -155,6 +193,7 @@ export async function POST(req: NextRequest) {
       }
     }), { headers: { 'Content-Type': 'application/json' } });
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e?.message || String(e) }), { status: 500 });
+    console.error('[RAG Search] Error:', e);
+    return new Response(JSON.stringify({ error: sanitizeError(e) }), { status: 500 });
   }
 }

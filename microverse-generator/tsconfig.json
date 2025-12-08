@@ -3,7 +3,7 @@
     "target": "ES2020",
     "baseUrl": ".",
     "paths": {
-      "@/": [
+      "@/*": [
         "src/*"
       ]
     },
@@ -34,6 +34,8 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "src/types/**/*.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
     "next-env.d.ts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
