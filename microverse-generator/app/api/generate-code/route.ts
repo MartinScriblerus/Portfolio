@@ -163,9 +163,14 @@ ${currentCode ? `\nCurrent ChucK code state (for debugging/context):\n\`\`\`chuc
     if (!res.ok) {
       const errorText = await res.text();
       console.error('[generate-code] OpenAI API error:', res.status, errorText);
+      // Don't expose internal error details to client
+      const isProduction = process.env.NODE_ENV === 'production';
       return NextResponse.json(
-        { error: 'Failed to generate code', details: errorText },
-        { status: res.status }
+        { 
+          error: 'Failed to generate code',
+          ...(isProduction ? {} : { details: errorText })
+        },
+        { status: 500 } // Always return 500, don't leak upstream status codes
       );
     }
 
