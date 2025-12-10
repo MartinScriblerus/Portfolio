@@ -1,4 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { extractKeywords, findMatchingPerceptualTags } from '../../../src/utils/keywordExtractor';
+import { searchDSPDocsClient } from '../../../src/lib/dsp-rag/search-dsp-docs';
+import { DSPDoc } from '../../../src/types/dsp-rag';
+import { 
+  searchPerceptualInsights, 
+  extractPerceptualTagsFromInsights,
+  enhanceQueryWithInsights 
+} from '../../../src/utils/perceptualSearch';
 
 // Rate limiting (in-memory, per serverless instance)
 const RL = new Map<string, { count: number; resetAt: number }>();
@@ -38,16 +46,9 @@ function sanitizeError(error: any, isProduction = process.env.NODE_ENV === 'prod
 
 type GenerateCodeInput = {
   query: string;
-  dspDocs?: Array<{
-    title?: string;
-    content?: string; // Actual ChucK code - this is what we use for examples
-    example_usage?: string | string[];
-    perceptual_tags?: string[];
-    technical_tags?: string[];
-    similarity?: number;
-  }>;
+  dspDocs?: Array<DSPDoc & { similarity?: number }>;
   currentCode?: string; // Current ChucK code state for debugging/context
-  apiKey?: string;
+  // apiKey removed - no longer needed
 };
 
 export async function POST(req: NextRequest) {
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = (await req.json().catch(() => ({}))) as GenerateCodeInput;
-    const { query, dspDocs = [], currentCode, apiKey: clientApiKey } = body;
+    const { query, dspDocs = [] } = body;
 
     // Input validation
     if (!query || typeof query !== 'string') {
@@ -75,13 +76,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (currentCode && typeof currentCode === 'string' && currentCode.length > MAX_CURRENT_CODE_LENGTH) {
-      return NextResponse.json(
-        { error: `Current code too long. Maximum length is ${MAX_CURRENT_CODE_LENGTH} characters` },
-        { status: 400 }
-      );
-    }
-
     if (Array.isArray(dspDocs) && dspDocs.length > MAX_DSP_DOCS) {
       return NextResponse.json(
         { error: `Too many DSP docs. Maximum is ${MAX_DSP_DOCS}` },
@@ -89,152 +83,167 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Prefer client-provided key (BYOT), fallback to server env var
-    const apiKey = clientApiKey || process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: 'OpenAI API key required' }, { status: 400 });
+    // Find the best matching example from Supabase search results
+    // Filter for examples with actual code content
+    let validExamples = dspDocs
+      .filter(doc => doc.content && doc.content.trim().length > 20) // Must have actual code
+      .sort((a, b) => (b.similarity || 0) - (a.similarity || 0)); // Sort by similarity (highest first)
+
+    // Fallback: If no examples found, try searching by perceptual tags and perceptual insights
+    if (validExamples.length === 0) {
+      console.log('[generate-code] No examples found, trying perceptual fallback...');
+      
+      try {
+        // Extract keywords from query
+        const keywords = extractKeywords(query);
+        console.log('[generate-code] Extracted keywords:', keywords);
+        
+        if (keywords.length > 0) {
+          // Step 1: Try matching to existing perceptual tags
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
+                         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+          const tagsRes = await fetch(`${baseUrl}/api/perceptual-tags`);
+          
+          let matchingTags: string[] = [];
+          
+          if (tagsRes.ok) {
+            const tagsData = await tagsRes.json();
+            const availableTags = tagsData.tags || [];
+            console.log('[generate-code] Found', availableTags.length, 'available perceptual tags');
+            
+            // Find matching tags
+            matchingTags = findMatchingPerceptualTags(keywords, availableTags);
+            console.log('[generate-code] Matching perceptual tags:', matchingTags);
+          } else {
+            console.warn('[generate-code] Failed to fetch perceptual tags:', tagsRes.status);
+          }
+          
+          // Step 2: If no tags matched, or we want additional context, search perceptual DB
+          let perceptualInsights: any[] = [];
+          let enhancedQuery = query;
+          
+          if (matchingTags.length === 0 || keywords.length > matchingTags.length) {
+            console.log('[generate-code] Searching perceptual/philosophy DB for insights...');
+            perceptualInsights = await searchPerceptualInsights(query, 3, 0.3);
+            console.log('[generate-code] Found', perceptualInsights.length, 'perceptual insights');
+            
+            if (perceptualInsights.length > 0) {
+              // Extract additional perceptual tags from insights
+              const insightTags = extractPerceptualTagsFromInsights(perceptualInsights);
+              console.log('[generate-code] Extracted tags from insights:', insightTags);
+              
+              // Combine with existing matching tags
+              matchingTags = Array.from(new Set([...matchingTags, ...insightTags.slice(0, 3)]));
+              
+              // Enhance query with insights
+              enhancedQuery = enhanceQueryWithInsights(query, perceptualInsights);
+              console.log('[generate-code] Enhanced query:', enhancedQuery);
+            }
+          }
+          
+          // Step 3: Search again using perceptual tags and/or enhanced query
+          if (matchingTags.length > 0 || enhancedQuery !== query) {
+            const fallbackResults = await searchDSPDocsClient(
+              enhancedQuery, // Use enhanced query if available
+              {
+                language: 'chuck',
+                perceptualTags: matchingTags.length > 0 ? matchingTags.slice(0, 3) : undefined
+              },
+              5
+            );
+            
+            console.log('[generate-code] Perceptual fallback found', fallbackResults.length, 'results');
+            
+            // Update validExamples with fallback results
+            validExamples = fallbackResults
+              .filter(doc => doc.content && doc.content.trim().length > 20)
+              .sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
+          }
+        }
+      } catch (fallbackError: any) {
+        console.warn('[generate-code] Perceptual fallback failed:', fallbackError);
+        // Continue to return error if fallback also fails
+      }
     }
 
-    // Format DSP docs examples for the prompt - use 'content' field which has actual code
-    const codeExamples = dspDocs
-      .filter(doc => doc.content && doc.content.trim().length > 20) // Must have actual code
-      .slice(0, 5) // Use top 5 most relevant
-      .map((doc, idx) => {
-        // Use 'content' field which contains the actual ChucK code
-        let code = doc.content || '';
-        
-        // Clean up the code (remove excessive comments if needed)
-        code = code.trim();
-        
-        // Skip if it's just metadata or too short
-        if (code.length < 20 || code.includes('---') && !code.includes('=>')) {
-          return null;
-        }
-        
-        const title = doc.title || 'Example';
-        const tags = doc.perceptual_tags?.length 
-          ? ` (tags: ${doc.perceptual_tags.join(', ')})`
-          : '';
-        return `// Example ${idx + 1}: ${title}${tags}\n${code}`;
-      })
-      .filter((ex): ex is string => ex !== null)
-      .join('\n\n');
-
-    // Build the code generation prompt
-    const systemPrompt = `You are a ChucK programming expert. Generate clean, working ChucK code based on user requests.
-
-CRITICAL RULES:
-- Output ONLY valid ChucK code - NO explanations, NO markdown code blocks, NO comments about the code
-- Start directly with ChucK code (e.g., "SinOsc osc => dac;")
-- Make the code runnable and complete - it should work when pasted into WebChucK IDE
-- Always connect audio units to dac (e.g., "osc => dac;")
-- Include time advancement (e.g., "1::second => now;") in a loop so the code runs
-- Use appropriate ChucK syntax: => for connections, :: for time, => now; for time advancement
-- If user asks for a synthesizer/oscillator, create a complete working example with:
-  * An oscillator (SinOsc, SawOsc, SqrOsc, TriOsc, etc.)
-  * Connection to dac
-  * A time loop (while(true) { ... => now; })
-  * Frequency and gain control
-- Keep code concise but functional - aim for 10-30 lines for simple requests
-- If reference examples are provided but seem incomplete, use them only for syntax reference and generate complete code`;
-
-    const userPrompt = `User request: ${query}
-
-${currentCode ? `\nCurrent ChucK code state (for debugging/context):\n\`\`\`chuck\n${currentCode}\n\`\`\`\n\n` : ''}${codeExamples ? `Reference examples (use for syntax reference only):\n${codeExamples}\n\n` : 'No reference examples available. Generate code from scratch.\n\n'}Generate complete, runnable ChucK code that fulfills the user's request.${currentCode ? ' If debugging is needed, analyze the current code and suggest fixes.' : ''} Output ONLY the code, nothing else:`;
-
-    // Call OpenAI
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        max_tokens: 2000,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error('[generate-code] OpenAI API error:', res.status, errorText);
-      // Don't expose internal error details to client
-      const isProduction = process.env.NODE_ENV === 'production';
+    if (validExamples.length === 0) {
       return NextResponse.json(
         { 
-          error: 'Failed to generate code',
-          ...(isProduction ? {} : { details: errorText })
+          error: 'No matching ChucK examples found',
+          hint: 'Try a different search query or check your Supabase knowledge base'
         },
-        { status: 500 } // Always return 500, don't leak upstream status codes
+        { status: 404 }
       );
     }
 
-    const data = await res.json();
-    const code = data?.choices?.[0]?.message?.content?.trim();
+    // Return the best matching example (highest similarity)
+    const bestMatch: DSPDoc & { similarity?: number } = validExamples[0];
+    let code = bestMatch.content || '';
 
-    if (!code) {
+    // Clean up the code
+    code = code.trim();
+
+    // Ensure it's valid ChucK code (has ChucK syntax)
+    if (!code.includes('=>') && !code.includes('::') && !code.includes('dac')) {
+      // If the best match doesn't look like ChucK code, try the next one
+      const nextMatch = validExamples.find(ex => 
+        ex.content?.includes('=>') || ex.content?.includes('dac')
+      );
+      if (nextMatch?.content) {
+        code = nextMatch.content.trim();
+      }
+    }
+
+    if (!code || code.length < 10) {
       return NextResponse.json(
-        { error: 'No code generated' },
-        { status: 500 }
+        { 
+          error: 'No valid ChucK code found in examples',
+          hint: 'The search results don\'t contain complete ChucK code examples'
+        },
+        { status: 404 }
       );
     }
 
-    // Clean up the code (remove markdown code blocks if present)
-    let cleanCode = code
-      .replace(/^```(?:chuck|ch)?\n?/gm, '')
-      .replace(/^```\n?/gm, '')
-      .replace(/```$/gm, '')
-      .trim();
+    // Validate and auto-fix the code
+    const { validateAndFixChuckCode } = await import('../../../src/utils/chuckCodeValidator');
+    const validation = await validateAndFixChuckCode(code, 5);
     
-    // Remove any explanatory text before the code
-    // Look for common patterns like "Here's the code:" or "The code is:"
-    const codeStartPatterns = [
-      /^(?:here'?s?|the|this is|below is|following is).*?code[:\s]*/i,
-      /^code[:\s]*/i,
-      /^```/,
-    ];
-    
-    for (const pattern of codeStartPatterns) {
-      const match = cleanCode.match(pattern);
-      if (match) {
-        cleanCode = cleanCode.substring(match[0].length).trim();
-      }
+    if (validation.fixedCode && validation.fixedCode !== code) {
+      console.log('[generate-code] Code was auto-fixed:', {
+        originalLength: code.length,
+        fixedLength: validation.fixedCode.length,
+        removedLines: validation.removedLines,
+        attempts: validation.attempts
+      });
+      code = validation.fixedCode;
     }
-    
-    // If the code still looks like it has explanations, try to extract just the ChucK code
-    // Look for lines that start with ChucK patterns
-    const lines = cleanCode.split('\n');
-    const codeLines: string[] = [];
-    let inCodeBlock = false;
-    
-    for (const line of lines) {
-      // Skip explanation lines
-      if (line.match(/^(here'?s?|the|this|below|following|code|example|output)/i) && !line.includes('=>')) {
-        continue;
-      }
-      // Start collecting when we see ChucK syntax
-      if (line.includes('=>') || line.includes('::') || line.includes('dac') || line.includes('osc') || line.includes('SinOsc') || line.includes('SawOsc')) {
-        inCodeBlock = true;
-      }
-      if (inCodeBlock || line.trim().startsWith('//')) {
-        codeLines.push(line);
-      }
-    }
-    
-    if (codeLines.length > 0) {
-      cleanCode = codeLines.join('\n').trim();
-    }
+
+    console.log('[generate-code] Returning best match:', {
+      title: bestMatch.title,
+      similarity: bestMatch.similarity,
+      codeLength: code.length,
+      totalExamples: validExamples.length,
+      wasFixed: validation.fixedCode !== bestMatch.content,
+      removedLines: validation.removedLines
+    });
 
     return NextResponse.json({
-      code: cleanCode,
+      code,
       meta: {
         examplesUsed: dspDocs.length,
-        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        bestMatch: {
+          ...(('id' in bestMatch && bestMatch.id) ? { id: bestMatch.id } : {}), // Include ID if it exists
+          title: bestMatch.title,
+          similarity: bestMatch.similarity,
+          perceptual_tags: bestMatch.perceptual_tags,
+          technical_tags: bestMatch.technical_tags,
+        },
+        validation: validation.removedLines ? {
+          wasFixed: true,
+          removedLines: validation.removedLines,
+          attempts: validation.attempts
+        } : undefined,
+        source: 'supabase_rag', // Indicate this came from RAG, not LLM generation
       },
     });
   } catch (error: any) {

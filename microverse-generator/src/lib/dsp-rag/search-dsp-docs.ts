@@ -6,6 +6,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { DSPDoc, Language } from '../../types/dsp-rag';
 
+// Timeout helper
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMsg: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error(errorMsg)), timeoutMs)
+    )
+  ]);
+}
+
 export async function searchDSPDocsClient(
   query: string,
   filters?: {
@@ -24,17 +34,24 @@ export async function searchDSPDocsClient(
   }
   
   try {
+    console.log('[searchDSPDocsClient] Starting search for:', query);
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    // Get embedding for query
-    const embedRes = await fetch('/api/embed', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: query })
-    });
+    // Get embedding for query with timeout (30 seconds)
+    console.log('[searchDSPDocsClient] Getting embedding...');
+    const embedRes = await withTimeout(
+      fetch('/api/embed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: query })
+      }),
+      30000,
+      'Embedding request timed out after 30s'
+    );
     
     if (!embedRes.ok) {
-      console.warn('[searchDSPDocsClient] Failed to get embedding');
+      const errorText = await embedRes.text().catch(() => 'Unknown error');
+      console.warn('[searchDSPDocsClient] Failed to get embedding:', embedRes.status, errorText);
       return [];
     }
     
@@ -48,28 +65,58 @@ export async function searchDSPDocsClient(
       return [];
     }
     
-    // Call match_dsp_docs RPC function
-    const { data, error } = await (supabase as any).rpc('match_dsp_docs', {
+    console.log('[searchDSPDocsClient] Got embedding, length:', embedding.length);
+    
+    // Call match_dsp_docs RPC function with timeout (20 seconds)
+    // Use explicit parameter names to avoid PostgREST ambiguity
+    console.log('[searchDSPDocsClient] Calling match_dsp_docs RPC...');
+    const rpcPromise = (supabase as any).rpc('match_dsp_docs', {
       query_embedding: embedding,
       match_count: k,
       min_similarity: 0.4,
       filter_language: filters?.language || null,
       perceptual_tags_filter: filters?.perceptualTags || null,
       technical_tags_filter: filters?.technicalTags || null
+      // Explicitly NOT including filter_type or filter_tool to use the 6-parameter version
     });
+    
+    const result = await withTimeout(
+      rpcPromise,
+      20000,
+      'Supabase RPC call timed out after 20s'
+    ) as { data: any; error: any };
+    const { data, error } = result;
     
     if (error) {
       console.error('[searchDSPDocsClient] RPC error:', error);
+      // Check for function ambiguity error (PGRST203)
+      if (error.code === 'PGRST203' || error.message?.includes('Could not choose the best candidate function')) {
+        console.error('[searchDSPDocsClient] ❌ FUNCTION AMBIGUITY ERROR (PGRST203)');
+        console.error('[searchDSPDocsClient] Multiple match_dsp_docs functions exist in Supabase.');
+        console.error('[searchDSPDocsClient] 📖 See FIX_SUPABASE_FUNCTION.md for detailed instructions');
+        console.error('[searchDSPDocsClient] 🔧 Quick fix: Go to Supabase SQL Editor and run:');
+        console.error('[searchDSPDocsClient] DROP FUNCTION IF EXISTS public.match_dsp_docs(double precision[], integer, double precision, text, text, text, text[], text[]);');
+      }
+      // Check if it's a function not found error
+      if (error.message?.includes('function') || error.code === '42883') {
+        console.error('[searchDSPDocsClient] match_dsp_docs function may not exist in Supabase. Please run the migration.');
+      }
       return [];
     }
     
-    return (data || []).map((doc: any) => ({
+    const results = (data || []).map((doc: any) => ({
       ...doc,
       similarity: doc.similarity || 0
     }));
     
+    console.log('[searchDSPDocsClient] Found', results.length, 'results');
+    return results;
+    
   } catch (error: any) {
     console.error('[searchDSPDocsClient] Error:', error);
+    if (error.message?.includes('timed out')) {
+      console.error('[searchDSPDocsClient] Request timed out - check Supabase connection and RPC function');
+    }
     return [];
   }
 }

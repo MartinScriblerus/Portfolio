@@ -73,3 +73,4 @@ export function compareCodes(uiCode: string, userCode: string): {
     differences,
   };
 }
+

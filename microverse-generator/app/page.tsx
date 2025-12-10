@@ -2,7 +2,6 @@
 import React from 'react';
 import { 
   BabylonCanvas, 
-  PhilosopherGuide, 
   IntentDebugPanel, 
 } from '../src/components';
 
@@ -17,7 +16,6 @@ export default function Page() {
     <BabylonCanvas />
     {/* <IntroDetails/> */}
     <ClientWrapper />
-    <PhilosopherGuide />
     {/* {process.env.NODE_ENV === 'development' && <DevtoolsHider />}
     {process.env.NODE_ENV === 'development' && <DevLogger />}
     {process.env.NODE_ENV === 'development' && <IntentDebugPanel />} */}

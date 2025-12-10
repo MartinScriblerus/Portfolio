@@ -23,3 +23,4 @@ export interface DSPDoc {
   created_at?: string;
   updated_at?: string;
 }
+

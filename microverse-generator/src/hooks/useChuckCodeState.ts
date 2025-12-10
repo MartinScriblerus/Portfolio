@@ -156,3 +156,4 @@ export function formatCodeStateForRAG(state: ChuckCodeState): string {
 
   return parts.join('\n');
 }
+

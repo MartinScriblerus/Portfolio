@@ -48,6 +48,7 @@ import {
 import { useOldMonolithStore } from '../store/useOldMonolithStore';
 import { useMicrotonalStore } from '../store/useMicrotonalStore';
 import { initializeUniversalSources } from '../utils/effectsInitializationHelper';
+import PhilosopherGuide from '../components/PhilosopherGuide'; 
 
 // Put this near the top, inside component file (module scope or inside component before handlers):
 const SERVER_FILES_TO_PRELOAD: Array<{ serverFilename: string; virtualFilename: string }> = [
@@ -1392,6 +1393,7 @@ export default function ChuckSetup() {
                             sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
                     }
                 </Button>
+
                 {/* Keyboard toggle (single toggle as requested) */}
                 <Button
                     id='toggleKeyboardButton'
@@ -1426,6 +1428,8 @@ export default function ChuckSetup() {
                       </span>
                     )}
                 </Button>
+
+                <PhilosopherGuide />
             </Box>
 
             <OldParentMonolith 

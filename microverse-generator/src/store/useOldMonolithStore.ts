@@ -8,6 +8,8 @@ interface OldMonolithState {
   // High-level session state
   clickedBegin: boolean;
   setClickedBegin: (v: boolean) => void;
+  rightDrawerOpen: boolean;
+  setRightDrawerOpen: (v: boolean) => void;
 
   // Which source is active for FX and knobs
   fxRadioValue: SourceName;
@@ -33,6 +35,9 @@ interface OldMonolithState {
 export const useOldMonolithStore = create<OldMonolithState>((set) => ({
   clickedBegin: false,
   setClickedBegin: (v) => set({ clickedBegin: v }),
+
+  rightDrawerOpen: false, // Hidden by default
+  setRightDrawerOpen: (v) => set({ rightDrawerOpen: v }),
 
   fxRadioValue: 'osc1',
   setFxRadioValue: (s) => set({ fxRadioValue: s }),
