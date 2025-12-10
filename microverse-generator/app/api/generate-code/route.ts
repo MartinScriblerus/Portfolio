@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractKeywords, findMatchingPerceptualTags } from '../../../src/utils/keywordExtractor';
 import { searchDSPDocsClient } from '../../../src/lib/dsp-rag/search-dsp-docs';
+import { DSPDoc } from '../../../src/types/dsp-rag';
 import { 
   searchPerceptualInsights, 
   extractPerceptualTagsFromInsights,
@@ -45,14 +46,7 @@ function sanitizeError(error: any, isProduction = process.env.NODE_ENV === 'prod
 
 type GenerateCodeInput = {
   query: string;
-  dspDocs?: Array<{
-    title?: string;
-    content?: string; // Actual ChucK code - this is what we use for examples
-    example_usage?: string | string[];
-    perceptual_tags?: string[];
-    technical_tags?: string[];
-    similarity?: number;
-  }>;
+  dspDocs?: Array<DSPDoc & { similarity?: number }>;
   currentCode?: string; // Current ChucK code state for debugging/context
   // apiKey removed - no longer needed
 };
@@ -183,7 +177,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Return the best matching example (highest similarity)
-    const bestMatch = validExamples[0];
+    const bestMatch: DSPDoc & { similarity?: number } = validExamples[0];
     let code = bestMatch.content || '';
 
     // Clean up the code
@@ -238,7 +232,7 @@ export async function POST(req: NextRequest) {
       meta: {
         examplesUsed: dspDocs.length,
         bestMatch: {
-          id: bestMatch.id || undefined, // Include ID for duplicate filtering
+          ...(('id' in bestMatch && bestMatch.id) ? { id: bestMatch.id } : {}), // Include ID if it exists
           title: bestMatch.title,
           similarity: bestMatch.similarity,
           perceptual_tags: bestMatch.perceptual_tags,

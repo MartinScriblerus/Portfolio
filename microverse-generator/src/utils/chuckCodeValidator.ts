@@ -26,7 +26,7 @@ function hasBasicChuckSyntax(code: string): boolean {
     code.includes('adc') || // Input
     code.includes('SinOsc') || // Common UGen
     code.includes('SndBuf') || // Common UGen
-    code.match(/\w+\s*=>/); // Pattern: variable => something
+    !!code.match(/\w+\s*=>/); // Pattern: variable => something (convert to boolean)
   
   return hasChuckSyntax;
 }

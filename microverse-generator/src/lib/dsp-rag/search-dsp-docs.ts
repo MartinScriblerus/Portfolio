@@ -80,11 +80,12 @@ export async function searchDSPDocsClient(
       // Explicitly NOT including filter_type or filter_tool to use the 6-parameter version
     });
     
-    const { data, error } = await withTimeout(
+    const result = await withTimeout(
       rpcPromise,
       20000,
       'Supabase RPC call timed out after 20s'
-    );
+    ) as { data: any; error: any };
+    const { data, error } = result;
     
     if (error) {
       console.error('[searchDSPDocsClient] RPC error:', error);
