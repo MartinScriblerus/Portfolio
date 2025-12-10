@@ -146,7 +146,8 @@ type RightDrawerProps = {
 
 function RightDrawer(props: RightDrawerProps) {
   const [tab, setTab] = useState<'grid' | 'mixer' | 'fx'>('grid');
-  const [open, setOpen] = useState(true);
+  const open = useOldMonolithStore((s) => s.rightDrawerOpen);
+  const setOpen = useOldMonolithStore((s) => s.setRightDrawerOpen);
   
   // Update CSS variable for keyboard positioning when drawer state changes
   useEffect(() => {
@@ -263,7 +264,7 @@ function RightDrawer(props: RightDrawerProps) {
   return (
     <>
       {/* Floating toggle button when drawer is closed */}
-      {!open && (
+      {/* {!open && (
         <button
           onClick={() => { setOpen(true); setTab('grid'); }}
           aria-label="Open grid panel"
@@ -287,7 +288,7 @@ function RightDrawer(props: RightDrawerProps) {
         >
           Grid →
         </button>
-      )}
+      )} */}
       <aside
         aria-label="Composer tools"
         style={{

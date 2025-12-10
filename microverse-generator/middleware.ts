@@ -43,9 +43,14 @@ function checkRateLimit(req: NextRequest): { allowed: boolean; headers: Record<s
 }
 
 export function middleware(req: NextRequest) {
-  // Restrict methods for specific API routes
-  const path = req.nextUrl.pathname;
-  const method = req.method.toUpperCase();
+  // TEMPORARILY DISABLED - Return immediately to test if middleware is causing 500 errors
+  return NextResponse.next();
+  
+  /* ORIGINAL CODE - COMMENTED OUT FOR TESTING
+  try {
+    // Restrict methods for specific API routes
+    const path = req.nextUrl.pathname;
+    const method = req.method.toUpperCase();
 
   // Only allow POST for these endpoints
   if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent') && method !== 'POST') {
@@ -75,7 +80,13 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+    return NextResponse.next();
+  } catch (error) {
+    // If middleware crashes, log and allow request to proceed
+    console.error('[middleware] Error:', error);
+    return NextResponse.next();
+  }
+  */
 }
 
 export const config = {

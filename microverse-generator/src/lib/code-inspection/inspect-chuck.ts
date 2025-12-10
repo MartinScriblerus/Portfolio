@@ -158,3 +158,4 @@ export function formatInspectionResult(result: InspectionResult): string {
 
   return parts.join('\n');
 }
+
