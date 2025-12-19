@@ -27,6 +27,8 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import CodeIcon from '@mui/icons-material/Code';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import {
   useHydraControlsStore,
   MusicVariableSource,
@@ -34,6 +36,9 @@ import {
   HydraOperationChain,
   HydraOperationType,
 } from '../store/useHydraControlsStore';
+import { useOldMonolithStore } from '../store/useOldMonolithStore';
+import VideoUpload from './VideoUpload';
+import { generateHydraCode } from '../utils/generateHydraCode';
 
 const MUSIC_SOURCES: MusicVariableSource[] = [
   'none',
@@ -504,7 +509,7 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
             {isCompositor && (
               <Box>
                 <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', mb: 0.5, display: 'block' }}>
-                  <strong>Compositors combine 2 textures:</strong> The main chain (from above) + inner source (select below). If no inner source selected, uses noise default.
+                  <strong>Compositors</strong> combine 2 textures
                 </Typography>
                 <FormControl fullWidth size="small">
                   <InputLabel sx={{ fontSize: '0.75rem', color: '#ffffff' }}>Inner Source (2nd texture)</InputLabel>
@@ -555,6 +560,16 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
               </Box>
             )}
             
+            {/* Video Upload for src operation */}
+            {isSource && chain.operation === 'src' && (
+              <Box sx={{ mb: 1, p: 1, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 0.5 }}>
+                <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ffffff', mb: 1, display: 'block' }}>
+                  Video Source
+                </Typography>
+                <VideoUpload />
+              </Box>
+            )}
+            
             {/* Parameters */}
             {paramLabels.map(({ key, label }) => (
               <ChainParamControl key={key} chainId={chain.id} param={key} label={label} />
@@ -583,6 +598,9 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
   const addChain = useHydraControlsStore((s) => s.addChain);
   const [addType, setAddType] = useState<HydraOperationType>('source');
   const [addOperation, setAddOperation] = useState<string>('osc');
+  const rightDrawerOpen = useOldMonolithStore((s) => s.rightDrawerOpen);
+  const [codeDialogOpen, setCodeDialogOpen] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState<string>('');
   
   // Create a stable hash of chains to use as dependency for useMemo
   // This prevents infinite loops by only recalculating when chains actually change
@@ -626,6 +644,21 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
       setAddOperation(operations[0]?.value || 'osc');
     }
   };
+
+  const handleGenerateCode = () => {
+    const code = generateHydraCode(chains);
+    setGeneratedCode(code);
+    setCodeDialogOpen(true);
+  };
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedCode);
+      // You could add a toast notification here if desired
+    } catch (err) {
+      console.error('Failed to copy code:', err);
+    }
+  };
   
   // Get root chains (no parent) - use memoized tree
   const rootChains = chainTree.filter(c => !c.parentId);
@@ -634,34 +667,72 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="sm"
+      maxWidth={false}
       PaperProps={{
         sx: {
           bgcolor: 'rgba(20, 20, 25, 0.95)',
           color: '#e8e8e8',
           border: '1px solid rgba(255,255,255,0.1)',
-          width: '344px',
-          
-        //   maxHeight: '48vh',
+          width: '444px',
+          position: 'fixed',
+          bottom: '16rem', // Above piano keys
+          //left: '360px', // To the right of rgb panels and buttons
+          right: rightDrawerOpen ? '420px' : '20px', // Slide left when right drawer opens
+          top: '20px',
+          margin: 0,
+          maxHeight: 'calc(100vh - 140px)',
+          transform: 'none', // Override default centering
+          transition: 'right 180ms ease', // Match right drawer transition
+        },
+      }}
+      sx={{
+        '& .MuiDialog-container': {
+          alignItems: 'flex-end',
+          justifyContent: 'flex-start',
+        },
+        '& .MuiBackdrop-root': {
+          backgroundColor: 'transparent', // No backdrop overlay
         },
       }}
     >
       <DialogTitle sx={{ pb: 1, fontSize: '0.95rem', fontWeight: 600, color: '#ffffff' }}>
         Hydra Operation Chains
         <Typography variant="caption" sx={{ display: 'block', fontSize: '0.7rem', color: 'rgba(255,255,255,0.6)', mt: 0.5, fontWeight: 400 }}>
-          <strong>Sources:</strong> osc, noise, shape, voronoi create new textures that add to video • <strong>Src (Video)</strong> = references the video buffer • <strong>Transforms:</strong> kaleid, repeat, rotate modify textures • <strong>Compositors:</strong> blend, modulate combine 2 textures (select inner source below)
+          <strong>Sources</strong> create new textures • <strong>Transforms:</strong> modify textures • <strong>Compositors:</strong> combine 2 textures (select inner source below)
         </Typography>
       </DialogTitle>
-      <DialogContent sx={{ p: 1.5, '&.MuiDialogContent-root': { pt: 1, color: '#ffffff' } }}>
+      <DialogContent sx={{ 
+        p: 1.5,
+      
+        '&.MuiDialogContent-root': { 
+          pt: 1, 
+          color: '#ffffff',
+           
+          } 
+        }}
+      >
         <Stack spacing={1}>
+          {/* Video Upload Section */}
+          <Box sx={{ p: 1, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 0.5, mb: 1 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ffffff', mb: 1, display: 'block' }}>
+              Video Source
+            </Typography>
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', mb: 1, display: 'block' }}>
+              Upload a video to use with the <strong>Src (Video)</strong> operation. The video will be available to all src() chains.
+            </Typography>
+            <VideoUpload />
+          </Box>
+          
+          <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+          
           {/* Add New Chain */}
           <Box sx={{ p: 1, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 0.5 }}>
-            <Typography variant="caption" sx={{ mb: 0.5, fontSize: '0.75rem', fontWeight: 600, color: '#ffffff' }}>
+            {/* <Typography variant="caption" sx={{ mb: 0.5, padding: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#ffffff' }}>
               Add Operation
-            </Typography>
-            <Typography variant="caption" sx={{ display: 'block', mb: 1, fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)' }}>
+            </Typography> */}
+            {/* <Typography variant="caption" sx={{ display: 'block', mb: 1, fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)' }}>
               <strong>Tip:</strong> Sources (osc, noise, etc.) automatically nest under video. Video is always the base. Use 'Nest Under' to chain operations: e.g., nest a 'modulate' compositor under 'osc', then select another 'osc' as its inner source for osc().modulate(osc()) patterns.
-            </Typography>
+            </Typography> */}
             <Stack spacing={1} direction="row">
               <FormControl size="small" sx={{ flex: 1 }}>
                 <InputLabel sx={{ fontSize: '0.75rem', color: '#ffffff' }}>Type</InputLabel>
@@ -767,22 +838,117 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
           </Box>
           
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-          
+          <div style={{
+            overflow: 'auto',
+          }}>
           {/* Chain Tree */}
-          {rootChains.length === 0 ? (
-            <Typography variant="caption" sx={{ fontSize: '0.75rem', color: '#ffffff', textAlign: 'center', py: 2 }}>
-              No operations yet. Add a source to start building a chain.
-            </Typography>
-          ) : (
-            rootChains.map((chain) => (
-              <ChainControl key={chain.id} chain={chain} depth={0} availableChains={chainTree} />
-            ))
-          )}
+            {rootChains.length === 0 ? (
+              <Typography variant="caption" sx={{ fontSize: '0.75rem', color: '#ffffff', textAlign: 'center', py: 2 }}>
+                No operations yet. Add a source to start building a chain.
+              </Typography>
+            ) : (
+              rootChains.map((chain) => (
+                <ChainControl key={chain.id} chain={chain} depth={0} availableChains={chainTree} />
+              ))
+            )}
+          </div>
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ p: 1.5, pt: 1 }}>
+      <DialogActions sx={{ p: 1.5, pt: 1, display: 'flex', justifyContent: 'space-between' }}>
+        <Button 
+          onClick={handleGenerateCode} 
+          size="small" 
+          startIcon={<CodeIcon />}
+          sx={{ 
+            fontSize: '0.8rem', 
+            color: '#ffffff',
+            '&:hover': {
+              bgcolor: 'rgba(255,255,255,0.1)',
+            },
+          }}
+        >
+          Generate Code
+        </Button>
         <Button onClick={onClose} size="small" sx={{ fontSize: '0.8rem', color: '#ffffff' }}>Close</Button>
       </DialogActions>
+
+      {/* Code Display Dialog */}
+      <Dialog
+        open={codeDialogOpen}
+        onClose={() => setCodeDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: 'rgba(20, 20, 25, 0.95)',
+            color: '#e8e8e8',
+            border: '1px solid rgba(255,255,255,0.1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1, fontSize: '0.95rem', fontWeight: 600, color: '#ffffff' }}>
+          Generated Hydra Code
+        </DialogTitle>
+        <DialogContent>
+          <Box
+            sx={{
+              position: 'relative',
+              bgcolor: 'rgba(0, 0, 0, 0.3)',
+              borderRadius: 1,
+              p: 2,
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            <IconButton
+              onClick={handleCopyCode}
+              size="small"
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                color: 'rgba(255,255,255,0.7)',
+                '&:hover': {
+                  color: '#ffffff',
+                  bgcolor: 'rgba(255,255,255,0.1)',
+                },
+              }}
+              title="Copy to clipboard"
+            >
+              <ContentCopyIcon fontSize="small" />
+            </IconButton>
+            <pre
+              style={{
+                margin: 0,
+                fontSize: '0.85rem',
+                fontFamily: 'monospace',
+                color: '#ffffff',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                overflowX: 'auto',
+              }}
+            >
+              {generatedCode}
+            </pre>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 1.5, pt: 1 }}>
+          <Button 
+            onClick={handleCopyCode} 
+            size="small" 
+            startIcon={<ContentCopyIcon />}
+            sx={{ fontSize: '0.8rem', color: '#ffffff' }}
+          >
+            Copy
+          </Button>
+          <Button 
+            onClick={() => setCodeDialogOpen(false)} 
+            size="small" 
+            sx={{ fontSize: '0.8rem', color: '#ffffff' }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }

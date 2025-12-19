@@ -3,14 +3,14 @@ import { act, useEffect, useRef, useState } from 'react';
 import type { Chuck } from 'webchuck';
 import { HID } from 'webchuck';
 import { KeyboardHIDManager } from '../utils/keyboardHIDManager';
-import { 
-    getAsymptoticChopperClass, 
-    getGrainStretchClass, 
-    getLisaTriggerClass, 
-    getMosaicSynthClass, 
-    getRandomReverseClass, 
-    getReichClass, 
-    getTapeClass 
+import {
+    getAsymptoticChopperClass,
+    getGrainStretchClass,
+    getLisaTriggerClass,
+    getMosaicSynthClass,
+    getRandomReverseClass,
+    getReichClass,
+    getTapeClass
 } from '../utils/audioInSettingsHelper';
 import { useTimingStore } from '../hooks/useTimingStore';
 import { useBeatGridStore } from '../store/useBeatGridStore';
@@ -18,15 +18,15 @@ import { useTransportStore } from '../store/useTransportStore';
 import '../../app/globals.css';
 import { useAudioInSettingsStore } from '../utils/audioInSettingsHelper';
 import { audioInEffectSlidersHelper } from '../utils/utils';
-import {calculateDisplayDigits, loadWebChugins} from '../utils/audioClient';   
+import { calculateDisplayDigits, loadWebChugins } from '../utils/audioClient';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import MicIcon from '@mui/icons-material/Mic';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { Box, Button, InputLabel, Select } from '@mui/material';
-import { 
-    filesToProcess, 
+import {
+    filesToProcess,
     chuckRef as globalChuckRef,
     universalSources,
     moogGrandmotherEffects,
@@ -39,24 +39,24 @@ import {
 import '../../app/globals.css';
 import OldParentMonolith from '../components/OldParentMonolith/OldParentMonolith';
 import { EFFECTS } from '../constants';
-import { 
-    getChuckCode, 
-    buildSourceData, 
+import {
+    getChuckCode,
+    buildSourceData,
     processSourceFX,
-    createEmptyTargets 
+    createEmptyTargets
 } from '../utils/chuckHelper';
 import { useOldMonolithStore } from '../store/useOldMonolithStore';
 import { useMicrotonalStore } from '../store/useMicrotonalStore';
 import { initializeUniversalSources } from '../utils/effectsInitializationHelper';
-import PhilosopherGuide from '../components/PhilosopherGuide'; 
+import PhilosopherGuide from '../components/PhilosopherGuide';
 
 // Put this near the top, inside component file (module scope or inside component before handlers):
 const SERVER_FILES_TO_PRELOAD: Array<{ serverFilename: string; virtualFilename: string }> = [
-  { serverFilename: "/Conga.wav",       virtualFilename: "Conga.wav" },
-  { serverFilename: "/DR-55Hat.wav",    virtualFilename: "DR-55Hat.wav" },
-  { serverFilename: "/DR-55Kick.wav",   virtualFilename: "DR-55Kick.wav" },
-  { serverFilename: "/DR-55Pop.wav",    virtualFilename: "DR-55Pop.wav" },
-  { serverFilename: "/DR-55Snare.wav",  virtualFilename: "DR-55Snare.wav" },
+    { serverFilename: "/Conga.wav", virtualFilename: "Conga.wav" },
+    { serverFilename: "/DR-55Hat.wav", virtualFilename: "DR-55Hat.wav" },
+    { serverFilename: "/DR-55Kick.wav", virtualFilename: "DR-55Kick.wav" },
+    { serverFilename: "/DR-55Pop.wav", virtualFilename: "DR-55Pop.wav" },
+    { serverFilename: "/DR-55Snare.wav", virtualFilename: "DR-55Snare.wav" },
 ];
 
 // -----------------------------
@@ -150,10 +150,10 @@ function EffectDropdown({ chuckRef, updateSelectedAudioInSetting, showAudioInDro
     );
 }
 
-function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: { 
-    effect: string, 
-    chuckRef: any, 
-    updateSelectedAudioInSetting: any 
+function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
+    effect: string,
+    chuckRef: any,
+    updateSelectedAudioInSetting: any
 }) {
     const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
     const setAudioInSetting = useAudioInSettingsStore(s => s.setAudioInSetting);
@@ -170,7 +170,7 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
         const valsForEffect: any = transformedKeyNames.map((n: any) => (audioInSettingsHelperHash as any)[n]);
         setValues(valsForEffect);
         updateSelectedAudioInSetting(effect);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [effect, audioInSettingsHelperHash]);
 
     // Only update Zustand and ChucK when values change
@@ -193,8 +193,8 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
                 }
             }
         })();
-    // Only run when values change, not when store changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // Only run when values change, not when store changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [values]);
 
     return (
@@ -202,7 +202,7 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
             <div style={{ fontWeight: 600, marginBottom: 8 }}>{effect} Controls</div>
             {sliderNames.map((name, i) => (
                 <div key={name.name} style={{ marginBottom: 10 }}>
-                    <label 
+                    <label
                         htmlFor={`effect-slider-${effect}-${i}`}
                         style={{ fontSize: 13, color: '#e9f1ff', marginBottom: 2, display: 'block' }}
                     >
@@ -252,6 +252,7 @@ export default function ChuckSetup() {
     const [chuckHook, setChuckHook] = useState<Chuck | any>({});
     const hidRef = useRef<HID | null>(null);
     const keyboardHIDManagerRef = useRef<KeyboardHIDManager | null>(null);
+    const isInitializingRef = useRef<boolean>(false); // Track initialization in progress (more reliable than state)
 
     // Initialize universalSources with all effects on mount
     useEffect(() => {
@@ -266,7 +267,7 @@ export default function ChuckSetup() {
     useEffect(() => {
         const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
             const err = event.reason;
-            
+
             // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
             // This happens during ChucK initialization when it tries to access files that don't exist
             if (err?.name === 'ErrnoError' && err?.errno === 20) {
@@ -274,7 +275,7 @@ export default function ChuckSetup() {
                 event.stopPropagation(); // Stop the error from propagating
                 return; // Silently handle it
             }
-            
+
             // Log other unhandled rejections for debugging (but still suppress from console)
             if (err?.name === 'ErrnoError') {
                 if (process.env.NODE_ENV === 'development') {
@@ -284,7 +285,7 @@ export default function ChuckSetup() {
                 event.stopPropagation(); // Stop the error from propagating
                 return;
             }
-            
+
             // Check if error message contains "Running code failed" (string errors from WebChucK)
             if (typeof err === 'string' && err.includes('Running code failed')) {
                 // This is handled in the catch block, suppress it here
@@ -296,7 +297,7 @@ export default function ChuckSetup() {
 
         // Add listener with capture phase to catch errors early
         window.addEventListener('unhandledrejection', handleUnhandledRejection, true);
-        
+
         return () => {
             window.removeEventListener('unhandledrejection', handleUnhandledRejection, true);
         };
@@ -311,7 +312,7 @@ export default function ChuckSetup() {
     const keyboardMode = useOldMonolithStore(s => s.keyboardMode);
     const setKeyboardMode = useOldMonolithStore(s => s.setKeyboardMode);
     const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
-    const uploadedVFilesRef = useRef<string[]>([]); 
+    const uploadedVFilesRef = useRef<string[]>([]);
 
     const globalAudioCtx = useRef<AudioContext | null>(null);
     // Defer AudioContext creation until the user explicitly enables audio (user gesture)
@@ -346,15 +347,13 @@ export default function ChuckSetup() {
         return promise;
     }
 
-    var readAsync = function( url: any, onload: any, onerror: any )
-    {
+    var readAsync = function (url: any, onload: any, onerror: any) {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', url, true);
         xhr.responseType = 'arraybuffer';
-        xhr.onload = function xhr_onload() 
-        {
+        xhr.onload = function xhr_onload() {
             if (xhr.status == 200 || (xhr.status == 0 && xhr.response)) // file URLs can return 0
-            { 
+            {
                 onload(xhr.response);
                 return;
             }
@@ -365,11 +364,10 @@ export default function ChuckSetup() {
     };
 
 
-    const asyncLoadFile = function( url: string, onload: any, onerror: any ) 
-        {
-        readAsync(url, function(arrayBuffer: any) {
+    const asyncLoadFile = function (url: string, onload: any, onerror: any) {
+        readAsync(url, function (arrayBuffer: any) {
             onload(new Uint8Array(arrayBuffer));
-        }, function(event: any) {
+        }, function (event: any) {
             if (onerror) {
                 onerror();
             } else {
@@ -381,7 +379,7 @@ export default function ChuckSetup() {
     let _wasmPromise: Promise<any> | null = null;
     const loadWasm = () => {
         if (!_wasmPromise) {
-            _wasmPromise = new Promise(function(resolve, reject) {
+            _wasmPromise = new Promise(function (resolve, reject) {
                 asyncLoadFile('/webchuck/webchuck.wasm', resolve, reject);
             });
         }
@@ -393,14 +391,14 @@ export default function ChuckSetup() {
     const handleChuckMsg = (chuckMsg: string) => {
         let isMounted = true;
         if (chuckMsg.includes(""))
-        return () => {
-            isMounted = false;
-        }
+            return () => {
+                isMounted = false;
+            }
     };
 
     const runNextEventDFSHelper = () => {
         // const beatMs = useTimingStore.getState().beatMs;
-       chuckRef.current && chuckRef.current.setInt('BeatMsInts', beatMs || 4000); 
+        chuckRef.current && chuckRef.current.setInt('BeatMsInts', beatMs || 4000);
     };
 
     let theWasm;
@@ -424,34 +422,53 @@ export default function ChuckSetup() {
                     video: false
                 });
                 const audioTracks = stream.getAudioTracks();
-                
+
                 const source = (globalAudioCtx.current as AudioContext).createMediaStreamSource(stream);
                 if (chuckRef.current) {
                     source.connect(chuckRef.current);
+                    // Consolidated chuckPrint handler - handles TICK updates for active cell
+                    const originalChuckPrint = chuckRef.current.chuckPrint;
                     chuckRef.current.chuckPrint = async (message: string) => {
+                        // Handle TICK messages - update active cell without re-rendering
+                        if (message.includes("TICK")) {
+                            try {
+                                // Parse TICK message format: "TICK: x y" or "UPDATE_GRID: tick beat step"
+                                const tickMatch = message.match(/TICK:\s*(\d+)\s+(\d+)/) ||
+                                    message.match(/UPDATE_GRID:\s*(\d+)\s+(\d+)\s+(\d+)/);
+                                if (tickMatch) {
+                                    // Extract x (step) and y (beat/row) from message
+                                    const x = parseInt(tickMatch[2] || tickMatch[3] || '0', 10);
+                                    const y = parseInt(tickMatch[1] || tickMatch[2] || '0', 10);
+                                    // Update active cell in store (triggers DOM update only, no React re-render)
+                                    useBeatGridStore.getState().setActiveCell({ x, y });
+                                }
+                            } catch (err) {
+                                console.warn('[ChucK] Failed to parse TICK message:', message, err);
+                            }
+                        }
+
                         if (message.includes("UPDATE_GRID")) {
                             console.log("TK! ", message);
                         }
-                        if (message.includes("TICK")) {
-                            const parsedMsg = message.split(":")[1].trim();
 
-                            // setChuckMsg(parsedMsg); 
-                            console.log("msg is... --> ", parsedMsg);
-                        }
-                        
                         if (message.includes("CHUCK_UP_TO_DATE")) {
                             setIsRunning(true)
                             // Chuck is ready - synchronize beatgrid data here
                             const beatGridData = useBeatGridStore.getState().masterPatternsHashHook;
                             const gridVersion = useBeatGridStore.getState().gridVersion;
-                            
+
+                            // Call original handler if it exists
+                            if (originalChuckPrint) {
+                                originalChuckPrint(message);
+                            }
+
                             // ============================================================
                             // LOG: Beatgrid data ready for passing to Chuck
                             // ============================================================
                             console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
                             console.log('Grid Version:', gridVersion);
                             console.log('Beatgrid Structure:', beatGridData);
-                            
+
                             // Log a flattened view of the data structure
                             const flattenedCells: any[] = [];
                             Object.keys(beatGridData).forEach(yKey => {
@@ -471,7 +488,7 @@ export default function ChuckSetup() {
                             console.log('Flattened Cells:', flattenedCells);
                             console.log('Total Cells:', flattenedCells.length);
                             console.groupEnd();
-                            
+
                             // ============================================================
                             // SYNCHRONIZE BEATGRID DATA TO CHUCK
                             // Using existing associative arrays pattern (like audioInSettingsHelperHash)
@@ -533,50 +550,50 @@ export default function ChuckSetup() {
     };
 
     async function handleUpload(files: FileList | null) {
-    const list = Array.from(files || []);
-    if (!list.length || !chuckRef.current) return;
+        const list = Array.from(files || []);
+        if (!list.length || !chuckRef.current) return;
 
-    for (const file of list) {
-        const buf = await file.arrayBuffer();
-        const bytes = new Uint8Array(buf);
-        const safeName = file.name.replace(/[^\w.\-]+/g, '_');
-        const vpath = `uploads/${Date.now()}_${safeName}`;
+        for (const file of list) {
+            const buf = await file.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+            const vpath = `uploads/${Date.now()}_${safeName}`;
 
-        // Write into WebChucK FS
-        if (typeof (chuckRef.current as any).createFile === 'function') {
-        await (chuckRef.current as any).createFile(vpath, bytes);
-        } else if ((chuckRef.current as any).Module?.FS) {
-        (chuckRef.current as any).Module.FS.writeFile(vpath, bytes);
-        } else {
-        console.warn('No file API on WebChucK instance; cannot upload:', vpath);
-        continue;
+            // Write into WebChucK FS
+            if (typeof (chuckRef.current as any).createFile === 'function') {
+                await (chuckRef.current as any).createFile(vpath, bytes);
+            } else if ((chuckRef.current as any).Module?.FS) {
+                (chuckRef.current as any).Module.FS.writeFile(vpath, bytes);
+            } else {
+                console.warn('No file API on WebChucK instance; cannot upload:', vpath);
+                continue;
+            }
+
+            uploadedVFilesRef.current.push(vpath);
         }
 
-        uploadedVFilesRef.current.push(vpath);
-    }
-
-    // Update ChucK global files[] and broadcast filesUpdated
-    const allVFiles = [
-        ...SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename),
-        ...uploadedVFilesRef.current
-    ];
-    const arrayLiteral = JSON.stringify(allVFiles);
-    try {
-        await chuckRef.current.runCode(`[${arrayLiteral}] @=> files; filesUpdated.broadcast();`);
-    } catch (err: any) {
-        // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
-        if (err?.name === 'ErrnoError' && err?.errno === 20) {
-            // Silently ignore - this is a common non-critical file system error
-            return;
+        // Update ChucK global files[] and broadcast filesUpdated
+        const allVFiles = [
+            ...SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename),
+            ...uploadedVFilesRef.current
+        ];
+        const arrayLiteral = JSON.stringify(allVFiles);
+        try {
+            await chuckRef.current.runCode(`[${arrayLiteral}] @=> files; filesUpdated.broadcast();`);
+        } catch (err: any) {
+            // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
+            if (err?.name === 'ErrnoError' && err?.errno === 20) {
+                // Silently ignore - this is a common non-critical file system error
+                return;
+            }
+            console.warn('Failed to update files[] in ChucK', err);
         }
-        console.warn('Failed to update files[] in ChucK', err);
-    }
 
-    // e.target.value = '';
-}
+        // e.target.value = '';
+    }
 
     // Old hardcoded chuckInstructions template removed - now using getChuckCode() for proper effects routing
-    
+
     useEffect(() => {
         // Don't do anything until WebChucK is ready
         // if (!ready || !chuckRef.current || !audioInSelected) return;
@@ -602,7 +619,7 @@ export default function ChuckSetup() {
             console.error('Failed to set activeEffect:', err);
         }
     }, [audioInSelected]);
-    
+
     type ServerFileToPreload = {
         serverFilename: string;
         virtualFilename: string;
@@ -637,24 +654,24 @@ export default function ChuckSetup() {
     const updateSelectedAudioInSetting = (newSetting: string) => {
         setAudioInSelected(newSetting);
         const defaultAudioInSetting = 1;
-        let activeEffect = defaultAudioInSetting; 
+        let activeEffect = defaultAudioInSetting;
         console.log("NEW SETTING SELECTED: ", newSetting);
-        switch(newSetting.toLowerCase()) {
-            case 'grain': 
+        switch (newSetting.toLowerCase()) {
+            case 'grain':
                 activeEffect = 0;
             case ('tape'):
                 activeEffect = 1;
-            case ('random reverse'): 
+            case ('random reverse'):
                 activeEffect = 2;
-            case ('clapping'): 
+            case ('clapping'):
                 activeEffect = 3;
-            case ('lisa trigger'): 
+            case ('lisa trigger'):
                 activeEffect = 4;
-            case ('asymptotic chopper'): 
+            case ('asymptotic chopper'):
                 activeEffect = 5;
-            case ('mosaic synth'): 
+            case ('mosaic synth'):
                 activeEffect = 6;
-            default: 
+            default:
                 return activeEffect | defaultAudioInSetting;
         }
     };
@@ -684,10 +701,10 @@ export default function ChuckSetup() {
     }, [initializing]);
 
     let sampleRate: number = 0;
-    
+
     // Note: Beatgrid synchronization happens in chuckPrint handler when "CHUCK_UP_TO_DATE" is received
     // This ensures TypeScript and ChucK are synchronized when Chuck is actually ready
-    
+
     // On load: ensure a first pass happens so the graph/cache is built before first ChucK run.
     // We emit a synthetic event if no update has been fired yet.
     useEffect(() => {
@@ -695,7 +712,7 @@ export default function ChuckSetup() {
             const gv = useBeatGridStore.getState().gridVersion;
             // Fire once on mount with the current version snapshot
             window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, source: 'bootstrap' } }));
-        } catch {}
+        } catch { }
     }, []);
 
     // Helper function to build all data needed for getChuckCode
@@ -705,7 +722,7 @@ export default function ChuckSetup() {
                 console.warn('Chuck not ready');
                 return null;
             }
-            
+
             // Ensure universalSources.current is initialized with all effects
             if (!universalSources.current) {
                 console.log('Initializing universalSources with all available effects...');
@@ -721,34 +738,34 @@ export default function ChuckSetup() {
             const denominatorSignature = timeSig.den;
             const masterFastestRate = 1; // Default value - can be added to store if needed
             const fxRadioValue = useOldMonolithStore.getState().fxRadioValue || 'osc1';
-            
+
             // Get microtonal data (these are computed values, not stored - using defaults for now)
             // TODO: Compute these from microtonal store if needed
             const mTFreqs: number[] = [];
             const mTMidiNums: number[] = [];
             const selectedChordScaleOctaveRange: any = {};
-            
+
             // Get current note values
             const currentNoteVals = useBeatGridStore.getState().currentNoteVals || [];
             const notesHolder = { current: currentNoteVals };
-            
+
             // Build signal chain data for each source
             const osc1Data = buildSourceData('osc1');
             const samplerData = buildSourceData('sampler');
             const stk1Data = buildSourceData('stk1');
             const audioinData = buildSourceData('audioin');
-            
+
             // Process effects for each source
             const osc1Targets = createEmptyTargets();
             const samplerTargets = createEmptyTargets();
             const stk1Targets = createEmptyTargets();
             const audioinTargets = createEmptyTargets();
-            
+
             const osc1Effects = Object.values(universalSources.current.osc1?.effects || {}).filter((fx: any) => fx?.On);
             const samplerEffects = Object.values(universalSources.current.sampler?.effects || {}).filter((fx: any) => fx?.On);
             const stk1Effects = Object.values(universalSources.current.stk1?.effects || {}).filter((fx: any) => fx?.On);
             const audioinEffects = Object.values(universalSources.current.audioin?.effects || {}).filter((fx: any) => fx?.On);
-            
+
             try {
                 await Promise.all([
                     processSourceFX('osc1', osc1Effects, chuckRef, fxRadioValue, osc1Targets, universalSources.current),
@@ -760,19 +777,19 @@ export default function ChuckSetup() {
                 console.error('Error processing source FX:', fxError);
                 // Continue with empty targets if FX processing fails
             }
-            
+
             // Calculate maxMinFreq
             const maxMinFreq = mTFreqs.length > 0 ? {
                 min: Math.min(...mTFreqs),
                 max: Math.max(...mTFreqs)
             } : { min: 0, max: 0 };
-            
+
             // Hid not used - set to null
             const hid = null;
-            
+
             // Build getSourceFX function (placeholder for now)
             const getSourceFX = () => '';
-            
+
             return {
                 isTestingChord: undefined,
                 filesArray: JSON.stringify(SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename)),
@@ -815,16 +832,27 @@ export default function ChuckSetup() {
             throw error;
         }
     };
-    
-    const runChuckCode = async() => {
-        console.log('[runChuckCode] invoked, isRunning=', isRunning);
-        // Attempt to resume the AudioContext immediately (must be called during a user gesture)
+
+    const runChuckCode = async () => {
+        console.log('[runChuckCode] invoked, isRunning=', isRunning, 'isInitializingRef=', isInitializingRef.current);
+
+        // Prevent re-entrancy using ref (more reliable than state)
+        if (isInitializingRef.current || isRunning) {
+            console.log('[runChuckCode] already running or initializing, ignoring');
+            return;
+        }
+
+        isInitializingRef.current = true;
+        setIsRunning(true); // Flip button immediately
+
         try {
+            // Attempt to resume the AudioContext immediately (must be called during a user gesture)
             if (!globalAudioCtx.current) {
                 // If AudioContext hasn't been created yet, create/resume it via enableAudio
                 const enabled = await enableAudio();
                 if (!enabled) {
                     console.error('[runChuckCode] Failed to enable AudioContext - aborting ChucK init');
+                    isInitializingRef.current = false;
                     return;
                 }
             } else if (globalAudioCtx.current.state === 'suspended') {
@@ -834,24 +862,29 @@ export default function ChuckSetup() {
             }
         } catch (resumeErr) {
             console.warn('[runChuckCode] AudioContext resume attempt failed:', resumeErr);
-        }
-        // Prevent re-entrancy
-        if (isRunning) {
-            console.log('[runChuckCode] already running, ignoring');
+            isInitializingRef.current = false;
             return;
         }
+
         // Lazy-load the heavy `webchuck` module only when the user requests it
         let ChuckModule: any = null;
         try {
             ChuckModule = await import('webchuck');
         } catch (impErr) {
             console.error('[runChuckCode] dynamic import failed:', impErr);
+            isInitializingRef.current = false;
             throw impErr;
         }
         const { Chuck } = ChuckModule;
         let sampleRate = globalAudioCtx.current && globalAudioCtx.current.sampleRate || 44100;
         calculateDisplayDigits(sampleRate);
-        if (isRunning) return;
+
+        // Double-check we're still not running (state might have changed)
+        if (isRunning) {
+            console.log('[runChuckCode] isRunning became true during init, aborting');
+            isInitializingRef.current = false;
+            return;
+        }
         const chugins: string[] = loadWebChugins();
         chugins.forEach((path) => Chuck.loadChugin(path));
         setShowAudioInDropdown(true);
@@ -882,73 +915,87 @@ export default function ChuckSetup() {
         ];
         const whereIsChuck = LOCAL_CHUCK_SRC;
 
-        // try {
-            chuckRef.current = globalAudioCtx.current && await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
-            // Expose the running ChucK instance globally for Old-* components
-            if (chuckRef.current) {
-                setIsRunning(true)
-                globalChuckRef.current = chuckRef.current as any;
-                
-                // Initialize HID for keyboard input
-                try {
-                    console.log('🎹 Initializing HID for keyboard input...');
-                    hidRef.current = await HID.init(chuckRef.current, false, true); // Mouse: false, Keyboard: true
-                    keyboardHIDManagerRef.current = new KeyboardHIDManager(chuckRef.current, hidRef.current);
-                    await keyboardHIDManagerRef.current.setupChuckHIDListener();
-                    await keyboardHIDManagerRef.current.startListening();
-                    console.log('✅ HID keyboard initialized successfully');
-                    
-                    // Expose keyboard manager globally for keyboard components
-                    (window as any).__keyboardHIDManager = keyboardHIDManagerRef.current;
-                } catch (hidErr) {
-                    console.warn('⚠️ Failed to initialize HID (keyboard will still work via direct events):', hidErr);
-                }
+        // Ensure AudioContext is fully running before initializing ChucK
+        if (!globalAudioCtx.current) {
+            console.error('[runChuckCode] AudioContext not initialized');
+            isInitializingRef.current = false;
+            return;
+        }
+
+        // Wait for AudioContext to be running (critical for AudioWorklet)
+        if (globalAudioCtx.current.state !== 'running') {
+            console.log('[runChuckCode] Waiting for AudioContext to resume...');
+            try {
+                await globalAudioCtx.current.resume();
+            } catch (resumeErr) {
+                console.error('[runChuckCode] Failed to resume AudioContext:', resumeErr);
+                isInitializingRef.current = false;
+                return;
             }
-            chuckRef.current && globalAudioCtx.current && await chuckRef.current.connect(globalAudioCtx.current.destination);
-        // } catch (err: any) {
-        //     // Suppress ErrnoError errno 20 (file system errors) during initialization - these are often non-critical
-        //     if (err?.name === 'ErrnoError' && err?.errno === 20) {
-        //         // Silently ignore - this is a common non-critical file system error during ChucK initialization
-        //         console.debug('ChucK initialization file system error (non-critical, errno 20) - continuing...');
-        //         // Try to continue anyway - ChucK might still work
-        //         if (!chuckRef.current && globalAudioCtx.current) {
-        //             try {
-        //                 chuckRef.current = await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
-        //                 if (chuckRef.current) {
-        //                     globalChuckRef.current = chuckRef.current as any;
-        //                     await chuckRef.current.connect(globalAudioCtx.current.destination);
-        //                 }
-        //             } catch (retryErr: any) {
-        //                 if (retryErr?.name !== 'ErrnoError' || retryErr?.errno !== 20) {
-        //                     console.error('Failed to initialize ChucK after retry:', retryErr);
-        //                 }
-        //             }
-        //         }
-        //     } else {
-        //         console.error('Failed to initialize ChucK:', err);
-        //         throw err; // Re-throw non-ErrnoError errors
-        //     }
-        // }
+        }
 
+        console.log('[runChuckCode] AudioContext state:', globalAudioCtx.current.state);
 
+        // try {
+        console.log('[runChuckCode] Initializing ChucK...');
+        chuckRef.current = await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
+        console.log('[runChuckCode] ChucK initialized successfully');
+        // Expose the running ChucK instance globally for Old-* components
+        if (chuckRef.current) {
+            setIsRunning(true)
+            globalChuckRef.current = chuckRef.current as any;
 
-        console.log("WebChucK initialized with live mic input ", chuckRef.current); 
+            // Initialize HID for keyboard input
+            try {
+                console.log('🎹 Initializing HID for keyboard input...');
+                hidRef.current = await HID.init(chuckRef.current, false, true); // Mouse: false, Keyboard: true
+                keyboardHIDManagerRef.current = new KeyboardHIDManager(chuckRef.current, hidRef.current);
+                await keyboardHIDManagerRef.current.setupChuckHIDListener();
+                await keyboardHIDManagerRef.current.startListening();
+                console.log('✅ HID keyboard initialized successfully');
 
+                // Expose keyboard manager globally for keyboard components
+                (window as any).__keyboardHIDManager = keyboardHIDManagerRef.current;
+            } catch (hidErr) {
+                console.warn('⚠️ Failed to initialize HID (keyboard will still work via direct events):', hidErr);
+            }
+        }
+        if (chuckRef.current && globalAudioCtx.current) {
+            await chuckRef.current.connect(globalAudioCtx.current.destination);
+        }
         setInitializing(true);
+        // Note: isInitializingRef.current will be cleared in finally block
 
         // Set up chuckPrint handler for synchronization (same as in chuckMicButton)
+        // NOTE: This duplicates the handler above - consider consolidating
         if (chuckRef.current) {
+            const originalChuckPrint = chuckRef.current.chuckPrint;
             chuckRef.current.chuckPrint = async (message: string) => {
+                // Handle TICK messages - update active cell without re-rendering
                 if (message.includes("TICK")) {
-                    const parsedMsg = message.split(":")[1].trim();
-                    console.log("msg is... --> ", parsedMsg);
+                    try {
+                        const tickMatch = message.match(/TICK:\s*(\d+)\s+(\d+)/) ||
+                            message.match(/UPDATE_GRID:\s*(\d+)\s+(\d+)\s+(\d+)/);
+                        if (tickMatch) {
+                            const x = parseInt(tickMatch[2] || tickMatch[3] || '0', 10);
+                            const y = parseInt(tickMatch[1] || tickMatch[2] || '0', 10);
+                            useBeatGridStore.getState().setActiveCell({ x, y });
+                        }
+                    } catch (err) {
+                        console.warn('[ChucK] Failed to parse TICK message:', message, err);
+                    }
                 }
-                
+
                 if (message.includes("CHUCK_UP_TO_DATE")) {
                     // Chuck is ready - synchronize beatgrid data here
                     const beatGridData = useBeatGridStore.getState().masterPatternsHashHook;
+
+                    // Call original handler if it exists
+                    if (originalChuckPrint) {
+                        originalChuckPrint(message);
+                    }
                     const gridVersion = useBeatGridStore.getState().gridVersion;
-                    
+
                     // ============================================================
                     // LOG: Beatgrid data ready for passing to Chuck
                     // ============================================================
@@ -975,7 +1022,7 @@ export default function ChuckSetup() {
                         console.log('Total Cells:', flattenedCells.length);
                         console.groupEnd();
                     }
-                    
+
                     // ============================================================
                     // SYNCHRONIZE BEATGRID DATA TO CHUCK
                     // Using existing associative arrays pattern (like audioInSettingsHelperHash)
@@ -1024,7 +1071,7 @@ export default function ChuckSetup() {
             console.error('Stack:', error instanceof Error ? error.stack : 'No stack trace');
             return;
         }
-        
+
         const generatedChuckCode = getChuckCode(
             chuckCodeData.isTestingChord,
             chuckCodeData.filesArray,
@@ -1068,21 +1115,21 @@ export default function ChuckSetup() {
             console.log("SANITY CHUCK DEBUG: ", generatedChuckCode);
         }
         // Expose generated code for easy inspection in DevTools
-        try {
-            if (typeof window !== 'undefined') (window as any).__lastGeneratedChuck = generatedChuckCode;
-        } catch {}
-        
+        // try {
+        if (typeof window !== 'undefined') (window as any).__lastGeneratedChuck = generatedChuckCode;
+        // } catch {}
+
         if (chuckRef.current && chuckCodeData.filesArray) {
             // Set up error message capture
             const errorMessages: string[] = [];
             const originalChuckPrint = chuckRef.current.chuckPrint;
-            
+
             chuckRef.current.chuckPrint = (message: string) => {
                 // Always log ChucK messages for debugging
                 console.log('[ChucK Print]:', message);
-                
+
                 // Capture error messages
-                if (message.toLowerCase().includes('error') || 
+                if (message.toLowerCase().includes('error') ||
                     message.toLowerCase().includes('syntax') ||
                     message.toLowerCase().includes('line') ||
                     message.toLowerCase().includes('parse') ||
@@ -1096,7 +1143,7 @@ export default function ChuckSetup() {
                     originalChuckPrint(message);
                 }
             };
-            
+
             try {
                 // Check if ChucK is ready before running code
                 if (!chuckRef.current) {
@@ -1104,8 +1151,7 @@ export default function ChuckSetup() {
                     return;
                 }
 
-                // Wait a bit to ensure ChucK is fully ready
-                await new Promise(resolve => setTimeout(resolve, 300));
+                // ChucK should be ready immediately after init
 
                 // Test with a simple code snippet first to verify ChucK is working
                 try {
@@ -1129,9 +1175,9 @@ export default function ChuckSetup() {
                 let result;
                 try {
                     // First try replaceCode (better for large code)
-                   // result = await chuckRef.current.runCode(generatedChuckCode);
-                    
-                   result = await chuckRef.current.runCode(`
+                    // result = await chuckRef.current.runCode(generatedChuckCode);
+
+                    result = await chuckRef.current.runCode(`
                         global int beatMSNew;
 
                         Std.ftoi(60000 / 120) => beatMSNew;
@@ -1170,7 +1216,7 @@ export default function ChuckSetup() {
                     //     1::week => now;
                     // `);
                 }
-                                // Clear any existing code first to avoid conflicts
+                // Clear any existing code first to avoid conflicts
                 // try {
                 //     await chuckRef.current.runCode(`Machine.removeAllShreds();`);
                 //     await chuckRef.current.runCode(`Machine.resetShredID();`);
@@ -1184,12 +1230,12 @@ export default function ChuckSetup() {
             } catch (err: any) {
                 // Restore original chuckPrint
                 chuckRef.current.chuckPrint = originalChuckPrint;
-                
+
                 // Log captured error messages
                 if (errorMessages.length > 0) {
                     console.error('❌ ChucK error messages:', errorMessages);
                 }
-                
+
                 // Handle ErrnoError (file system errors) more gracefully
                 // Errno 20 typically means "Not a directory" - often non-critical file access issues
                 if (err?.name === 'ErrnoError' || err?.message?.includes('ErrnoError') || err?.errno === 20) {
@@ -1229,12 +1275,12 @@ export default function ChuckSetup() {
                             ...(typeof err === 'object' ? err : {})
                         });
                     }
-                    
+
                     // Check for ChucK-specific error messages
                     if (errorMessages.length > 0) {
                         console.error('ChucK reported these errors:', errorMessages);
                     }
-                    
+
                     console.error('Generated code length:', generatedChuckCode.length);
                     // Log first 1000 chars of code for debugging
                     if (generatedChuckCode.length > 0) {
@@ -1255,38 +1301,38 @@ export default function ChuckSetup() {
                 }
             }
         }
-        setIsRunning(true);
-
+        
+        // Success - clear initialization flag
+        isInitializingRef.current = false;
     }
 
     // Expose for debugging from the console
-    try {
-        if (typeof window !== 'undefined') {
-            (window as any).__runChuckCode = runChuckCode;
-            // Helper to resume audio from DevTools if needed
-            (window as any).__resumeAudio = async () => {
-                try {
-                    if (globalAudioCtx.current) {
-                        await globalAudioCtx.current.resume();
-                        console.log('__resumeAudio: resumed AudioContext');
-                        return true;
-                    }
-                } catch (e) {
-                    console.warn('__resumeAudio failed', e);
+
+    if (typeof window !== 'undefined') {
+        (window as any).__runChuckCode = runChuckCode;
+        // Helper to resume audio from DevTools if needed
+        (window as any).__resumeAudio = async () => {
+            try {
+                if (globalAudioCtx.current) {
+                    await globalAudioCtx.current.resume();
+                    console.log('__resumeAudio: resumed AudioContext');
+                    return true;
                 }
+            } catch (e) {
+                console.warn('__resumeAudio failed', e);
+            }
+            return false;
+        };
+        // Expose enableAudio helper for DevTools
+        (window as any).__enableAudio = async () => {
+            try {
+                return await enableAudio();
+            } catch (e) {
+                console.warn('__enableAudio failed', e);
                 return false;
-            };
-            // Expose enableAudio helper for DevTools
-            (window as any).__enableAudio = async () => {
-                try {
-                    return await enableAudio();
-                } catch (e) {
-                    console.warn('__enableAudio failed', e);
-                    return false;
-                }
-            };
-        }
-    } catch {}
+            }
+        };
+    }
 
     const stopChuckInstance = async () => {
         console.log("Stopping ChucK instance... ", chuckRef.current);
@@ -1311,12 +1357,12 @@ export default function ChuckSetup() {
     return (
         <>
             <Box
-                id='chuckSetupContainer' 
+                id='chuckSetupContainer'
                 sx={{
                     position: 'absolute',
                     top: 120,
                     left: 8, /* Position to the right of RGB panel */
-                    display:'flex',
+                    display: 'flex',
                     alignItems: 'center',
                     gap: '12px',
                     backgroundColor: 'transparent',
@@ -1337,16 +1383,16 @@ export default function ChuckSetup() {
                             padding: '8px',
                             pointerEvents: 'auto',
                         }}
-                        // onClick={chuckMicButton}
+                    // onClick={chuckMicButton}
                     >
                         {/* {!isRunning && */}
-                        <MicIcon 
-                            
-                            sx={{ 
-                                fontSize: '32px', 
-                                color: 'yellow', 
-                                verticalAlign: 'middle' 
-                            }} 
+                        <MicIcon
+
+                            sx={{
+                                fontSize: '32px',
+                                color: 'yellow',
+                                verticalAlign: 'middle'
+                            }}
                             onClick={chuckMicButton}
                         />
                         {/* // } */}
@@ -1381,15 +1427,13 @@ export default function ChuckSetup() {
                         cursor: ready ? 'pointer' : 'not-allowed',
                         pointerEvents: 'auto',
                     }}
-                    onClick={runChuckCode}
-                    
+                    onClick={isRunning ? stopChuckInstance : runChuckCode}
+
                 >
                     {!isRunning ?
-                        <PlayCircleIcon 
-                            onClick={runChuckCode} 
+                        <PlayCircleIcon
                             sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
                         <StopCircleIcon
-                            onClick={stopChuckInstance}
                             sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
                     }
                 </Button>
@@ -1409,35 +1453,35 @@ export default function ChuckSetup() {
                     }}
                     onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
                 >
-                    <KeyboardIcon 
-                      sx={{ 
-                        fontSize: '24px', 
-                        color: keyboardMode === 'none' 
-                          ? 'var(--color-dominant-text, white)' 
-                          : 'var(--color-subdominant-primary, #00D9FF)' 
-                      }} 
+                    <KeyboardIcon
+                        sx={{
+                            fontSize: '24px',
+                            color: keyboardMode === 'none'
+                                ? 'var(--color-dominant-text, white)'
+                                : 'var(--color-subdominant-primary, #00D9FF)'
+                        }}
                     />
                     {keyboardMode !== 'none' && (
-                      <span style={{ 
-                        fontSize: '10px', 
-                        marginLeft: '4px',
-                        color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
-                        fontFamily: 'monospace'
-                      }}>
-                        HID active
-                      </span>
+                        <span style={{
+                            fontSize: '10px',
+                            marginLeft: '4px',
+                            color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
+                            fontFamily: 'monospace'
+                        }}>
+                            HID active
+                        </span>
                     )}
                 </Button>
 
                 <PhilosopherGuide />
             </Box>
 
-            <OldParentMonolith 
+            <OldParentMonolith
                 runChuckCode={runChuckCode}
                 onUpload={handleUpload}
                 chuckHook={chuckHook || {}}
                 selectedDeviceId={selectedDeviceId}
-                updateAudioInputDevice={updateAudioInputDevice} 
+                updateAudioInputDevice={updateAudioInputDevice}
                 deviceOptions={deviceOptions}
                 showAudioInDropdown={showAudioInDropdown}
                 updateSelectedAudioInSetting={updateSelectedAudioInSetting}

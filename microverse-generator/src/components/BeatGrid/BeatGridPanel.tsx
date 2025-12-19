@@ -278,6 +278,39 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     const currentSelectedCellFromStore = useBeatGridStore((s) => s.currentSelectedCell);
     const currentSelectedCell = currentSelectedCellProp || currentSelectedCellFromStore || { x: 0, y: 0 };
     
+    // Track active cell for tick-based updates (no re-render)
+    const activeCellRef = useRef<{ x: number; y: number } | null>(null);
+    const svgRef = useRef<SVGSVGElement | null>(null);
+    const activeCell = useBeatGridStore((s) => s.activeCell);
+    
+    // Update active cell indicator via DOM manipulation (no React re-render)
+    useEffect(() => {
+        if (!svgRef.current) return;
+        
+        // Remove previous active cell highlight
+        if (activeCellRef.current) {
+            const prevId = `fill_${activeCellRef.current.x}_${activeCellRef.current.y}_0`;
+            const prevEl = svgRef.current.querySelector(`#${prevId}`);
+            if (prevEl) {
+                (prevEl as SVGRectElement).setAttribute('fill', ACCESSIBLE_COLORS.subdominant.primary);
+                (prevEl as SVGRectElement).setAttribute('opacity', '0.5');
+            }
+        }
+        
+        // Add new active cell highlight
+        if (activeCell) {
+            activeCellRef.current = activeCell;
+            const cellId = `fill_${activeCell.x}_${activeCell.y}_0`;
+            const cellEl = svgRef.current.querySelector(`#${cellId}`);
+            if (cellEl) {
+                (cellEl as SVGRectElement).setAttribute('fill', ACCESSIBLE_COLORS.subdominant.secondary);
+                (cellEl as SVGRectElement).setAttribute('opacity', '0.8');
+            }
+        } else {
+            activeCellRef.current = null;
+        }
+    }, [activeCell]);
+    
     // Get keyboard mode from store
     const keyboardMode = useOldMonolithStore((s) => s.keyboardMode);
     const setKeyboardMode = useOldMonolithStore((s) => s.setKeyboardMode);
@@ -1197,7 +1230,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                             id='currentCellFileNoteAssignments' 
                                             sx={{ 
                                                 display: 'flex', 
-                                                flexDirection: 'column', 
+                                                flexDirection: 'row', 
                                                 gap: '8px',
                                                 padding: '8px',
                                                 backgroundColor: 'rgba(0,0,0,0.3)',
@@ -1277,6 +1310,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                         >
                                             {width && height && boundsWidth && boundsHeight && xScale && yScale && (
                                                 <svg
+                                                    ref={svgRef}
                                                     key={`heatmapSVG_main_${currentBeatCountToDisplay}_${currentNumerCountColToDisplay}`}
                                                     width="100%"
                                                     height="100%"
@@ -1405,7 +1439,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                     }}>
                                                         <Box sx={{
                                                             display: 'block', 
-                                                            flexDirection: 'column', 
+                                                            flexDirection: 'row', 
                                                             gap: '8px', 
                                                             height: '100%', 
                                                             position: 'relative', 

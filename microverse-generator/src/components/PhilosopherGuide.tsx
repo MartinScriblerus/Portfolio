@@ -413,7 +413,7 @@ export default function CodeGuide() {
           position: 'fixed', // Use fixed to ensure it's above the canvas
           bottom: 240, 
           left: 16, 
-          maxWidth: 540, 
+          maxWidth: 340, 
           padding: '12px 14px', 
           background: 'rgba(0,0,0,0.5)', 
           color: '#e9f1ff', 
@@ -474,7 +474,7 @@ export default function CodeGuide() {
         position: 'fixed', // Use fixed to ensure it's above the canvas
         bottom: 240, 
         left: 16, 
-        maxWidth: 540, 
+        maxWidth: 340, 
         padding: '12px 14px', 
         background: 'rgba(0,0,0,0.5)', 
         color: '#e9f1ff', 
@@ -495,18 +495,17 @@ export default function CodeGuide() {
       }}
     >
       {/* Status - Using Supabase RAG (no API key needed) */}
-      <div style={{ marginBottom: 8, fontSize: '10px' }}>
-        <div style={{ padding: '4px 8px', background: 'rgba(34,197,94,0.2)', borderRadius: 4, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>✅ Using Supabase RAG - No API key needed</span>
-        </div>
-      </div>
+      <div style={{ marginBottom: 8, fontSize: '10px', background: 'rgba(34,197,94,0.2)',  }}>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8, fontSize: '10px', fontFamily: 'monospace' }}>
-        {chat.map((m, i) => (
-          <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
-            {m.text}
-          </div>
-        ))}
+      
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8, fontSize: '10px', fontFamily: 'monospace' }}>
+          {chat.map((m, i) => (
+            <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
+              {m.text}
+            </div>
+          ))}
+        </div>
       </div>
       <div style={{ margin: 0, marginTop: 12, width: '100%', display: 'flex', gap: 8, flexDirection: 'row' }}>
         <label htmlFor="code-guide-input" className="sr-only">

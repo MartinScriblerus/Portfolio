@@ -18,6 +18,9 @@ type BeatGridState = {
   noteBuilderFocus: string;
   isEditing: boolean;
   
+  // Active cell (for tick-based updates without re-renders)
+  activeCell: { x: number; y: number } | null;
+  
   // File management
   clickedFile: string | null;
   
@@ -33,6 +36,7 @@ type BeatGridState = {
   setNoteBuilderFocus: (focus: string) => void;
   setClickedFile: (file: string | null) => void;
   setIsEditing: (editing: boolean) => void;
+  setActiveCell: (cell: { x: number; y: number } | null) => void;
   
   // Selectors for specific cell values to prevent unnecessary re-renders
   getCellValue: (x: number, y: number) => any;
@@ -48,6 +52,7 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
   noteBuilderFocus: '',
   clickedFile: null,
   isEditing: false,
+  activeCell: null,
   
   // Actions
   setMasterPatternsHashHook: (patterns) => {
@@ -227,6 +232,7 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
   setNoteBuilderFocus: (focus) => set({ noteBuilderFocus: focus }),
   setClickedFile: (file) => set({ clickedFile: file }),
   setIsEditing: (editing) => set({ isEditing: editing }),
+  setActiveCell: (cell) => set({ activeCell: cell }),
 }));
 
 // Helper function to create a stable selector for a specific cell

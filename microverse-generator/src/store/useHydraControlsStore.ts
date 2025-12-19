@@ -57,6 +57,10 @@ export interface HydraOperationChain {
 
 // Store state
 export interface HydraControlsState {
+  // Video URL for src() source
+  userVideoUrl: string | null;
+  setUserVideoUrl: (url: string | null) => void;
+  
   // Legacy flat structure (kept for backward compatibility)
   effects: {
     pixelate: HydraEffectControl;
@@ -239,6 +243,9 @@ const getDefaultParams = (operation: string): Record<string, HydraControlParam> 
 };
 
 export const useHydraControlsStore = create<HydraControlsState>((set, get) => ({
+  userVideoUrl: null,
+  setUserVideoUrl: (url) => set({ userVideoUrl: url }),
+  
   effects: {
     pixelate: createEffect({
       amount: createParam(50, 1, 300, 1), // Based on code: 2-180 typical, but can go higher

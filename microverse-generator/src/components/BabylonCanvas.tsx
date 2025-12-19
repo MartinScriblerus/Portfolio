@@ -404,9 +404,46 @@ export default function BabylonHydraCanvas() {
             };
             
             // Subscribe to Hydra controls store changes and rebuild pipeline
+            let lastUserVideoUrl: string | null = null;
             const unsubscribeHydraControls = useHydraControlsStore.subscribe(() => {
+                const state = useHydraControlsStore.getState();
+                
+                // Check if userVideoUrl changed and reinitialize video if needed
+                if (state.userVideoUrl !== lastUserVideoUrl && typeof g.s0?.initVideo === 'function') {
+                    lastUserVideoUrl = state.userVideoUrl || null;
+                    if (state.userVideoUrl) {
+                        // Reinitialize video with new URL
+                        (async () => {
+                            const videoUrl = state.userVideoUrl!;
+                            const isBlobUrl = videoUrl.startsWith('blob:');
+                            
+                            try {
+                                if (isBlobUrl) {
+                                    hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                    console.log('[Hydra] Video reloaded from blob URL');
+                                } else {
+                                    const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
+                                    try {
+                                        hydraVideoEl = await g.s0.initVideo(proxyUrl);
+                                        console.log('[Hydra] Video reloaded via proxy');
+                                    } catch (proxyErr: any) {
+                                        hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                        console.log('[Hydra] Video reloaded directly');
+                                    }
+                                }
+                                videoStartMs = performance.now();
+                                hydraCamReady = hydraVideoEl !== null;
+                            } catch (err: any) {
+                                console.error('[Hydra] Video reload failed:', err);
+                                hydraVideoEl = null;
+                                hydraCamReady = false;
+                            }
+                        })();
+                    }
+                }
+                
                 // Invalidate cache when chains change
-                const currentChains = useHydraControlsStore.getState().chains;
+                const currentChains = state.chains;
                 const currentHash = JSON.stringify(currentChains.map(c => ({ id: c.id, enabled: c.enabled, parentId: c.parentId, innerSourceId: c.innerSourceId, order: c.order })));
                 if (currentHash !== lastChainHash) {
                     chainCache.clear();
@@ -1272,24 +1309,35 @@ export default function BabylonHydraCanvas() {
                     // await g.s0.initCam();
                    
                     // if (!isCameraOn) {
-                    // Load video - use proxy directly (more reliable for CORS)
-                    const videoUrl = "https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4";
-                    const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
+                    // Load video - check userVideoUrl first, then fallback to default
+                    const hydraControls = useHydraControlsStore.getState();
+                    const userVideoUrl = hydraControls.userVideoUrl;
+                    const videoUrl = userVideoUrl || "https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4";
+                    
+                    // Blob URLs (user uploads) can be used directly, no proxy needed
+                    const isBlobUrl = videoUrl.startsWith('blob:');
                     
                     try {
-                        // Use proxy first (handles CORS properly)
-                        hydraVideoEl = await g.s0.initVideo(proxyUrl);
-                        console.log('[Hydra] Video loaded via proxy');
-                    } catch (proxyErr: any) {
-                        // If proxy fails, try direct (might work in some browsers)
-                        try {
-                            console.log('[Hydra] Proxy failed, trying direct load...');
+                        if (isBlobUrl) {
+                            // Use blob URL directly
                             hydraVideoEl = await g.s0.initVideo(videoUrl);
-                            console.log('[Hydra] Video loaded directly');
-                        } catch (directErr: any) {
-                            console.error('[Hydra] Both proxy and direct load failed:', directErr);
-                            hydraVideoEl = null;
+                            console.log('[Hydra] Video loaded from blob URL');
+                        } else {
+                            // For external URLs, use proxy first (handles CORS properly)
+                            const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
+                            try {
+                                hydraVideoEl = await g.s0.initVideo(proxyUrl);
+                                console.log('[Hydra] Video loaded via proxy');
+                            } catch (proxyErr: any) {
+                                // If proxy fails, try direct (might work in some browsers)
+                                console.log('[Hydra] Proxy failed, trying direct load...');
+                                hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                console.log('[Hydra] Video loaded directly');
+                            }
                         }
+                    } catch (err: any) {
+                        console.error('[Hydra] Video load failed:', err);
+                        hydraVideoEl = null;
                     }
                     // } else {
                         // StateVideoEl = await g.s0.initCam();
@@ -2270,8 +2318,9 @@ export default function BabylonHydraCanvas() {
                     bottom: 0,
                     // width: 350 * (16/9), //512
                     // height: 350, //512
-                    width: 400,
-                    height: 400 * (9/16),
+                    width: 494,
+                    height: 252,
+                    // height: 400 * (9/16),
                     zIndex: 5,
                     overflow: 'auto',
                     pointerEvents: 'none',

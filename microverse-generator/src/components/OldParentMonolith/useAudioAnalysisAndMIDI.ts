@@ -60,11 +60,11 @@ export default function useAudioAnalysisAndMIDI(
                 const pkt = d as { type: string; ts?: number; features?: Record<string, any> };
                 const features = pkt.features || null;
                 
-                // Strictly throttle state updates to 60 FPS to avoid blocking main thread
+                // Throttle state updates to 30 FPS to avoid blocking main thread and competing with Babylon
                 const now = performance.now();
                 if (now - lastStateUpdateRef.current >= MIN_UPDATE_MS) {
                   lastStateUpdateRef.current = now;
-                  // Use requestAnimationFrame to schedule update in next frame (non-blocking)
+                  // Use RAF but schedule it to avoid blocking - let Babylon render first
                   requestAnimationFrame(() => {
                     try { setMeydaData(features as Partial<MeydaFeaturesObject> || null); } catch {}
                   });
@@ -122,10 +122,11 @@ export default function useAudioAnalysisAndMIDI(
         console.warn('[useAudioAnalysisAndMIDI] Failed to connect processor:', e);
       }
 
-      // Strictly cap updates at 60 FPS: 1000ms / 60fps = 16.67ms per frame
+      // Strictly cap updates at 30 FPS to avoid competing with Babylon render loop
+      // 1000ms / 30fps = ~33.33ms per frame
       // This ensures audio visualization doesn't slow down Babylon or the grid
       const lastSetRef = { current: 0 } as { current: number };
-      const MIN_UPDATE_MS = 1000 / 60; // ~16.67ms for exactly 60 FPS
+      const MIN_UPDATE_MS = 1000 / 30; // ~33.33ms for 30 FPS (reduced from 60 to avoid Babylon conflicts)
       const lastStateUpdateRef = { current: 0 } as { current: number };
 
       // Add a message listener (use addEventListener to avoid overwriting other handlers)
@@ -163,7 +164,7 @@ export default function useAudioAnalysisAndMIDI(
                   console.warn('[useAudioAnalysisAndMIDI] ⚠️ Main thread extraction active - worker unavailable. This may impact performance.');
                   (window as any).__meydaMainThreadWarningShown = true;
                 }
-                // Use requestAnimationFrame to avoid blocking main thread during extraction
+                // Use RAF but schedule it to avoid blocking - let Babylon render first
                 requestAnimationFrame(() => {
                   try {
                     const features = Meyda.extract(
