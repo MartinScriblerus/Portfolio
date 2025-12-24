@@ -42,9 +42,7 @@ const MingusPopup = ({
     const [isOctaveMinSelectOpen, setIsOctaveMinSelectOpen] = React.useState(false);
     const [selectedKey, setSelectedKey] = React.useState<string | null>('C');
     const [selectedScale, setSelectedScale] = React.useState<string | null>('Diatonic');
-    const [selectedChord, setSelectedChord] = React.useState<any>({
-        label: 'Major Triad', value: 'M'
-    });
+    const [selectedChord, setSelectedChord] = React.useState<any>(null);
     const [selectedOctaveMax, setSelectedOctaveMax] = React.useState<string | null>('4');
     const [selectedOctaveMin, setSelectedOctaveMin] = React.useState<string | null>('1');
 
@@ -79,12 +77,13 @@ const MingusPopup = ({
     }, [selectedKey, selectedScale, selectedChord, selectedOctaveMax, selectedOctaveMin, selectionsRef]);
 
     useEffect(() => {
-        selectedKey &&
+        if (selectedKey &&
             selectedScale &&
             selectedChord &&
             selectedOctaveMax &&
-            selectedOctaveMin &&
+            selectedOctaveMin) {
             updateKeyScaleChord(selectedKey, selectedScale, selectedChord.value, selectedChord.label, selectedOctaveMax, selectedOctaveMin, noteBuilderFocus);
+        }
     }, [selectedKey, selectedScale, selectedChord, selectedOctaveMax, selectedOctaveMin, updateKeyScaleChord, noteBuilderFocus]);
 
 
@@ -678,7 +677,7 @@ const MingusPopup = ({
                             }}
                             onClick={() => setIsChordSelectOpen(!isChordSelectOpen)}
                         >
-                            {selectedChord.label}
+                            {selectedChord?.label || 'Select Chord'}
                         </div>
                         {
                             isChordSelectOpen && (

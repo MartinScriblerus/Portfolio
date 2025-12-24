@@ -200,7 +200,7 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
     
     try {
       const gv = get().gridVersion;
-      if (DEBUG_STORE_LOGS) console.log("BLAMO -- right here!", { gridVersion: gv, cell: { x, y }, fileNums });
+      if (DEBUG_STORE_LOGS) console.log("debug store logs(1): ", { gridVersion: gv, cell: { x, y }, fileNums });
       typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, cell: { x, y } } }));
     } catch {}
   },

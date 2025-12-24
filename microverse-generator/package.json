@@ -85,6 +85,7 @@
     "secrets:decrypt": "dotenvx decrypt .env.ingest.local",
     "secrets:push": "dotenvx push .env.ingest.local",
     "secrets:pull": "dotenvx pull .env.ingest.local",
+    "mcp:chuck": "tsx mcp-server/chuck-mcp-server.ts",
     "postinstall": "node scripts/copy-ffmpeg.js"
   },
   "devDependencies": {

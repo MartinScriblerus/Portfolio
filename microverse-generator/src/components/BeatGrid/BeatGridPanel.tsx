@@ -192,7 +192,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     const [height, setHeight] = useState<number | undefined>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const [currCellString, setCurrCellString] = useState<string>("0_1_0"); // Default cell string for (x=0, y=1, subdiv=0)
+    const [currCellString, setCurrCellString] = useState<string>("0_0_0"); // Default cell string for (x=0, y=0, subdiv=0)
 
     // Get bpm from timing store (fallback to prop)
     const bpmFromStore = useTimingStore((s: any) => s.bpm);
@@ -269,6 +269,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     const [showPatternEditorPopup, setShowPatternEditorPopup] = useState<boolean>(false);
     const [noteVelocityValue, setNoteVelocityValue] = useState<number>(0.5);
     const [noteVolumeValue, setNoteVolumeValue] = useState<number>(0.5);
+    const [showAdvancedControls, setShowAdvancedControls] = useState<boolean>(false);
     const currentXVal = useRef<number>(0);
     const currentYVal = useRef<number>(0);
     const cellData = useRef<CellData[]>(null);
@@ -300,11 +301,15 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         // Add new active cell highlight
         if (activeCell) {
             activeCellRef.current = activeCell;
+            // Try to find cell with idx=0 (first subdivision)
             const cellId = `fill_${activeCell.x}_${activeCell.y}_0`;
             const cellEl = svgRef.current.querySelector(`#${cellId}`);
             if (cellEl) {
                 (cellEl as SVGRectElement).setAttribute('fill', ACCESSIBLE_COLORS.subdominant.secondary);
                 (cellEl as SVGRectElement).setAttribute('opacity', '0.8');
+            } else {
+                // Debug: log if cell not found
+                console.warn('[ActiveCell] Cell not found:', cellId, 'Available cells:', Array.from(svgRef.current.querySelectorAll('[id^="fill_"]')).map((el: any) => el.id).slice(0, 10));
             }
         } else {
             activeCellRef.current = null;
@@ -341,7 +346,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     ];
     
     // Combine preloaded files with uploaded files for the dropdown
-    const allAvailableFiles = Array.from(new Set([...preloadedFiles, ...uploadedNames]));
+    // Sort alphabetically for consistent indexing
+    const allAvailableFiles = Array.from(new Set([...preloadedFiles, ...uploadedNames])).sort((a, b) => a.localeCompare(b));
     
     // Debug: log if files exist but names are empty
     if (filesToProcess && Array.isArray(filesToProcess) && filesToProcess.length > 0 && uploadedNames.length === 0) {
@@ -467,7 +473,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
 
         const string: any = e && Object.values(e.target)[1] || null;
         const isFill = e && string && string.id && string.id.includes("fill");
-        const vals = !e || (string.length < 1) || (string && !string.id) ? ["1", "1"] : !isFill ? string.id.split("_") : string.id.replace("fill_", "").split("_");
+        const vals = !e || (string.length < 1) || (string && !string.id) ? ["0", "0"] : !isFill ? string.id.split("_") : string.id.replace("fill_", "").split("_");
         const xVal = Number(num);
         const yVal = Number(vals[1]) || 1;
         const subDiv = Number(vals[2]) || 0;
@@ -504,23 +510,27 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     useEffect(() => { if (!currentXVal.current && !didSetupHeatmap.current) { triggerEditPattern(null, 0); didSetupHeatmap.current = true; } }, []);
 
     useEffect(() => {
-        const theX = currCellString.split('_')[0];
-        const theY = currCellString.split('_')[1];
-        const subDiv = currCellString.split('_')[2] || '0';
+        // Use currentSelectedCell as primary source, fallback to currCellString
+        const selectedX = currentSelectedCell.x ?? (currCellString ? Number(currCellString.split('_')[0]) : 0);
+        const selectedY = currentSelectedCell.y ?? (currCellString ? Number(currCellString.split('_')[1]) : 0);
+        const subDiv = currCellString ? (currCellString.split('_')[2] || '0') : '0';
         const cache = cacheRef.current;
         
         // Find the specific event matching x, y, and subdivision
         const event = cache.events.find(
-            (evt) => evt.x === Number(theX) && evt.y === Number(theY) && evt.subdivision === Number(subDiv)
+            (evt) => evt.x === Number(selectedX) && evt.y === Number(selectedY) && evt.subdivision === Number(subDiv)
         );
         
         // Helper function to convert file indices to file names
         const getFileNamesFromIndices = (indices: number[]): string[] => {
-            if (!filesToProcess || !Array.isArray(filesToProcess)) return [];
+            // Use allAvailableFiles which includes both preloaded and uploaded files, sorted alphabetically
+            if (!allAvailableFiles || allAvailableFiles.length === 0) return [];
             return indices
                 .map((idx: number) => {
-                    const file = filesToProcess[idx];
-                    return file?.filename ? String(file.filename) : null;
+                    if (idx >= 0 && idx < allAvailableFiles.length) {
+                        return allAvailableFiles[idx];
+                    }
+                    return null;
                 })
                 .filter((n): n is string => !!n);
         };
@@ -542,7 +552,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         } else {
             // Fallback: find any event for this cell (first subdivision)
             const cellEvent = cache.events.find(
-                (evt) => evt.x === Number(theX) && evt.y === Number(theY)
+                (evt) => evt.x === Number(selectedX) && evt.y === Number(selectedY)
             );
             if (cellEvent) {
                 if (cellEvent.fileNames && Array.isArray(cellEvent.fileNames)) {
@@ -557,7 +567,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         }
         
         // Also check masterPatternsHashHook for fileNums and convert to file names
-        const cell = masterPatternsHashHook?.[`${theY}`]?.[`${theX}`];
+        // Use currentSelectedCell to ensure we're showing the correct cell
+        const cell = masterPatternsHashHook?.[`${selectedY}`]?.[`${selectedX}`];
         if (cell?.fileNums && Array.isArray(cell.fileNums) && cell.fileNums.length > 0) {
             const fileNumsAsNames = getFileNamesFromIndices(cell.fileNums as number[]);
             if (fileNumsAsNames.length > 0) {
@@ -573,7 +584,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         
         filesForThisCell.current = fileNames;
         notesForThisCell.current = noteNames;
-    }, [currCellString, cacheRef.current.version, filesToProcess, masterPatternsHashHook]);
+    }, [currCellString, cacheRef.current?.version, filesToProcess, masterPatternsHashHook, allAvailableFiles, currentSelectedCell.x, currentSelectedCell.y]);
     
     const allShapes = heatmapData.map((d) => {
         if (!xScale || !yScale) return null;
@@ -586,38 +597,78 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                 {masterPatternsHashHook && masterPatternsHashHook[`${d.y}`] && masterPatternsHashHook[`${d.y}`][`${d.x}`] &&
                     Array.from({ length: masterPatternsHashHook[`${d.y}`][`${d.x}`].subdivisions }).map((_, idx) => (
                         <React.Fragment key={`overlay_note_${idx}_${d.x}_${d.y}`}>
-                            <rect
-                                width={xScale.bandwidth() / (masterPatternsHashHook[`${d.y}`][d.x].subdivisions * (1 / (Array.isArray(masterPatternsHashHook[`${d.y}`][d.x].length) ? masterPatternsHashHook[`${d.y}`][d.x].length[0] || 1 : masterPatternsHashHook[`${d.y}`][d.x].length || 1)))}
-                                height={yScale.bandwidth() / 2.5}
-                                key={`main_cell_noteEl_${d.x}_${d.y}_${idx}`}
-                                r={4}
-                                opacity={masterPatternsHashHook[`${d.y}`][`${d.x}`].velocity}
-                                fill={masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName?.join().length > 0 ? ACCESSIBLE_COLORS.tertiary.warning : "transparent"}
-                                id={`fill_noteEl_${d.x}_${d.y}_${idx}`}
-                                x={(xScale(d.x)! + (xScale.bandwidth() * idx) / masterPatternsHashHook[d.y][d.x].subdivisions)}
-                                y={yScale(d.y)}
-                                style={{ pointerEvents: "none" }}
-                            />
-                            <rect
-                                width={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][d.x] ? (xScale.bandwidth() / masterPatternsHashHook[Number(d.y) - 1][d.x].subdivisions) * ((Array.isArray(masterPatternsHashHook[Number(d.y) - 1][d.x].length) ? masterPatternsHashHook[Number(d.y) - 1][d.x].length[0] || 1 : masterPatternsHashHook[Number(d.y) - 1][d.x].length || 1) * currentNumerCountColToDisplay) : 0}
-                                height={yScale.bandwidth() / 2.5}
-                                key={`main_cell_sampleEl_${d.x}_${d.y}_${idx}`}
-                                r={4}
-                                opacity={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] ? masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].velocity * 2 : 0}
-                                fill={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].fileNums?.join().length > 0 ? ACCESSIBLE_COLORS.subdominant.primary : "transparent"}
-                                id={`fill_sampleEl_${d.x}_${d.y}_${idx}`}
-                                x={masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][d.x] ? (xScale(d.x)! + (xScale.bandwidth() * idx) / masterPatternsHashHook[`${Number(d.y) - 1}`][d.x].subdivisions) : 0}
-                                y={(yScale(d.y) || 0) + yScale.bandwidth() / 3}
-                                style={{ pointerEvents: "none" }}
-                            />
+                            {(() => {
+                                const cell = masterPatternsHashHook[`${d.y}`][d.x];
+                                const subdivisions = cell?.subdivisions || 1;
+                                const length = Array.isArray(cell?.length) ? (cell.length[0] || 1) : (cell?.length || 1);
+                                const bandwidth = xScale.bandwidth() || 0;
+                                const cellX = xScale(d.x);
+                                
+                                const width = bandwidth > 0 && subdivisions > 0 && length > 0
+                                    ? bandwidth / (subdivisions * (1 / length))
+                                    : 0;
+                                const x = cellX != null && bandwidth > 0 && subdivisions > 0
+                                    ? cellX + (bandwidth * idx) / subdivisions
+                                    : 0;
+                                const opacity = cell?.velocity || 0;
+                                const hasNotes = cell?.noteName?.join().length > 0;
+                                
+                                return (
+                                    <rect
+                                        width={width}
+                                        height={yScale.bandwidth() / 2.5}
+                                        key={`main_cell_noteEl_${d.x}_${d.y}_${idx}`}
+                                        r={4}
+                                        opacity={opacity}
+                                        fill={hasNotes ? ACCESSIBLE_COLORS.tertiary.warning : "transparent"}
+                                        id={`fill_noteEl_${d.x}_${d.y}_${idx}`}
+                                        x={x}
+                                        y={yScale(d.y) || 0}
+                                        style={{ pointerEvents: "none" }}
+                                    />
+                                );
+                            })()}
+                            {/* Overhang showing files from CURRENT row (not previous) */}
+                            {masterPatternsHashHook[`${d.y}`] && masterPatternsHashHook[`${d.y}`][d.x] && (() => {
+                                const cell = masterPatternsHashHook[`${d.y}`][d.x];
+                                const subdivisions = cell?.subdivisions || 1;
+                                const length = Array.isArray(cell?.length) ? (cell.length[0] || 1) : (cell?.length || 1);
+                                const numerCount = currentNumerCountColToDisplay || 1;
+                                const bandwidth = xScale.bandwidth() || 0;
+                                const cellX = xScale(d.x);
+                                
+                                const width = bandwidth > 0 && subdivisions > 0 
+                                    ? (bandwidth / subdivisions) * length * numerCount 
+                                    : 0;
+                                const x = cellX != null && bandwidth > 0 && subdivisions > 0
+                                    ? cellX + (bandwidth * idx) / subdivisions
+                                    : 0;
+                                const opacity = (cell?.velocity || 0) * 2;
+                                const hasFiles = cell?.fileNums?.join().length > 0;
+                                
+                                return (
+                                    <rect
+                                        width={width}
+                                        height={yScale.bandwidth() / 2.5}
+                                        key={`main_cell_sampleEl_${d.x}_${d.y}_${idx}`}
+                                        r={4}
+                                        opacity={opacity}
+                                        fill={hasFiles ? ACCESSIBLE_COLORS.subdominant.primary : "transparent"}
+                                        id={`fill_sampleEl_${d.x}_${d.y}_${idx}`}
+                                        x={x}
+                                        y={(yScale(d.y) || 0) + yScale.bandwidth() / 3}
+                                        style={{ pointerEvents: "none" }}
+                                    />
+                                );
+                            })()}
                             {masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName?.join().length > 0 && (
                                 <text x={x! + 2} y={y! + 10 + idx * 10} key={`text1_${idx}_${d.x}_${d.y}`} fontSize={8} fill={'white'}>
                                     {masterPatternsHashHook[`${d.y}`][`${d.x}`].noteName}
                                 </text>
                             )}
-                            {masterPatternsHashHook[`${Number(d.y) - 1}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`] && masterPatternsHashHook[`${Number(d.y) - 1}`][`${d.x}`].fileNums?.join().length > 0 && (
+                            {masterPatternsHashHook[`${d.y}`] && masterPatternsHashHook[`${d.y}`][`${d.x}`] && masterPatternsHashHook[`${d.y}`][`${d.x}`].fileNums?.join().length > 0 && (
                                 <text x={x! + 2} y={y! + 10 + idx * 10 + yScale.bandwidth() / 3} key={`text2_${idx}_${d.x}_${d.y}`} fontSize={8} fill={'white'}>
-                                    {1 / (Array.isArray(masterPatternsHashHook[`${Number(d.y)}`]?.[`${d.x}`]?.length) ? masterPatternsHashHook[`${Number(d.y)}`][`${d.x}`].length[0] || 1 : masterPatternsHashHook[`${Number(d.y)}`]?.[`${d.x}`]?.length || 1)}
+                                    {1 / (Array.isArray(masterPatternsHashHook[`${d.y}`]?.[`${d.x}`]?.length) ? masterPatternsHashHook[`${d.y}`][`${d.x}`].length[0] || 1 : masterPatternsHashHook[`${d.y}`]?.[`${d.x}`]?.length || 1)}
                                 </text>
                             )}
                             <rect
@@ -629,7 +680,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                 width={(xScale.bandwidth() / masterPatternsHashHook[d.y][d.x].subdivisions)}
                                 height={yScale.bandwidth()}
                                 opacity={
-                                    (patOptions[doAutoAssignPatternNumber] > 0 && ((16 * (Number(d.y) - 1) + Number(d.x)) - (16 * currentSelectedCell.y + currentSelectedCell.x)) % (16 / patOptions[doAutoAssignPatternNumber]) === 0) ||
+                                    (patOptions[doAutoAssignPatternNumber] > 0 && ((16 * Number(d.y) + Number(d.x)) - (16 * currentSelectedCell.y + currentSelectedCell.x)) % (16 / patOptions[doAutoAssignPatternNumber]) === 0) ||
                                         (patOptions[doAutoAssignPatternNumber] === 0 && currentSelectedCell.x === Number(d.x) && currentSelectedCell.y === Number(d.y)) ||
                                         currentBeatCountToDisplay === Number(d.x) && currentNumerCountColToDisplay === Number(d.y)
                                         ? 0.8 : 0.5
@@ -859,7 +910,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     // Build options and preselected values for Samples
     const sampleOptions: Option[] = useMemo(() => {
         const names = Array.from(new Set<string>((filesToProcess || []).map((f: any) => String(f.filename)))) as string[];
-        return names.map((name) => ({ value: name, label: name }));
+        // Sort alphabetically for consistent indexing
+        return names.sort((a, b) => a.localeCompare(b)).map((name) => ({ value: name, label: name }));
     }, [filesToProcess]);
 
     const sampleSelected: Option[] = useMemo(() => {
@@ -869,7 +921,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     }, [masterPatternsHashHook, currentXVal.current, currentYVal.current, sampleOptions]);
 
     const handleSamplesChange = (vals: Option[]) => {
-        handleLatestSamples(vals.map((o) => o.value), currentXVal.current, currentYVal.current - 1);
+        handleLatestSamples(vals.map((o) => o.value), currentXVal.current, currentYVal.current);
     };
 
     // Build options and preselected values for Notes
@@ -927,9 +979,58 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         return matched;
     }, [masterPatternsHashHook, currentXVal.current, currentYVal.current, notesOptions, gridVersion]);
 
+    // State to track notes selection for UI updates
+    const [notesSelectedState, setNotesSelectedState] = useState<Option[]>([]);
+    
+    // Sync notesSelectedState with notesSelected from useMemo
+    useEffect(() => {
+        setNotesSelectedState(notesSelected);
+    }, [notesSelected]);
+    
     const handleNotesChange = (vals: Option[]) => {
+        // Update local state immediately for UI responsiveness
+        setNotesSelectedState(vals);
+        // Also update the grid
         handleLatestNotes(vals.map((o) => o.value), currentXVal.current, currentYVal.current);
     };
+
+    // Handler for keyboard clicks to add notes to selection
+    const handleKeyboardNoteClick = useRef<((noteValue: string) => void) | null>(null);
+    
+    useEffect(() => {
+        // Expose handler globally so keyboard can call it
+        // Check if keyboard should add to notes (via global toggle state)
+        (window as any).__addNoteToSelection = (noteValue: string) => {
+            // Check if keyboard adds to notes is enabled (default true)
+            const keyboardAddsToNotes = (window as any).__keyboardAddsToNotes !== false; // default true
+            if (keyboardAddsToNotes && handleKeyboardNoteClick.current) {
+                handleKeyboardNoteClick.current(noteValue);
+            }
+        };
+        return () => {
+            delete (window as any).__addNoteToSelection;
+        };
+    }, []);
+
+    // Set up the handler to add notes from keyboard clicks
+    useEffect(() => {
+        handleKeyboardNoteClick.current = (noteValue: string) => {
+            // Find the option matching this note value
+            const option = notesOptions.find((o) => o.value === noteValue);
+            if (option) {
+                // Use notesSelectedState for current selection
+                const currentSelected = notesSelectedState || [];
+                const isAlreadySelected = currentSelected.some((o) => o.value === noteValue);
+                if (!isAlreadySelected) {
+                    // Add note
+                    handleNotesChange([...currentSelected, option]);
+                } else {
+                    // Remove note (toggle off)
+                    handleNotesChange(currentSelected.filter((o) => o.value !== noteValue));
+                }
+            }
+        };
+    }, [notesOptions, notesSelectedState, handleNotesChange]);
 
     // Helper: Generate chord notes from key + chord using Tune class
     const generateChordNotes = (key: string, chordValue: string, octave: number = 4): string[] => {
@@ -1547,41 +1648,130 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                         </Box>
                                                                     </Box>
 
-                                                                    <Box sx={{ width: "100%", display: "flex", flexDirection: "row", gap: 1, alignItems: "flex-start" }}>
-                                                                        <Box sx={{ flex: 1 }}>
-                                                                            <ParameterMultiSelect options={notesOptions} value={notesSelected} placeholder="Select Notes" onChange={handleNotesChange} />
-                                                                        </Box>
-                                                                        <Button
-                                                                            size="small"
-                                                                            variant="contained"
-                                                                            onClick={async () => {
-                                                                                if (notesSelected && notesSelected.length > 0) {
-                                                                                    // Get note values from selected options
-                                                                                    const noteValues = notesSelected.map((o) => o.value);
-                                                                                    await handleLatestNotes(noteValues, currentXVal.current, currentYVal.current);
-                                                                                    // Note: notesSelected will automatically update to show the assigned notes
-                                                                                    // since it's derived from the cell's current notes
-                                                                                }
-                                                                            }}
-                                                                            disabled={!notesSelected || notesSelected.length === 0}
-                                                                            sx={{
-                                                                                minWidth: '70px',
-                                                                                backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
-                                                                                color: '#000',
-                                                                                fontWeight: 600,
-                                                                                marginTop: '4px',
-                                                                                '&:hover': {
+                                                                    {/* Integrated Notes Dropdown with Chord/Scale integrated */}
+                                    <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
+                                                                        <Box sx={{ display: "flex", flexDirection: "row", gap: 1, alignItems: "flex-start" }}>
+                                                                            <Box sx={{ flex: 1 }}>
+                                                                                <ParameterMultiSelect 
+                                                                                    options={(() => {
+                                                                                        // Add chord/scale as special options at the top of the dropdown
+                                                                                        const specialOptions: Option[] = [];
+                                                                                        if (mingusSelectionsRef.current?.chord) {
+                                                                                            specialOptions.push({
+                                                                                                value: '__ADD_CHORD__',
+                                                                                                label: `➕ Add ${mingusSelectionsRef.current.chord.label} (${mingusSelectionsRef.current.key || 'C'})`
+                                                                                            });
+                                                                                        }
+                                                                                        if (mingusSelectionsRef.current?.scale) {
+                                                                                            specialOptions.push({
+                                                                                                value: '__ADD_SCALE__',
+                                                                                                label: `➕ Add ${mingusSelectionsRef.current.scale} Scale (${mingusSelectionsRef.current.key || 'C'})`
+                                                                                            });
+                                                                                        }
+                                                                                        return [...specialOptions, ...notesOptions];
+                                                                                    })()}
+                                                                                    value={notesSelectedState} 
+                                                                                    placeholder={
+                                                                                        mingusSelectionsRef.current?.chord?.label 
+                                                                                            ? `${mingusSelectionsRef.current.chord.label} (${mingusSelectionsRef.current.key || 'C'})` 
+                                                                                            : "Select Notes (or click keyboard)"
+                                                                                    }
+                                                                                    onChange={(vals) => {
+                                                                                        // Handle special chord/scale options first
+                                                                                        const specialVals = vals.filter(v => v.value.startsWith('__ADD_'));
+                                                                                        let noteVals = vals.filter(v => !v.value.startsWith('__ADD_'));
+                                                                                        
+                                                                                        // Start with current selection to merge with
+                                                                                        const currentSelection = notesSelectedState || [];
+                                                                                        
+                                                                                        // If user is removing items (vals.length < currentSelection.length), 
+                                                                                        // allow removal by using noteVals directly
+                                                                                        if (noteVals.length < currentSelection.length) {
+                                                                                            // User is removing items - use noteVals as-is
+                                                                                            handleNotesChange(noteVals);
+                                                                                            return;
+                                                                                        }
+                                                                                        
+                                                                                        // Otherwise, merge new selections with existing
+                                                                                        noteVals = [...currentSelection, ...noteVals.filter(o => !currentSelection.some(c => c.value === o.value))];
+                                                                                        
+                                                                                        // Process special options - add notes to existing selection
+                                                                                        specialVals.forEach(special => {
+                                                                                            if (special.value === '__ADD_CHORD__') {
+                                                                                                const selections = mingusSelectionsRef.current;
+                                                                                                if (selections && selections.key && selections.chord) {
+                                                                                                    const chordNotes = generateChordNotes(
+                                                                                                        selections.key,
+                                                                                                        selections.chord.value,
+                                                                                                        Number(selections.octaveMin || 4)
+                                                                                                    );
+                                                                                                    const chordOptions = chordNotes
+                                                                                                        .map(note => notesOptions.find(o => o.value === note))
+                                                                                                        .filter(Boolean) as Option[];
+                                                                                                    // Merge chord notes with existing selection (avoid duplicates)
+                                                                                                    chordOptions.forEach(opt => {
+                                                                                                        if (!noteVals.some(n => n.value === opt.value)) {
+                                                                                                            noteVals.push(opt);
+                                                                                                        }
+                                                                                                    });
+                                                                                                }
+                                                                                            } else if (special.value === '__ADD_SCALE__') {
+                                                                                                const selections = mingusSelectionsRef.current;
+                                                                                                if (selections && selections.key && selections.scale) {
+                                                                                                    const scaleNotes = generateScaleNotes(
+                                                                                                        selections.key,
+                                                                                                        selections.scale,
+                                                                                                        Number(selections.octaveMin || 1),
+                                                                                                        Number(selections.octaveMax || 4)
+                                                                                                    );
+                                                                                                    const scaleOptions = scaleNotes
+                                                                                                        .map(note => notesOptions.find(o => o.value === note))
+                                                                                                        .filter(Boolean) as Option[];
+                                                                                                    // Merge scale notes with existing selection (avoid duplicates)
+                                                                                                    scaleOptions.forEach(opt => {
+                                                                                                        if (!noteVals.some(n => n.value === opt.value)) {
+                                                                                                            noteVals.push(opt);
+                                                                                                        }
+                                                                                                    });
+                                                                                                }
+                                                                                            }
+                                                                                        });
+                                                                                        
+                                                                                        // Update with note values only (exclude special options)
+                                                                                        handleNotesChange(noteVals);
+                                                                                    }} 
+                                                                                />
+                                                                            </Box>
+                                                                            <Button
+                                                                                size="small"
+                                                                                variant="contained"
+                                                                                onClick={async () => {
+                                                                                    if (notesSelectedState && notesSelectedState.length > 0) {
+                                                                                        // Get note values from selected options
+                                                                                        const noteValues = notesSelectedState.map((o) => o.value);
+                                                                                        await handleLatestNotes(noteValues, currentXVal.current, currentYVal.current);
+                                                                                    }
+                                                                                }}
+                                                                                disabled={!notesSelectedState || notesSelectedState.length === 0}
+                                                                                sx={{
+                                                                                    minWidth: '70px',
                                                                                     backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
-                                                                                    opacity: 0.9,
-                                                                                },
-                                                                                '&:disabled': {
-                                                                                    backgroundColor: 'rgba(255,255,255,0.1)',
-                                                                                    color: 'rgba(255,255,255,0.3)',
-                                                                                },
-                                                                            }}
-                                                                        >
-                                                                            Assign
-                                                                        </Button>
+                                                                                    color: '#000',
+                                                                                    fontWeight: 600,
+                                                                                    marginTop: '4px',
+                                                                                    '&:hover': {
+                                                                                        backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
+                                                                                        opacity: 0.9,
+                                                                                    },
+                                                                                    '&:disabled': {
+                                                                                        backgroundColor: 'rgba(255,255,255,0.1)',
+                                                                                        color: 'rgba(255,255,255,0.3)',
+                                                                                    },
+                                                                                }}
+                                                                            >
+                                                                                Assign
+                                                                            </Button>
+                                                                        </Box>
                                                                     </Box>
                                                                     {/* )
                                                                 )} */}
@@ -1608,27 +1798,56 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                         />
                                                                     </Box>
                                                                 </Box>
-                                                                <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? ACCESSIBLE_COLORS.tertiary.warning : ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
+                                                                <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? ACCESSIBLE_COLORS.tertiary.warning : ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content"
+                                                                // flex: "1 1 auto" 
+                                                                }}>
                                                                     <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
                                                                 </Box>
                                                             </Box>
 
-                                                            {/* Velocity/Length Sliders (existing) */}
-                                                            {cellData.current && Object.values(cellData.current).length > 0 && Object.values(cellData.current[0]).length > 0 && (
-                                                                <Box sx={{ display: "flex", flexDirection: "column", width: "100%" }}>
-                                                                    <VelocityLengthSliders handleNoteLengthUpdate={handleNoteLengthUpdate} cellData={cellData.current} maxLen={Number(+doAutoAssignPatternNumber) !== 0 ? Number(+doAutoAssignPatternNumber) : 1} chuckIsRunning={isChuckRunning} masterPatterns={masterPatternsHashHook[`${currentYVal.current}`][`${currentXVal.current}`]} />
-                                                                </Box>
-                                                            )}
-
-                                                                                                                        {/* Velocity and Volume Sliders */}
-                                                                                                                        <Box sx={{ display: "flex", flexDirection: "row", gap: 2, width: "100%" }}>
-                                                                <Box sx={{ flex: 1, display: "flex", padding: "4px", flexDirection: "column" }}>
-                                                                    <ParameterSlider label="Note Velocity" value={noteVelocityValue} min={0} max={1} step={0.01} onChange={handleNoteVelocityUpdateLocal} />
-                                                                </Box>
-                                                                <Box sx={{ flex: 1, display: "flex", padding: "4px", flexDirection: "column" }}>
-                                                                    <ParameterSlider label="Volume" value={noteVolumeValue} min={0} max={1} step={0.01} onChange={handleNoteVolumeUpdateLocal} />
-                                                                </Box>
-                                                            </Box>
+                                                            {/* Velocity/Length Sliders - Collapsible, less prominent */}
+                                                            {(() => {
+                                                                const hasNotes = notesSelectedState && notesSelectedState.length > 0;
+                                                                const hasCellData = cellData.current && Object.values(cellData.current).length > 0 && Object.values(cellData.current[0]).length > 0;
+                                                                
+                                                                if (!hasNotes && !hasCellData) return null;
+                                                                
+                                                                return (
+                                                                    <Box sx={{ width: "100%" }}>
+                                                                        <Button
+                                                                            size="small"
+                                                                            onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                                                                            sx={{
+                                                                                fontSize: '10px',
+                                                                                padding: '2px 8px',
+                                                                                minHeight: '24px',
+                                                                                color: 'rgba(245,245,245,0.5)',
+                                                                                textTransform: 'none',
+                                                                                '&:hover': {
+                                                                                    backgroundColor: 'rgba(255,255,255,0.05)',
+                                                                                },
+                                                                            }}
+                                                                        >
+                                                                            {showAdvancedControls ? '▼' : '▶'} Advanced (Velocity/Length)
+                                                                        </Button>
+                                                                        {showAdvancedControls && (
+                                                                            <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: "4px", marginTop: "4px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px" }}>
+                                                                                {hasCellData && (
+                                                                                    <VelocityLengthSliders handleNoteLengthUpdate={handleNoteLengthUpdate} cellData={cellData.current} maxLen={Number(+doAutoAssignPatternNumber) !== 0 ? Number(+doAutoAssignPatternNumber) : 1} chuckIsRunning={isChuckRunning} masterPatterns={masterPatternsHashHook[`${currentYVal.current}`][`${currentXVal.current}`]} />
+                                                                                )}
+                                                                                <Box sx={{ display: "flex", flexDirection: "row", gap: 1, width: "100%" }}>
+                                                                                    <Box sx={{ flex: 1, display: "flex", padding: "2px", flexDirection: "column" }}>
+                                                                                        <ParameterSlider label="Velocity" value={noteVelocityValue} min={0} max={1} step={0.01} onChange={handleNoteVelocityUpdateLocal} />
+                                                                                    </Box>
+                                                                                    <Box sx={{ flex: 1, display: "flex", padding: "2px", flexDirection: "column" }}>
+                                                                                        <ParameterSlider label="Volume" value={noteVolumeValue} min={0} max={1} step={0.01} onChange={handleNoteVolumeUpdateLocal} />
+                                                                                    </Box>
+                                                                                </Box>
+                                                                            </Box>
+                                                                        )}
+                                                                    </Box>
+                                                                );
+                                                            })()}
                                                         </Box>
 
 
@@ -1644,41 +1863,6 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                 getSTK1Preset={getSTK1Preset}
                                                                 updateMicroTonalScale={updateMicroTonalScale}
                                                             />
-                                                        </Box>
-                                                        {/* Chord/Scale Assignment Buttons */}
-                                                        <Box sx={{ display: "flex", flexDirection: "row", width: "100%" }}>
-                                                            <button
-                                                                onClick={handleAssignChordToCell}
-                                                                style={{
-                                                                    flex: 1,
-                                                                    padding: '8px 12px',
-                                                                    background: 'rgba(98, 245, 255, 0.2)',
-                                                                    border: `1px solid ${ACCESSIBLE_COLORS.subdominant.primary}`,
-                                                                    borderRadius: '4px',
-                                                                    color: 'rgba(245,245,245,0.78)',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: '12px',
-                                                                    fontWeight: '500',
-                                                                }}
-                                                            >
-                                                                Add Chord to Cell
-                                                            </button>
-                                                            <button
-                                                                onClick={handleAssignScaleToPattern}
-                                                                style={{
-                                                                    flex: 1,
-                                                                    padding: '8px 12px',
-                                                                    background: 'rgba(255, 20, 147, 0.2)',
-                                                                    border: `1px solid ${ACCESSIBLE_COLORS.subdominant.secondary}`,
-                                                                    borderRadius: '4px',
-                                                                    color: 'rgba(245,245,245,0.78)',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: '12px',
-                                                                    fontWeight: '500',
-                                                                }}
-                                                            >
-                                                                Add Scale to Pattern
-                                                            </button>
                                                         </Box>
                                                     </Box>
                                                     {/* <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>

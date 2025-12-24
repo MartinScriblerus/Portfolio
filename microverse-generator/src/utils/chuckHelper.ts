@@ -976,7 +976,7 @@ export const getChuckCode = (
         // WORK OUT BETTER WAY THAN NUMVOICES 
         
         // for (0 => int i; i < numVoices; i++) {
-            
+            <<< "TICK !!!!" >>>;
             if (noteFreqs != 9999.0 && noteFreqs > 0.0) {
                 1 => adsr.keyOn; 
                 noteFreqs => voice[0].keyOn;
@@ -1254,7 +1254,7 @@ export const getChuckCode = (
 
         if (now >= startTimeMeasureLoop + step) {
             
-            <<< "TICK: ", fastestTickCounter >>>; 
+            <<< "TICK:", " ", fastestTickCounter >>>; 
 
             spork ~ updateAudioMixerLevels();
        
@@ -1274,6 +1274,7 @@ export const getChuckCode = (
             fastestTickCounter + 1 => fastestTickCounter;                     
             step => now;     
         } 
+            <<< "TICK:", " ", fastestTickCounter >>>; 
         beatMS::ms => now;
         me.yield();
 

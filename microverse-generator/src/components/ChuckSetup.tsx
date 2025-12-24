@@ -24,7 +24,8 @@ import MicOffIcon from '@mui/icons-material/MicOff';
 import MicIcon from '@mui/icons-material/Mic';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
-import { Box, Button, InputLabel, Select } from '@mui/material';
+import MusicNoteIcon from '@mui/icons-material/MusicNote';
+import { Box, Button, InputLabel, Select, Tooltip } from '@mui/material';
 import {
     filesToProcess,
     chuckRef as globalChuckRef,
@@ -313,6 +314,16 @@ export default function ChuckSetup() {
     const setKeyboardMode = useOldMonolithStore(s => s.setKeyboardMode);
     const audioInSettingsHelperHash = useAudioInSettingsStore(s => s.audioInSettings);
     const uploadedVFilesRef = useRef<string[]>([]);
+    
+            // Simple toggle: should uploaded files also be loaded into MIDI keyboard buffers?
+    const [addToMidiBuffers, setAddToMidiBuffers] = useState(false);
+    // Toggle: should keyboard clicks add notes to the notes dropdown? (default on)
+    const [keyboardAddsToNotes, setKeyboardAddsToNotes] = useState(true);
+    
+    // Expose keyboard toggle to global scope on mount/update
+    useEffect(() => {
+        (window as any).__keyboardAddsToNotes = keyboardAddsToNotes;
+    }, [keyboardAddsToNotes]);
 
     const globalAudioCtx = useRef<AudioContext | null>(null);
     // Defer AudioContext creation until the user explicitly enables audio (user gesture)
@@ -330,6 +341,137 @@ export default function ChuckSetup() {
     }, []);
 
     const [showAudioInDropdown, setShowAudioInDropdown] = useState(false);
+
+    // Local refs to manage tick->activeCell mapping so we can step L->R then shift rows.
+    // Default ordering: top->bottom because it's often more intuitive in the UI.
+    const lastTickRef = useRef<number | null>(null);
+    const activeXRef = useRef<number>(0);
+    const activeYRef = useRef<number>(0); // index corresponding to keys in masterPatternsHashHook (numeric y)
+    const rowOrderTopToBottomRef = useRef<boolean>(true);
+
+    // Helper: compute grid rows (sorted bottom->top) and column count for a given row
+    const getGridRows = () => {
+        const grid = useBeatGridStore.getState().masterPatternsHashHook || {};
+        // collect numeric y keys
+        const ys = Object.keys(grid).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
+        // Filter out rows that don't have any cells (empty rows)
+        const rowsWithCells = ys.filter(y => {
+            const row = grid[String(y)];
+            return row && Object.keys(row).length > 0;
+        });
+        // sort depending on configured order: top->bottom (ascending) or bottom->top (descending)
+        rowsWithCells.sort((a, b) => rowOrderTopToBottomRef.current ? a - b : b - a);
+        return rowsWithCells;
+    };
+
+    const getColumnsForRow = (y: number) => {
+        const grid = useBeatGridStore.getState().masterPatternsHashHook || {};
+        const row = grid[String(y)] || {};
+        const xs = Object.keys(row).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
+        if (xs.length === 0) return 16; // fallback
+        return Math.max(...xs) + 1;
+    };
+
+    const advanceActiveCellFromTick = (tickNum: number) => {
+        try {
+            const rows = getGridRows();
+            if (rows.length === 0) return;
+
+            // If tick jumped (non-consecutive), try to derive position by modulo over total cells
+            const currentRow = activeYRef.current;
+            let cols = getColumnsForRow(currentRow);
+
+            if (lastTickRef.current == null) {
+                // initialize: place at start
+                activeXRef.current = 0;
+                activeYRef.current = rows[0];
+            } else {
+                const delta = tickNum - (lastTickRef.current || 0);
+                if (delta === 1) {
+                    // normal advance to next column
+                    activeXRef.current += 1;
+                    if (activeXRef.current >= cols) {
+                        // wrap to next row (bottom->top order in `rows` array)
+                        const idx = rows.indexOf(activeYRef.current);
+                        if (idx !== -1 && rows.length > 0) {
+                            const nextIdx = (idx + 1) % rows.length;
+                            activeYRef.current = rows[nextIdx];
+                            activeXRef.current = 0;
+                            cols = getColumnsForRow(activeYRef.current);
+                        } else {
+                            // If current row not found or rows empty, reset to first row
+                            if (rows.length > 0) {
+                                activeYRef.current = rows[0];
+                                activeXRef.current = 0;
+                                cols = getColumnsForRow(activeYRef.current);
+                            }
+                        }
+                    }
+                } else if (delta > 1 || delta < 0) {
+                    // Big jump or reset: compute a deterministic mapping using tickNum modulo total cells
+                    const totalCells = rows.reduce((acc, ry) => acc + getColumnsForRow(ry), 0);
+                    if (totalCells > 0 && rows.length > 0) {
+                        const idx = tickNum % totalCells;
+                        // find row and col by walking rows
+                        let acc = 0;
+                        for (let i = 0; i < rows.length; i++) {
+                            const ry = rows[i];
+                            const c = getColumnsForRow(ry);
+                            if (idx < acc + c) {
+                                activeYRef.current = ry;
+                                activeXRef.current = idx - acc;
+                                break;
+                            }
+                            acc += c;
+                        }
+                    } else if (rows.length > 0) {
+                        // Fallback: start at first valid row
+                        activeYRef.current = rows[0];
+                        activeXRef.current = 0;
+                    }
+                }
+            }
+
+            // Safety check: ensure activeYRef is in valid rows
+            if (rows.length > 0 && !rows.includes(activeYRef.current)) {
+                console.warn('[Ticker] Invalid row detected:', activeYRef.current, 'Valid rows:', rows, 'Resetting to first row');
+                activeYRef.current = rows[0];
+                activeXRef.current = 0;
+            }
+            
+            lastTickRef.current = tickNum;
+            // update store
+            const newActiveCell = { x: activeXRef.current, y: activeYRef.current };
+            useBeatGridStore.getState().setActiveCell(newActiveCell);
+            
+            // Debug: log ticker advancement (less verbose)
+            if (tickNum % 64 === 0) {
+                console.log('[Ticker] Tick:', tickNum, 'Active cell:', newActiveCell, 'Rows:', rows, 'Current row index:', rows.indexOf(activeYRef.current));
+            }
+
+            // Expose debug globals for quick inspection in DevTools
+            try {
+                if (typeof window !== 'undefined') {
+                    (window as any).__lastTick = tickNum;
+                    (window as any).__lastActiveCell = newActiveCell;
+                    (window as any).__beatGridRowOrderTopToBottom = rowOrderTopToBottomRef.current;
+                    (window as any).__availableRows = rows;
+                }
+            } catch (e) {
+                // ignore
+            }
+        } catch (e) {
+            console.warn('[advanceActiveCellFromTick] error', e);
+        }
+    };
+
+    // Expose a helper to flip row ordering at runtime (useful for testing different UI orientations)
+    if (typeof window !== 'undefined') {
+        (window as any).__setBeatGridRowOrder = (topToBottom: boolean) => {
+            rowOrderTopToBottomRef.current = !!topToBottom;
+            (window as any).__beatGridRowOrderTopToBottom = rowOrderTopToBottomRef.current;
+        };
+    }
 
 
 
@@ -431,21 +573,18 @@ export default function ChuckSetup() {
                     chuckRef.current.chuckPrint = async (message: string) => {
                         // Handle TICK messages - update active cell without re-rendering
                         if (message.includes("TICK")) {
-                            try {
-                                // Parse TICK message format: "TICK: x y" or "UPDATE_GRID: tick beat step"
-                                const tickMatch = message.match(/TICK:\s*(\d+)\s+(\d+)/) ||
-                                    message.match(/UPDATE_GRID:\s*(\d+)\s+(\d+)\s+(\d+)/);
-                                if (tickMatch) {
-                                    // Extract x (step) and y (beat/row) from message
-                                    const x = parseInt(tickMatch[2] || tickMatch[3] || '0', 10);
-                                    const y = parseInt(tickMatch[1] || tickMatch[2] || '0', 10);
-                                    // Update active cell in store (triggers DOM update only, no React re-render)
-                                    useBeatGridStore.getState().setActiveCell({ x, y });
-                                }
-                            } catch (err) {
-                                console.warn('[ChucK] Failed to parse TICK message:', message, err);
+                                // Parse numeric tokens from the message (robust to different TICK formats)
+                                try {
+                                        const nums = message.match(/\d+/g);
+                                        if (nums && nums.length >= 1) {
+                                            const tickNum = parseInt(nums[0], 10);
+                                            console.log("mofucking ticknum 2: ", tickNum );
+                                            advanceActiveCellFromTick(tickNum);
+                                        }
+                                    } catch (err) {
+                                        console.warn('[ChucK] Failed to parse TICK message:', message, err);
+                                    }
                             }
-                        }
 
                         if (message.includes("UPDATE_GRID")) {
                             console.log("TK! ", message);
@@ -569,14 +708,59 @@ export default function ChuckSetup() {
                 continue;
             }
 
+            // Files ALWAYS go to sampler (beatgrid)
             uploadedVFilesRef.current.push(vpath);
+            
+            // Optionally also load into MIDI keyboard buffers if toggle is enabled
+            if (addToMidiBuffers) {
+                try {
+                    // Use next available buffer (cycle through 4 buffers)
+                    const bufferIndex = uploadedVFilesRef.current.length % 4;
+                    await chuckRef.current.setInt('activeBufferIndex', bufferIndex);
+                    
+                    // Load file into shared buffer via ChucK code
+                    // Wait for file to load, then record into buffer
+                    const loadCode = `
+                        // Load uploaded file into temp SndBuf
+                        SndBuf tempFile => blackhole;
+                        "${vpath}" => tempFile.read;
+                        
+                        // Wait for file to actually load
+                        while (tempFile.length() == 0::samp) {
+                            1::samp => now;
+                        }
+                        
+                        // Record file into shared buffer
+                        sharedAudioBuffers[${bufferIndex}].clear();
+                        sharedAudioBuffers[${bufferIndex}].recPos(0::samp);
+                        sharedAudioBuffers[${bufferIndex}].record(1);
+                        
+                        // Play file and record simultaneously
+                        0 => tempFile.pos;
+                        tempFile.length() => now;
+                        
+                        // Stop recording and signal ready
+                        sharedAudioBuffers[${bufferIndex}].record(0);
+                        bufferRecorded.broadcast();
+                        
+                        <<< "File loaded into MIDI buffer", ${bufferIndex}, ":", "${vpath}", "READY" >>>;
+                    `;
+                    
+                    await chuckRef.current.runCode(loadCode);
+                    console.log(`✅ File "${safeName}" also loaded into MIDI buffer ${bufferIndex}`);
+                } catch (err: any) {
+                    console.warn('Failed to load file into MIDI buffer:', err);
+                    // Continue - file is still in sampler
+                }
+            }
         }
 
         // Update ChucK global files[] and broadcast filesUpdated
+        // Sort files alphabetically for consistent indexing
         const allVFiles = [
             ...SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename),
             ...uploadedVFilesRef.current
-        ];
+        ].sort((a, b) => a.localeCompare(b));
         const arrayLiteral = JSON.stringify(allVFiles);
         try {
             await chuckRef.current.runCode(`[${arrayLiteral}] @=> files; filesUpdated.broadcast();`);
@@ -790,9 +974,19 @@ export default function ChuckSetup() {
             // Build getSourceFX function (placeholder for now)
             const getSourceFX = () => '';
 
+            // Set masterPatternsRef.current from beat grid store
+            const beatGridState = useBeatGridStore.getState();
+            masterPatternsRef.current = beatGridState.masterPatternsHashHook || {};
+
+            // Build filesArray matching the sorted order used in handleLatestSamples
+            // This ensures file indices match between ChucK and the beatgrid
+            const preloadedFileNames = SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename);
+            const uploadedFileNames = uploadedVFilesRef.current || [];
+            const allFilesSorted = [...preloadedFileNames, ...uploadedFileNames].sort((a, b) => a.localeCompare(b));
+            
             return {
                 isTestingChord: undefined,
-                filesArray: JSON.stringify(SERVER_FILES_TO_PRELOAD.map(f => f.virtualFilename)),
+                filesArray: JSON.stringify(allFilesSorted),
                 currentNoteVals,
                 masterPatternsRef,
                 masterFastestRate,
@@ -837,14 +1031,28 @@ export default function ChuckSetup() {
         console.log('[runChuckCode] invoked, isRunning=', isRunning, 'isInitializingRef=', isInitializingRef.current);
 
         // Prevent re-entrancy using ref (more reliable than state)
-        if (isInitializingRef.current || isRunning) {
-            console.log('[runChuckCode] already running or initializing, ignoring');
+        if (isInitializingRef.current) {
+            console.log('[runChuckCode] already initializing, ignoring');
             return;
+        }
+        
+        // If already running and ChucK is actually working, don't restart
+        if (isRunning && chuckRef.current) {
+            console.log('[runChuckCode] ChucK already running, ignoring');
+            return;
+        }
+        
+        // If isRunning is true but chuckRef is null, ChucK failed - reset state
+        if (isRunning && !chuckRef.current) {
+            console.log('[runChuckCode] ChucK failed previously, resetting state...');
+            setIsRunning(false);
+            // Wait a tick for state to update
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
 
         isInitializingRef.current = true;
         setIsRunning(true); // Flip button immediately
-
+        
         try {
             // Attempt to resume the AudioContext immediately (must be called during a user gesture)
             if (!globalAudioCtx.current) {
@@ -853,7 +1061,8 @@ export default function ChuckSetup() {
                 if (!enabled) {
                     console.error('[runChuckCode] Failed to enable AudioContext - aborting ChucK init');
                     isInitializingRef.current = false;
-                    return;
+                    setIsRunning(false);
+                    throw new Error('Failed to enable AudioContext');
                 }
             } else if (globalAudioCtx.current.state === 'suspended') {
                 // Ensure the context is resumed during the user gesture
@@ -863,7 +1072,8 @@ export default function ChuckSetup() {
         } catch (resumeErr) {
             console.warn('[runChuckCode] AudioContext resume attempt failed:', resumeErr);
             isInitializingRef.current = false;
-            return;
+            setIsRunning(false);
+            throw new Error(`AudioContext resume attempt failed: ${resumeErr}`);
         }
 
         // Lazy-load the heavy `webchuck` module only when the user requests it
@@ -873,22 +1083,16 @@ export default function ChuckSetup() {
         } catch (impErr) {
             console.error('[runChuckCode] dynamic import failed:', impErr);
             isInitializingRef.current = false;
+            setIsRunning(false); // Reset so it can be retried
             throw impErr;
         }
         const { Chuck } = ChuckModule;
         let sampleRate = globalAudioCtx.current && globalAudioCtx.current.sampleRate || 44100;
         calculateDisplayDigits(sampleRate);
-
-        // Double-check we're still not running (state might have changed)
-        if (isRunning) {
-            console.log('[runChuckCode] isRunning became true during init, aborting');
-            isInitializingRef.current = false;
-            return;
-        }
         const chugins: string[] = loadWebChugins();
         chugins.forEach((path) => Chuck.loadChugin(path));
         setShowAudioInDropdown(true);
-        console.log("HEYA!")
+        console.log("HEYA!");
         const LOCAL_CHUCK_SRC = '/webchuck/';
         // const serverFilesToPreload = [{ serverFilename: '/model.txt', virtualFilename: 'model.txt' }];
         const serverFilesToPreload: any = [
@@ -919,7 +1123,8 @@ export default function ChuckSetup() {
         if (!globalAudioCtx.current) {
             console.error('[runChuckCode] AudioContext not initialized');
             isInitializingRef.current = false;
-            return;
+            setIsRunning(false);
+            throw new Error('AudioContext not initialized');
         }
 
         // Wait for AudioContext to be running (critical for AudioWorklet)
@@ -930,41 +1135,59 @@ export default function ChuckSetup() {
             } catch (resumeErr) {
                 console.error('[runChuckCode] Failed to resume AudioContext:', resumeErr);
                 isInitializingRef.current = false;
-                return;
+                setIsRunning(false);
+                throw new Error(`Failed to resume AudioContext: ${resumeErr}`);
             }
         }
 
         console.log('[runChuckCode] AudioContext state:', globalAudioCtx.current.state);
 
-        // try {
-        console.log('[runChuckCode] Initializing ChucK...');
-        chuckRef.current = await Chuck.init(serverFilesToPreload, globalAudioCtx.current, globalAudioCtx.current.destination.maxChannelCount, whereIsChuck);
-        console.log('[runChuckCode] ChucK initialized successfully');
-        // Expose the running ChucK instance globally for Old-* components
-        if (chuckRef.current) {
-            setIsRunning(true)
-            globalChuckRef.current = chuckRef.current as any;
+        // Initialize ChucK with proper error handling
+        try {
+            console.log('[runChuckCode] Initializing ChucK...');
+            // Use default 2 channels if maxChannelCount is not available
+            const numOutChannels = globalAudioCtx.current.destination?.maxChannelCount || 2;
+            chuckRef.current = await Chuck.init(serverFilesToPreload, globalAudioCtx.current, numOutChannels, whereIsChuck);
+            console.log('[runChuckCode] ChucK initialized successfully');
+            
+            // Expose the running ChucK instance globally for Old-* components
+            if (chuckRef.current) {
+                setIsRunning(true)
+                globalChuckRef.current = chuckRef.current as any;
 
-            // Initialize HID for keyboard input
-            try {
-                console.log('🎹 Initializing HID for keyboard input...');
-                hidRef.current = await HID.init(chuckRef.current, false, true); // Mouse: false, Keyboard: true
-                keyboardHIDManagerRef.current = new KeyboardHIDManager(chuckRef.current, hidRef.current);
-                await keyboardHIDManagerRef.current.setupChuckHIDListener();
-                await keyboardHIDManagerRef.current.startListening();
-                console.log('✅ HID keyboard initialized successfully');
+                // Initialize HID for keyboard input
+                try {
+                    console.log('🎹 Initializing HID for keyboard input...');
+                    hidRef.current = await HID.init(chuckRef.current, false, true); // Mouse: false, Keyboard: true
+                    keyboardHIDManagerRef.current = new KeyboardHIDManager(chuckRef.current, hidRef.current);
+                    await keyboardHIDManagerRef.current.setupChuckHIDListener();
+                    await keyboardHIDManagerRef.current.startListening();
+                    console.log('✅ HID keyboard initialized successfully');
 
-                // Expose keyboard manager globally for keyboard components
-                (window as any).__keyboardHIDManager = keyboardHIDManagerRef.current;
-            } catch (hidErr) {
-                console.warn('⚠️ Failed to initialize HID (keyboard will still work via direct events):', hidErr);
+                    // Expose keyboard manager globally for keyboard components
+                    (window as any).__keyboardHIDManager = keyboardHIDManagerRef.current;
+                } catch (hidErr) {
+                    console.warn('⚠️ Failed to initialize HID (keyboard will still work via direct events):', hidErr);
+                }
             }
+            if (chuckRef.current && globalAudioCtx.current) {
+                await chuckRef.current.connect(globalAudioCtx.current.destination);
+            }
+            setInitializing(true);
+        } catch (initErr: any) {
+            console.error('[runChuckCode] ChucK initialization failed:', initErr);
+            console.error('[runChuckCode] Error details:', {
+                name: initErr?.name,
+                message: initErr?.message,
+                stack: initErr?.stack,
+                errno: initErr?.errno,
+                code: initErr?.code,
+                toString: String(initErr),
+            });
+            isInitializingRef.current = false;
+            setIsRunning(false); // Reset so it can be retried
+            throw initErr; // Re-throw so retry logic can catch it
         }
-        if (chuckRef.current && globalAudioCtx.current) {
-            await chuckRef.current.connect(globalAudioCtx.current.destination);
-        }
-        setInitializing(true);
-        // Note: isInitializingRef.current will be cleared in finally block
 
         // Set up chuckPrint handler for synchronization (same as in chuckMicButton)
         // NOTE: This duplicates the handler above - consider consolidating
@@ -973,13 +1196,13 @@ export default function ChuckSetup() {
             chuckRef.current.chuckPrint = async (message: string) => {
                 // Handle TICK messages - update active cell without re-rendering
                 if (message.includes("TICK")) {
+                    // Robust parsing: extract numeric tokens and map to y (row) and x (step)
                     try {
-                        const tickMatch = message.match(/TICK:\s*(\d+)\s+(\d+)/) ||
-                            message.match(/UPDATE_GRID:\s*(\d+)\s+(\d+)\s+(\d+)/);
-                        if (tickMatch) {
-                            const x = parseInt(tickMatch[2] || tickMatch[3] || '0', 10);
-                            const y = parseInt(tickMatch[1] || tickMatch[2] || '0', 10);
-                            useBeatGridStore.getState().setActiveCell({ x, y });
+                        const nums = message.match(/\d+/g);
+                        if (nums && nums.length >= 1) {
+                            const tickNum = parseInt(nums[0], 10);
+                            // Removed verbose logging - was causing performance issues
+                            advanceActiveCellFromTick(tickNum);
                         }
                     } catch (err) {
                         console.warn('[ChucK] Failed to parse TICK message:', message, err);
@@ -1057,21 +1280,31 @@ export default function ChuckSetup() {
             };
         }
 
-        // Build ChucK code with effects routing
+        // ============================================================
+        // BUILD CHUCK CODE DATA (for temp code - full code generation commented out)
+        // ============================================================
         let chuckCodeData;
         try {
             chuckCodeData = await buildChuckCodeData();
             if (!chuckCodeData) {
                 console.error('Failed to build ChucK code data - buildChuckCodeData returned null');
-                return;
+                isInitializingRef.current = false;
+                setIsRunning(false);
+                throw new Error('Failed to build ChucK code data - buildChuckCodeData returned null');
             }
         } catch (error) {
             console.error('Failed to build ChucK code data:', error);
             console.error('Error details:', error instanceof Error ? error.message : String(error));
             console.error('Stack:', error instanceof Error ? error.stack : 'No stack trace');
-            return;
+            isInitializingRef.current = false;
+            setIsRunning(false);
+            throw error instanceof Error ? error : new Error(`Failed to build ChucK code data: ${error}`);
         }
 
+        // ============================================================
+        // FULL CODE GENERATION - COMMENTED OUT (using temp code for now)
+        // ============================================================
+        /*
         const generatedChuckCode = getChuckCode(
             chuckCodeData.isTestingChord,
             chuckCodeData.filesArray,
@@ -1114,10 +1347,8 @@ export default function ChuckSetup() {
             console.log("Generated ChucK code with effects routing");
             console.log("SANITY CHUCK DEBUG: ", generatedChuckCode);
         }
-        // Expose generated code for easy inspection in DevTools
-        // try {
         if (typeof window !== 'undefined') (window as any).__lastGeneratedChuck = generatedChuckCode;
-        // } catch {}
+        */
 
         if (chuckRef.current && chuckCodeData.filesArray) {
             // Set up error message capture
@@ -1144,11 +1375,16 @@ export default function ChuckSetup() {
                 }
             };
 
+            // Declare tempTestCode in outer scope for error handling access
+            let tempTestCode = '';
+
             try {
                 // Check if ChucK is ready before running code
                 if (!chuckRef.current) {
                     console.error('❌ ChucK instance not initialized');
-                    return;
+                    isInitializingRef.current = false;
+                    setIsRunning(false);
+                    throw new Error('ChucK instance not initialized');
                 }
 
                 // ChucK should be ready immediately after init
@@ -1177,34 +1413,499 @@ export default function ChuckSetup() {
                     // First try replaceCode (better for large code)
                     // result = await chuckRef.current.runCode(generatedChuckCode);
 
-                    result = await chuckRef.current.runCode(`
+                    console.log("HEYO FUCKER LOOK HERE! ", chuckCodeData.masterPatternsRef);
+
+                    // Parse filesArray JSON string and prepare Chuck array
+                    const filesArrayParsed = JSON.parse(chuckCodeData.filesArray);
+                    const filesArrayChuck = `[${filesArrayParsed.map((f: string) => `"${f}"`).join(', ')}]`;
+                    
+                    // Build 2D array of fileNums from masterPatternsRef for Chuck
+                    // Map cells in row-major order (left to right, top to bottom) to match tick progression
+                    // IMPORTANT: Use same row ordering as getGridRows() to match ticker progression
+                    const masterPatterns = chuckCodeData.masterPatternsRef.current || {};
+                    const rowKeys = Object.keys(masterPatterns).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
+                    // Sort rows to match getGridRows() ordering (top->bottom = ascending)
+                    rowKeys.sort((a, b) => a - b); // Always ascending to match getGridRows when rowOrderTopToBottomRef is true
+                    const filesArr2D: number[][] = [];
+                    const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
+                    
+                    // Build array in row-major order to match tick progression
+                    rowKeys.forEach((rowY) => {
+                        const row = masterPatterns[String(rowY)] || {};
+                        for (let colX = 0; colX < cellsPerRow; colX++) {
+                            const cell = row[String(colX)];
+                            const fileNums = cell?.fileNums || [];
+                            filesArr2D.push(fileNums.length > 0 ? fileNums : [9999]);
+                        }
+                    });
+                    
+                    // If no cells, create empty array
+                    if (filesArr2D.length === 0) {
+                        filesArr2D.push([9999]);
+                    }
+                    
+                    console.log('[buildChuckCodeData] filesArr2D length:', filesArr2D.length, 'cellsPerRow:', cellsPerRow, 'rows:', rowKeys.length);
+                    console.log('[buildChuckCodeData] filesArr2D sample:', filesArr2D.slice(0, 5));
+                    
+                    const filesArr2DChuck = `[${filesArr2D.map(arr => `[${arr.join(', ')}]`).join(', ')}]`;
+
+                    // ============================================================
+                    // OLD TEMP CODE STRUCTURE (SAVED FOR REFERENCE - DO NOT DELETE)
+                    // ============================================================
+                    /*
+                    const tempTestCode_OLD = `
                         global int beatMSNew;
+                        ${filesArrayChuck} @=> string files[];
+                        SndBuf buffers[files.size()];
+                        Gain masterGain => dac;
+                        0.5 => masterGain.gain;
+                        
+                        for (0 => int i; i < buffers.size(); i++) {
+                            buffers[i] => masterGain;
+                        }
 
                         Std.ftoi(60000 / 120) => beatMSNew;
 
                         0 => int newTicker;
-                        SinOsc osc => dac;
-                        fun void sporkedFunction (int newTick) {
-                            440 => osc.freq;
-                            1.0 => osc.gain;
+                        ${chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate * chuckCodeData.denominatorSignature} => int measureLength;
+                        
+                        ${filesArr2DChuck} @=> int filesArr[][];
+                        
+                        fun void playCellFiles(int tickCount) {
+                            // Wrap tick count to measure length
+                            int recurringTickCount;
+                            if (tickCount >= measureLength) {
+                                tickCount % measureLength => recurringTickCount;
+                            } else {
+                                tickCount => recurringTickCount;
+                            }
+                            
+                            if (recurringTickCount >= filesArr.size()) {
+                                <<< "playCellFiles: recurringTickCount", recurringTickCount, ">= filesArr.size()", filesArr.size(), "measureLength", measureLength >>>;
+                                return;
+                            }
+                            
+                            <<< "playCellFiles: tickCount", tickCount, "recurringTickCount", recurringTickCount, "filesArr[recurringTickCount].size()", filesArr[recurringTickCount].size() >>>;
+                            
+                            for (0 => int x; x < filesArr[recurringTickCount].size(); x++) {
+                                filesArr[recurringTickCount][x] => int fileIndex;
+                                
+                                <<< "playCellFiles: x", x, "fileIndex", fileIndex >>>;
+                                
+                                if (fileIndex != 9999 && fileIndex < files.size() && x < buffers.size()) {
+                                    <<< "playCellFiles: Loading file", files[fileIndex], "into buffer", x >>>;
+                                    files[fileIndex] => buffers[x].read;
+                                    0 => buffers[x].pos;
+                                    0.5 => buffers[x].gain;
+                                    <<< "playCellFiles: File loaded, pos set to 0, gain set to 0.5" >>>;
+                                } else {
+                                    <<< "playCellFiles: Skipping - fileIndex", fileIndex, "files.size()", files.size(), "buffers.size()", buffers.size() >>>;
+                                }
+                            }
+                        }
+                        fun void sporkedFunction (int newTick, dur timeToRun) {
                             if (newTick % 4 == 0) {
-                                (beatMSNew/20)::ms => now;
-                                 0.0 => osc.gain;
+                                timeToRun * 2  => now;
+                                <<< "TICK !@# @@@@@@@@@@@@@@@@@@@@@@@@@@@@ INNER! ", newTick >>>;
                                 <<< "UPDATE_GRID num shreds in oSCCC: ", Machine.numShreds() >>>;
                             }
                             me.exit();
                         }
                         while (true) {
-                            <<< "UPDATE_GRID: ", newTicker, (newTicker + 1) / 4, (newTicker + 1) % 4 >>>;
+                            <<< "TICK ", newTicker >>>;
                             1 => int subdivs;
-                            spork ~ sporkedFunction(newTicker);
+                            (beatMSNew)::ms => dur timeToRun;
+
+
+
+                            // Play files for current cell
+                            playCellFiles(newTicker);
+
+
+                            spork ~ sporkedFunction(newTicker, (timeToRun/subdivs));
                             (beatMSNew/subdivs)::ms => now;
                             newTicker + 1 => newTicker;
 
                             <<< "UPDATE_GRID num shreds: ", Machine.numShreds() >>>;
                             me.yield();
                         }
-                    `);
+                    `
+                    */
+                    // ============================================================
+                    // END OLD TEMP CODE STRUCTURE
+                    // ============================================================
+
+                    // ============================================================
+                    // PERFORMANCE-OPTIMIZED PARALLEL DISTRIBUTED PROCESSING ARCHITECTURE
+                    // Single main loop (tick coordinator) + independent sporked shreds per sound unit
+                    // Each sound unit runs its own course with controllable timer
+                    // ============================================================
+                    tempTestCode = `
+                        // ============================================================
+                        // GLOBAL STATE & CONFIGURATION
+                        // ============================================================
+                        global int beatMSNew;
+                        global Event tickEvent;  // Main tick event for coordination
+                        global Event stopEvent;  // Global stop signal
+                        
+                        ${filesArrayChuck} @=> string files[];
+                        ${filesArr2DChuck} @=> int filesArr[][];
+                        
+                        Std.ftoi(60000 / ${chuckCodeData.bpm}) => beatMSNew;
+                        ${chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate * chuckCodeData.denominatorSignature} => int measureLength;
+                        
+                        // ============================================================
+                        // MASTER GAIN & ROUTING
+                        // ============================================================
+                        Gain masterGain => dac;
+                        0.5 => masterGain.gain;
+                        
+                        // ============================================================
+                        // SAMPLER: Buffers and routing (ready for effects)
+                        // ============================================================
+                        SndBuf samplerBuffers[files.size()];
+                        for (0 => int i; i < samplerBuffers.size(); i++) {
+                            samplerBuffers[i] => masterGain;
+                        }
+                        
+                        // ============================================================
+                        // OSCILLATOR: Ready for effects chain
+                        // ============================================================
+                        SinOsc osc => masterGain;
+                        440.0 => osc.freq;
+                        0.0 => osc.gain;
+                        
+                        // ============================================================
+                        // AUDIO INPUT: Ready for effects/mangling
+                        // ============================================================
+                        adc => Gain audioInGain => masterGain;
+                        0.0 => audioInGain.gain;
+                        
+                        // ============================================================
+                        // SHARED AUDIO BUFFER POOL: Cross-input routing
+                        // LiSa buffers for capturing/transforming audio from any source
+                        // Can be accessed by sampler, audioin, or MIDI keyboard
+                        // ============================================================
+                        LiSa sharedAudioBuffers[4];  // Pool of 4 buffers for cross-input use
+                        Gain sharedBufferGain => masterGain;  // Single gain for all buffers
+                        0.5 => sharedBufferGain.gain;
+                        for (0 => int i; i < sharedAudioBuffers.size(); i++) {
+                            10::second => sharedAudioBuffers[i].duration;  // 10 second buffers
+                            sharedAudioBuffers[i] => sharedBufferGain;  // Route each buffer through shared gain
+                        }
+                        
+                        // Global state for cross-input routing
+                        global int activeBufferIndex;  // Which buffer is currently active
+                        global Event bufferRecorded;   // Signal when buffer is ready
+                        global Event bufferPlayRequest; // Request to play from buffer
+                        global int requestedMidiNote;   // MIDI note for pitch-shifted playback
+                        -1 => activeBufferIndex;
+                        
+                        // ============================================================
+                        // STK INSTRUMENTS: Ready for effects chain
+                        // ============================================================
+                        // STK instruments can be added here as needed
+                        // Example: Clarinet clar => masterGain;
+                        
+                        // ============================================================
+                        // SAMPLER SHRED: Independent parallel execution
+                        // Runs its own course, triggered by tick events
+                        // ============================================================
+                        fun void samplerShred() {
+                            while (true) {
+                                // Wait for tick event (non-blocking, allows other shreds to run)
+                                tickEvent => now;
+                                
+                                // Get current tick from time (more reliable than tracking shred IDs)
+                                (now / (beatMSNew::ms)) $ int => int currentTick;
+                                // Wrap tick to total cells (filesArr.size() includes all rows)
+                                currentTick % filesArr.size() => int wrappedTick;
+                                
+                                if (wrappedTick < filesArr.size()) {
+                                    // Play all files for this cell in parallel
+                                    for (0 => int x; x < filesArr[wrappedTick].size(); x++) {
+                                        filesArr[wrappedTick][x] => int fileIndex;
+                                        
+                                        if (fileIndex != 9999 && fileIndex < files.size() && x < samplerBuffers.size()) {
+                                            // Spork individual file playback (non-blocking)
+                                            spork ~ playSamplerFile(x, fileIndex);
+                                        }
+                                    }
+                                }
+                                
+                                // Yield to allow other shreds to process
+                                me.yield();
+                            }
+                        }
+                        
+                        // Individual file playback (runs independently)
+                        // NOTE: To add pitched playback based on notes from beatgrid:
+                        // 1. Pass note frequencies/names from beatgrid to ChucK (via global arrays)
+                        // 2. Calculate pitch ratio: targetFreq / originalFreq
+                        // 3. Set samplerBuffers[bufferIndex].rate(pitchRatio) before playing
+                        // Example:
+                        //   float targetFreq = Std.mtof(noteMidi); // Convert MIDI note to frequency
+                        //   float originalFreq = 440.0; // Or detect from sample
+                        //   targetFreq / originalFreq => float pitchRatio;
+                        //   pitchRatio => samplerBuffers[bufferIndex].rate;
+                        // Currently notes are stored in beatgrid (noteName field) but NOT passed to ChucK yet
+                        fun void playSamplerFile(int bufferIndex, int fileIndex) {
+                            files[fileIndex] => samplerBuffers[bufferIndex].read;
+                            0 => samplerBuffers[bufferIndex].pos;
+                            0.5 => samplerBuffers[bufferIndex].gain;
+                            // TODO: Add note-based pitch shifting here when notes are passed from beatgrid
+                            // Let buffer play its course - shred exits when done
+                            samplerBuffers[bufferIndex].length() => now;
+                        }
+                        
+                        // ============================================================
+                        // OSCILLATOR SHRED: Independent parallel execution
+                        // Can be extended with effects, mangling, etc.
+                        // ============================================================
+                        fun void oscillatorShred() {
+                            // Oscillator disabled by default - no notes should play unless explicitly programmed
+                            // To enable: set osc.gain > 0 and trigger based on beatgrid notes
+                            while (true) {
+                                tickEvent => now;
+                                // Oscillator is OFF by default - gain stays at 0.0
+                                // Notes should only play when assigned in beatgrid
+                                me.yield();
+                            }
+                        }
+                        
+                        // ============================================================
+                        // AUDIO INPUT SHRED: Independent parallel execution
+                        // Handles audio input processing, effects, mangling
+                        // Can record to shared buffers for cross-input routing
+                        // ============================================================
+                        fun void audioInShred() {
+                            while (true) {
+                                tickEvent => now;
+                                
+                                // Example: Audio input processing
+                                // This is where you'd add effects chains, mangling, etc.
+                                // For now, simple passthrough with gain control
+                                0.5 => audioInGain.gain;
+                                
+                                // Example: Record audio input to shared buffer when requested
+                                // (This would be triggered via global event or setInt from TypeScript)
+                                
+                                me.yield();
+                            }
+                        }
+                        
+                        // ============================================================
+                        // AUDIO CAPTURE SHRED: Records from any source to shared buffer
+                        // Can be triggered from file upload, mic input, or sampler playback
+                        // ============================================================
+                        fun void audioCaptureShred() {
+                            while (true) {
+                                // Wait for capture request event
+                                bufferRecorded => now;
+                                
+                                // Capture logic would go here
+                                // Example: Record adc or sampler output to sharedAudioBuffers[activeBufferIndex]
+                                
+                                me.yield();
+                            }
+                        }
+                        
+                        // ============================================================
+                        // MIDI KEYBOARD SHRED: Cross-input pitch-shifted playback
+                        // Transforms captured audio (file/mic) into MIDI-triggered keyboard
+                        // Uses pitch modification to play at different frequencies per key
+                        // 
+                        // NOTE: HID events are filtered by KeyboardHIDManager in TypeScript
+                        // Only enabled when Babylon canvas is focused (not when modals/inputs are active)
+                        // This prevents keyboard input from interfering with text input in search fields
+                        // ============================================================
+                        fun void midiKeyboardShred() {
+                            Hid hid;
+                            HidMsg msg;
+                            
+                            // Open keyboard HID (already initialized in TypeScript, but check)
+                            // The HID manager in TypeScript will only send events when canvas is focused
+                            if (hid.openKeyboard(0)) {
+                                <<< "MIDI Keyboard shred: Keyboard opened (events filtered by canvas focus)" >>>;
+                            } else {
+                                <<< "MIDI Keyboard shred: Failed to open keyboard" >>>;
+                                return;
+                            }
+                            
+                            // Pitch-shifted playback voices (one per MIDI note)
+                            LiSa playbackVoices[128];  // One voice per MIDI note (0-127)
+                            for (0 => int i; i < playbackVoices.size(); i++) {
+                                10::second => playbackVoices[i].duration;
+                                playbackVoices[i] => Gain voiceGain => masterGain;
+                                0.0 => voiceGain.gain;
+                            }
+                            
+                            while (true) {
+                                // Wait for MIDI keyboard event
+                                hid => now;
+                                
+                                while (hid.recv(msg)) {
+                                    if (msg.isButtonDown()) {
+                                        // Convert key to MIDI note (simplified - you'd use actual MIDI mapping)
+                                        msg.ascii => int ascii;
+                                        // Simple mapping: a-z keys to MIDI notes 60-85
+                                        int midiNote;
+                                        if (ascii >= 97 && ascii <= 122) {  // a-z
+                                            (ascii - 97) + 60 => midiNote;  // C4 to C6 range
+                                            
+                                            // Check if we have a recorded buffer to play
+                                            if (activeBufferIndex >= 0 && activeBufferIndex < sharedAudioBuffers.size()) {
+                                                // Get voice for this MIDI note
+                                                midiNote => int voiceIndex;
+                                                if (voiceIndex < playbackVoices.size()) {
+                                                    // Copy from shared buffer to voice
+                                                    // (In real implementation, you'd use LiSa.copy() or similar)
+                                                    
+                                                    // Calculate pitch ratio from MIDI note
+                                                    Std.mtof(midiNote) / Std.mtof(60) => float pitchRatio;
+                                                    
+                                                    // Play with pitch modification
+                                                    playbackVoices[voiceIndex].play(1);
+                                                    playbackVoices[voiceIndex].rate(pitchRatio);  // Pitch shift
+                                                    playbackVoices[voiceIndex].playPos(0::samp);
+                                                    0.5 => playbackVoices[voiceIndex].gain;
+                                                    
+                                                    <<< "MIDI Keyboard: Playing note", midiNote, "at pitch ratio", pitchRatio >>>;
+                                                    
+                                                    // Stop after buffer length (or use envelope)
+                                                    // LiSa doesn't have length() - use recPos() to get recorded length, or use known duration
+                                                    // Get recorded length from shared buffer, or use max duration (10 seconds)
+                                                    sharedAudioBuffers[activeBufferIndex].recPos() / pitchRatio => now;
+                                                    playbackVoices[voiceIndex].play(0);
+                                                }
+                                            } else {
+                                                <<< "MIDI Keyboard: No active buffer to play" >>>;
+                                            }
+                                        }
+                                    } else if (msg.isButtonUp()) {
+                                        // Note off - could implement release envelope here
+                                        // For now, just log
+                                    }
+                                }
+                                
+                                me.yield();
+                            }
+                        }
+                        
+                        // ============================================================
+                        // FILE TO BUFFER SHRED: Records file uploads to shared buffer
+                        // Allows downloaded/uploaded files to be used as MIDI keyboard source
+                        // NOTE: File loading is now handled directly in handleUpload() TypeScript function
+                        // This shred can be used for additional processing if needed
+                        // ============================================================
+                        fun void fileToBufferShred() {
+                            while (true) {
+                                // Listen for bufferRecorded event (fired when file is loaded)
+                                bufferRecorded => now;
+                                
+                                // Additional processing can go here if needed
+                                // For example: normalize, apply effects, etc.
+                                
+                                <<< "File buffer ready at index", activeBufferIndex >>>;
+                                
+                                me.yield();
+                            }
+                        }
+                        
+                        // ============================================================
+                        // LOAD DEFAULT SOUNDS INTO BUFFER: Pre-load default files for MIDI keyboard
+                        // This runs once on initialization to make default sounds available
+                        // ============================================================
+                        fun void loadDefaultSounds() {
+                            // Load first default file (Conga.wav) into buffer 0 as example
+                            if (files.size() > 0) {
+                                SndBuf tempFile => blackhole;
+                                files[0] => tempFile.read;
+                                
+                                // Wait for file to load (same pattern as file upload)
+                                while (tempFile.length() == 0::samp) {
+                                    1::samp => now;
+                                }
+                                
+                                // Record to shared buffer 0
+                                sharedAudioBuffers[0].clear();
+                                sharedAudioBuffers[0].recPos(0::samp);
+                                sharedAudioBuffers[0].record(1);
+                                
+                                0 => tempFile.pos;
+                                tempFile.length() => now;
+                                
+                                sharedAudioBuffers[0].record(0);
+                                0 => activeBufferIndex;  // Set as active buffer
+                                
+                                // Broadcast when ready
+                                bufferRecorded.broadcast();
+                                <<< "Default sound loaded into buffer 0:", files[0], "READY" >>>;
+                            }
+                        }
+                        
+                        // ============================================================
+                        // MAIN TICK LOOP: Single coordinator thread
+                        // Lightweight, just advances time and broadcasts events
+                        // Controllable and inspectable (for meyda worker)
+                        // ============================================================
+                        fun void mainTickLoop() {
+                            0 => int ticker;
+                            
+                            while (true) {
+                                // Broadcast tick event (non-blocking, all listeners process in parallel)
+                                tickEvent.broadcast();
+                                
+                                // Print tick for external monitoring (meyda worker can inspect)
+                                <<< "TICK", ticker >>>;
+                                
+                                // Advance time
+                                (beatMSNew)::ms => now;
+                                
+                                // Increment ticker
+                                ticker + 1 => ticker;
+                                
+                                // Wrap ticker to measure length
+                                if (ticker >= measureLength) {
+                                    0 => ticker;
+                                }
+                                
+                                // Yield to allow sporked shreds to process
+                                me.yield();
+                            }
+                        }
+                        
+                        // ============================================================
+                        // INITIALIZATION: Spork all parallel shreds
+                        // Each runs independently with its own timer
+                        // ============================================================
+                        spork ~ samplerShred();
+                        spork ~ oscillatorShred();
+                        spork ~ audioInShred();
+                        spork ~ audioCaptureShred();
+                        spork ~ midiKeyboardShred();
+                        spork ~ fileToBufferShred();
+                        
+                        // Load default sounds into shared buffer (runs once)
+                        spork ~ loadDefaultSounds();
+                        
+                        // ============================================================
+                        // MAIN TICK LOOP: Single coordinator thread
+                        // Location: Lines 1681-1705
+                        // This is the "spinner" - lightweight coordinator that:
+                        // - Broadcasts tick events (non-blocking)
+                        // - Advances time
+                        // - Allows all sporked shreds to process in parallel
+                        // - Controllable and inspectable (for meyda worker)
+                        // ============================================================
+                        
+                        // Start main tick loop (this is the coordinator)
+                        mainTickLoop();
+                    `
+
+                    console.log("DEBUG CHUCK! ", tempTestCode);
+
+                    result = await chuckRef.current.runCode(tempTestCode);
                     console.log('✅ ChucK code replaced successfully ', result);
                 } catch (replaceErr: any) {
                     // If replaceCode fails, try runCode
@@ -1281,17 +1982,18 @@ export default function ChuckSetup() {
                         console.error('ChucK reported these errors:', errorMessages);
                     }
 
-                    console.error('Generated code length:', generatedChuckCode.length);
+                    // Log temp code for debugging (full generatedChuckCode is commented out)
+                    console.error('Temp code length:', tempTestCode.length);
                     // Log first 1000 chars of code for debugging
-                    if (generatedChuckCode.length > 0) {
-                        console.error('Code preview (first 1000 chars):', generatedChuckCode.substring(0, 1000));
+                    if (tempTestCode.length > 0) {
+                        console.error('Code preview (first 1000 chars):', tempTestCode.substring(0, 1000));
                         // Also log last 500 chars in case error is near the end
-                        if (generatedChuckCode.length > 1000) {
-                            console.error('Code preview (last 500 chars):', generatedChuckCode.substring(generatedChuckCode.length - 500));
+                        if (tempTestCode.length > 1000) {
+                            console.error('Code preview (last 500 chars):', tempTestCode.substring(tempTestCode.length - 500));
                         }
                         // Log middle section to catch errors there
-                        const midPoint = Math.floor(generatedChuckCode.length / 2);
-                        console.error('Code preview (middle 500 chars):', generatedChuckCode.substring(midPoint - 250, midPoint + 250));
+                        const midPoint = Math.floor(tempTestCode.length / 2);
+                        console.error('Code preview (middle 500 chars):', tempTestCode.substring(midPoint - 250, midPoint + 250));
                     }
                 }
             } finally {
@@ -1302,8 +2004,15 @@ export default function ChuckSetup() {
             }
         }
         
-        // Success - clear initialization flag
+        // Success - reset initialization flag
         isInitializingRef.current = false;
+        // } catch (err: any) {
+        //     // Catch any unhandled errors
+        //     console.error('[runChuckCode] Error:', err);
+        //     isInitializingRef.current = false;
+        //     setIsRunning(false);
+        //     throw err;
+        // }
     }
 
     // Expose for debugging from the console
@@ -1472,6 +2181,61 @@ export default function ChuckSetup() {
                         </span>
                     )}
                 </Button>
+
+                {/* Simple toggle: Add uploaded files to MIDI keyboard buffers */}
+                <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
+                    <Button
+                        id='addToMidiBuffersToggle'
+                        sx={{
+                            minWidth: '48px',
+                            minHeight: '48px',
+                            padding: '8px',
+                            cursor: 'pointer',
+                            pointerEvents: 'auto',
+                            border: addToMidiBuffers ? '1px solid var(--color-subdominant-primary, #00D9FF)' : '1px solid transparent',
+                        }}
+                        onClick={() => setAddToMidiBuffers(!addToMidiBuffers)}
+                    >
+                        <KeyboardIcon
+                            sx={{
+                                fontSize: '20px',
+                                color: addToMidiBuffers 
+                                    ? 'var(--color-subdominant-primary, #00D9FF)'
+                                    : 'var(--color-dominant-text, white)'
+                            }}
+                        />
+                    </Button>
+                </Tooltip>
+
+                {/* Toggle: Keyboard clicks add to notes dropdown */}
+                <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
+                    <Button
+                        id='keyboardAddsToNotesToggle'
+                        sx={{
+                            minWidth: '48px',
+                            minHeight: '48px',
+                            padding: '8px',
+                            cursor: 'pointer',
+                            pointerEvents: 'auto',
+                            border: keyboardAddsToNotes ? '1px solid var(--color-tertiary-warning, #FFA500)' : '1px solid transparent',
+                        }}
+                        onClick={() => {
+                            const newValue = !keyboardAddsToNotes;
+                            setKeyboardAddsToNotes(newValue);
+                            // Expose to global scope for BeatGridPanel to check
+                            (window as any).__keyboardAddsToNotes = newValue;
+                        }}
+                    >
+                        <MusicNoteIcon
+                            sx={{
+                                fontSize: '20px',
+                                color: keyboardAddsToNotes 
+                                    ? 'var(--color-tertiary-warning, #FFA500)'
+                                    : 'var(--color-dominant-text, white)'
+                            }}
+                        />
+                    </Button>
+                </Tooltip>
 
                 <PhilosopherGuide />
             </Box>

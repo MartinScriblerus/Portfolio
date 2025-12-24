@@ -1304,11 +1304,18 @@ export default function BabylonHydraCanvas() {
             // Use webcam via global s0 instead of indexing hydra internals which may not yet exist.
             // Guard in case globals were not created for some reason.
             const g: any = globalThis as any;
-            if (typeof g.s0?.initCam === 'function') {
+            
+            // Wait for s0 to be available (retry up to 10 times with 100ms delay)
+            let retries = 0;
+            const maxRetries = 10;
+            while (retries < maxRetries && typeof g.s0?.initVideo !== 'function') {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                retries++;
+            }
+            
+            // Check for initVideo function (not initCam) since we're loading video, not camera
+            if (typeof g.s0?.initVideo === 'function') {
                 try {
-                    // await g.s0.initCam();
-                   
-                    // if (!isCameraOn) {
                     // Load video - check userVideoUrl first, then fallback to default
                     const hydraControls = useHydraControlsStore.getState();
                     const userVideoUrl = hydraControls.userVideoUrl;
@@ -1335,32 +1342,83 @@ export default function BabylonHydraCanvas() {
                                 console.log('[Hydra] Video loaded directly');
                             }
                         }
+                        
+                        // Wait for video metadata to load before setting currentTime
+                        if (hydraVideoEl) {
+                            await new Promise<void>((resolve, reject) => {
+                                const timeout = setTimeout(() => {
+                                    reject(new Error('Video metadata load timeout'));
+                                }, 10000); // 10 second timeout
+                                
+                                const onLoadedMetadata = () => {
+                                    clearTimeout(timeout);
+                                    hydraVideoEl!.removeEventListener('loadedmetadata', onLoadedMetadata);
+                                    hydraVideoEl!.removeEventListener('error', onError);
+                                    resolve();
+                                };
+                                
+                                const onError = (e: Event) => {
+                                    clearTimeout(timeout);
+                                    hydraVideoEl!.removeEventListener('loadedmetadata', onLoadedMetadata);
+                                    hydraVideoEl!.removeEventListener('error', onError);
+                                    reject(e);
+                                };
+                                
+                                if (hydraVideoEl && hydraVideoEl.readyState >= 1) {
+                                    // Metadata already loaded
+                                    clearTimeout(timeout);
+                                    resolve();
+                                } else {
+                                    hydraVideoEl && hydraVideoEl.addEventListener('loadedmetadata', onLoadedMetadata);
+                                    hydraVideoEl && hydraVideoEl.addEventListener('error', onError);
+                                }
+                            });
+                            
+                            // Skip first 22 seconds
+                            if (hydraVideoEl.duration >= 22) {
+                                hydraVideoEl.currentTime = 22;
+                                console.log('[Hydra] Video set to start at 22 seconds');
+                            }
+                            
+                            // Improve autoplay chances
+                            hydraVideoEl.muted = true;
+                            hydraVideoEl.volume = 0;
+                            
+                            // Ensure video is ready to play
+                            if (hydraVideoEl.readyState < 2) {
+                                await new Promise<void>((resolve) => {
+                                    const onCanPlay = () => {
+                                        hydraVideoEl!.removeEventListener('canplay', onCanPlay);
+                                        resolve();
+                                    };
+                                    hydraVideoEl && hydraVideoEl.addEventListener('canplay', onCanPlay);
+                                });
+                            }
+                            
+                            await hydraVideoEl.play();
+                            console.log('[Hydra] Video playback started at', hydraVideoEl.currentTime, 'seconds');
+                        }
                     } catch (err: any) {
                         console.error('[Hydra] Video load failed:', err);
                         hydraVideoEl = null;
                     }
-                    // } else {
-                        // StateVideoEl = await g.s0.initCam();
-                    // } 
+                    
                     videoStartMs = performance.now();
                     hydraCamReady = hydraVideoEl !== null;
                     console.log('Hydra webcam started --> now for Audio');
-                    try {
-                        if (hydraVideoEl) {
-                            // Improve autoplay chances
-                            hydraVideoEl.muted = true;
-                             hydraVideoEl.volume = 0;
-                            await hydraVideoEl.play();
-                        }
-                    } catch {}
                     // Build pipeline now that camera/video is ready
                     buildHydraPipeline(hydraState.pattern);
-                    // tryGetAudio();
                 } catch (err) {
-                    console.warn('Failed to init cam on s0:', err);
+                    console.warn('Failed to init video on s0:', err);
+                    hydraCamReady = false;
                 }
             } else {
-                console.warn('s0 global source not available yet; skipping webcam init');
+                console.warn('s0.initVideo not available after retries; skipping video init. Available:', { 
+                    hasS0: !!g.s0, 
+                    hasInitVideo: typeof g.s0?.initVideo === 'function',
+                    hasInitCam: typeof g.s0?.initCam === 'function',
+                    retries
+                });
             }
 
             // If Hydra globals exist but no camera yet, rely on our pipeline's osc base; else fall back to a faint osc.
@@ -2096,6 +2154,15 @@ export default function BabylonHydraCanvas() {
             const noteNameFormatted = noteName.replace(/([A-G][#b]?)(\d+)/, '$1-$2');
             console.log('[HexTileClick] Formatted note name:', noteNameFormatted);
 
+            // Add note to selection dropdown if callback exists
+            if ((window as any).__addNoteToSelection) {
+                try {
+                    (window as any).__addNoteToSelection(noteNameFormatted);
+                } catch (err) {
+                    console.warn('[HexTileClick] Failed to add note to selection:', err);
+                }
+            }
+
             // Update beat grid store if a cell is currently selected AND isEditing is on
             const beatGridState = useBeatGridStore.getState();
             const selectedCell = beatGridState.currentSelectedCell;
@@ -2376,6 +2443,7 @@ export default function BabylonHydraCanvas() {
             <canvas
                 ref={canvasRef}
                 id="babylonCanvas"
+                tabIndex={0}
                 style={{
                     position: 'fixed',
                     top: 0,
@@ -2385,6 +2453,15 @@ export default function BabylonHydraCanvas() {
                     display: 'block',
                     zIndex: 1,
                     pointerEvents: 'auto',
+                    outline: 'none', // Remove focus outline
+                }}
+                onClick={(e) => {
+                    // Focus canvas when clicked to enable HID keyboard
+                    e.currentTarget.focus();
+                }}
+                onPointerDown={(e) => {
+                    // Also focus on pointer down (for touch devices)
+                    e.currentTarget.focus();
                 }}
             />
             {/* Top-left controls arranged to avoid overlap */}

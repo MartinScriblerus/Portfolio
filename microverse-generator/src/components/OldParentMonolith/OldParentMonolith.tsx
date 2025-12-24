@@ -7,7 +7,7 @@ import { deriveGridParams } from '../../utils/siteHelpers';
 import { WaveformCanvas } from '../WaveformCanvas';
 // import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import dynamic from 'next/dynamic';
-import EffectDropdown from '../EffectsDropdown';
+import EffectsDropdown from '../EffectsDropdown';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Box, Select, Button, Typography, ButtonGroup } from '@mui/material';
 import { ACCESSIBLE_COLORS } from '../../utils/accessibilityColors';
@@ -232,6 +232,19 @@ function RightDrawer(props: RightDrawerProps) {
   const handleCheckedFXToShow = () => {};
   const [checkedEffectsListHook, setCheckedEffectsListHook] = useState<any[]>([]);
   const universalSourcesRef = props.universalSourcesRef || { current: props.universalSources || {} };
+  
+  // Ensure universalSourcesRef.current is initialized with effects if it's undefined
+  useEffect(() => {
+    if (!universalSourcesRef.current || Object.keys(universalSourcesRef.current).length === 0) {
+      // Import and initialize if not already done
+      import('../../utils/effectsInitializationHelper').then(({ initializeUniversalSources }) => {
+        if (!universalSourcesRef.current) {
+          universalSourcesRef.current = initializeUniversalSources();
+        }
+      });
+    }
+  }, [universalSourcesRef]);
+  
   const currentChain = universalSourcesRef.current?.[fxRadioValue]?.effects || {};
   const getNewFX = () => {};
   const playUploadedFile = () => {};
@@ -759,20 +772,69 @@ function RightDrawer(props: RightDrawerProps) {
 
             {/* Conditional rendering based on fxRadioValue */}
             {fxRadioValue === 'audioin' && (
-              <Box
-                id='effect-dropdown-container'
-                sx={{
-                  pointerEvents: showAudioInDropdown ? 'auto' : 'none',
-                  opacity: showAudioInDropdown ? 1 : 0.5,
-                  marginBottom: '16px',
-                }}
-              >
-                <EffectDropdown
-                  chuckRef={chuckRefForEffect}
-                  updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
-                  showAudioInDropdown={showAudioInDropdown}
-                />
-              </Box>
+              <>
+                {/* Available Effects List - shows all effects that can be added */}
+                <Box sx={{ marginBottom: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '8px', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                  <Typography variant="caption" sx={{ color: ACCESSIBLE_COLORS.subdominant.primary, mb: 1, display: 'block', fontWeight: 600 }}>
+                    Available Effects for AudioIn
+                  </Typography>
+                  {universalSourcesRef?.current?.[fxRadioValue]?.effects ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: '300px', overflowY: 'auto' }}>
+                      {Object.entries(universalSourcesRef.current[fxRadioValue].effects).map(([fxKey, fx]: [string, any]) => (
+                        <Box 
+                          key={fxKey}
+                          sx={{ 
+                            padding: '8px', 
+                            // backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.2)' : 'rgba(255,255,255,0.05)',
+                            border: `1px solid ${fx?.On ? ACCESSIBLE_COLORS.subdominant.primary : 'rgba(255,255,255,0.1)'}`,
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            '&:hover': {
+                              backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.3)' : 'rgba(255,255,255,0.1)',
+                            }
+                          }}
+                          onClick={() => {
+                            // Toggle effect on/off
+                            if (universalSourcesRef?.current?.[fxRadioValue]?.effects?.[fxKey]) {
+                              universalSourcesRef.current[fxRadioValue].effects[fxKey].On = !fx?.On;
+                              // Trigger re-render
+                              handleUpdateCheckedFXList();
+                            }
+                          }}
+                        >
+                          <Typography variant="body2" sx={{ color: fx?.On ? ACCESSIBLE_COLORS.subdominant.primary : 'rgba(255,255,255,0.7)', fontWeight: fx?.On ? 600 : 400 }}>
+                            {fx?.Type || fxKey} {fx?.On ? '✓ ON' : 'OFF'}
+                          </Typography>
+                          {fx?.VarName && (
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                              {fx.VarName}
+                            </Typography>
+                          )}
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : (
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block', fontStyle: 'italic' }}>
+                      Effects loading...
+                    </Typography>
+                  )}
+                </Box>
+
+                <Box
+                  id='effect-dropdown-container'
+                  sx={{
+                    pointerEvents: showAudioInDropdown ? 'auto' : 'none',
+                    opacity: showAudioInDropdown ? 1 : 0.5,
+                    marginBottom: '16px',
+                  }}
+                >
+                  <EffectsDropdown
+                    chuckRef={chuckRefForEffect}
+                    updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
+                    showAudioInDropdown={showAudioInDropdown}
+                  />
+                </Box>
+              </>
             )}
 
             {fxRadioValue === 'stk1' && (
@@ -1024,15 +1086,38 @@ export default function OldParentMonolith(
   const [isInitializingLocal, setIsInitializingLocal] = useState(false);
 
   const onStart = async () => {
+    console.log('[onStart] Starting program...');
     setIsInitializingLocal(true);
+    
+    // Always set clickedBegin to true first, so UI shows even if ChucK fails
+    setClickedBegin(true);
+    
     try {
-      // await runChuckCode();
-    } catch (e) {
-      console.error('runChuckCode failed:', e);
-    } finally {
-      setIsInitializingLocal(false);
-      setClickedBegin(true);
+      // Check if runChuckCode is actually a function before calling
+      if (typeof runChuckCode === 'function') {
+        console.log('[onStart] Calling runChuckCode...');
+        await runChuckCode();
+        console.log('[onStart] runChuckCode completed successfully');
+      } else {
+        console.warn('[onStart] runChuckCode is not a function:', typeof runChuckCode);
+        throw new Error(`runChuckCode is not a function: ${typeof runChuckCode}`);
+      }
+    } catch (e: any) {
+      console.error('[onStart] runChuckCode failed:', e);
+      console.error('[onStart] Error details:', {
+        name: e?.name,
+        message: e?.message,
+        stack: e?.stack,
+        errno: e?.errno,
+        code: e?.code,
+        toString: e?.toString(),
+      });
+      // Don't retry - let the error propagate so the UI can handle it
+      // The program will still start because we set clickedBegin above
     }
+    
+    setIsInitializingLocal(false);
+    console.log('[onStart] Initialization complete');
   };
 
   const updateKeyScaleChord = () => {};
@@ -1190,15 +1275,16 @@ export default function OldParentMonolith(
   
   const handleLatestSamples = async (fileNames: string[], x: number, y: number) => {
     // Get all available files (preloaded + uploaded) to convert names to indices
+    // Sort files alphabetically for consistent indexing
     const preloadedFiles = [
       "DR-55Snare.wav",
       "DR-55Kick.wav", 
       "DR-55Hat.wav",
       "DR-55Pop.wav",
       "Conga.wav"
-    ];
+    ].sort((a, b) => a.localeCompare(b));
     const uploadedNames = filesToProcessRef.current ? (Array.isArray(filesToProcessRef.current) ? filesToProcessRef.current.map((f: any) => f?.filename || f?.name).filter(Boolean) : []) : [];
-    const allAvailableFiles = Array.from(new Set([...preloadedFiles, ...uploadedNames]));
+    const allAvailableFiles = Array.from(new Set([...preloadedFiles, ...uploadedNames])).sort((a, b) => a.localeCompare(b));
     
     // Convert file names to indices
     const fileIndices = fileNames
@@ -1226,17 +1312,19 @@ export default function OldParentMonolith(
       cellsToAssign.push({ x, y });
     } else {
       // Pattern-based: assign to all cells that match the pattern
-      // Match the highlighting logic: ((16 * (y - 1) + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
-      const startCellIndex = 16 * (y - 1) + x;
+      // Match the highlighting logic: ((16 * y + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
+      const startCellIndex = 16 * y + x;
       const patternStep = 16 / patternValue;
       
-      for (let row = 1; row <= nRow; row++) {
+      // Grid uses 1-indexed row keys ("1", "2", "3", "4"), so convert row index
+      for (let row = 0; row < nRow; row++) {
         for (let col = 0; col < nCol; col++) {
-          const cellIndex = 16 * (row - 1) + col;
+          const cellIndex = 16 * row + col;
           const offset = cellIndex - startCellIndex;
           // Use modulo to handle wrapping, matching the highlighting logic
           if (offset % patternStep === 0) {
-            cellsToAssign.push({ x: col, y: row });
+            // Convert 0-indexed row to 1-indexed for grid keys
+            cellsToAssign.push({ x: col, y: row + 1 });
           }
         }
       }
@@ -1244,6 +1332,9 @@ export default function OldParentMonolith(
     
     // Assign files to all highlighted cells
     console.log(`[handleLatestSamples] Assigning files to ${cellsToAssign.length} cells:`, cellsToAssign);
+    // Debug: log row coverage
+    const rowsCovered = new Set(cellsToAssign.map(c => c.y));
+    console.log(`[handleLatestSamples] Rows covered: ${Array.from(rowsCovered).sort().join(', ')} (expected 1-${nRow})`);
     cellsToAssign.forEach(({ x: cellX, y: cellY }) => {
       updateCellFiles(fileIndices, cellX, cellY);
     });
@@ -1270,13 +1361,13 @@ export default function OldParentMonolith(
       cellsToAssign.push({ x, y });
     } else {
       // Pattern-based: assign to all cells that match the pattern
-      // Match the highlighting logic: ((16 * (y - 1) + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
-      const startCellIndex = 16 * (y - 1) + x;
+      // Match the highlighting logic: ((16 * y + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
+      const startCellIndex = 16 * y + x;
       const patternStep = 16 / patternValue;
       
-      for (let row = 1; row <= nRow; row++) {
+      for (let row = 0; row < nRow; row++) {
         for (let col = 0; col < nCol; col++) {
-          const cellIndex = 16 * (row - 1) + col;
+          const cellIndex = 16 * row + col;
           const offset = cellIndex - startCellIndex;
           // Use modulo to handle wrapping, matching the highlighting logic
           if (offset % patternStep === 0) {

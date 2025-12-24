@@ -92,30 +92,168 @@ export class KeyboardHIDManager {
 
   /**
    * Check if HID is currently enabled
+   * Only enabled when canvas is focused and no UI elements are active
    */
   getEnabled(): boolean {
-    return this.isEnabled && !this.inputFocused;
+    if (!this.isEnabled) return false;
+    if (this.inputFocused) return false;
+    // Only enable if canvas is actually focused
+    return this.isCanvasFocused();
   }
 
   /**
-   * Setup handlers to disable HID when inputs are focused
+   * Check if Babylon canvas or HexKeyboard is the active/focused element
+   */
+  private isCanvasFocused(): boolean {
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (!activeElement) return false;
+    
+    // Check if active element is a canvas (Babylon canvas)
+    if (activeElement.tagName === 'CANVAS') {
+      return true;
+    }
+    
+    // Check if it's inside HexKeyboard (SVG element or its container)
+    if (activeElement.closest('svg') || activeElement.closest('[class*="HexKeyboard"]')) {
+      return true;
+    }
+    
+    // Also check if canvas is in the active element's parent chain
+    // (in case canvas is wrapped in a container)
+    let parent = activeElement.parentElement;
+    while (parent) {
+      if (parent.tagName === 'CANVAS') {
+        return true;
+      }
+      // Check for HexKeyboard container
+      if (parent.closest('svg') || parent.closest('[class*="HexKeyboard"]')) {
+        return true;
+      }
+      parent = parent.parentElement;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Check if a click target is a UI element (button, modal, input, etc.)
+   */
+  private isUIElement(target: HTMLElement): boolean {
+    // Check if it's an input element
+    if (
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.tagName === 'SELECT' ||
+      target.isContentEditable
+    ) {
+      return true;
+    }
+    
+    // Check if it's a button or inside a button
+    if (target.tagName === 'BUTTON' || target.closest('button')) {
+      return true;
+    }
+    
+    // Check if it's inside a modal/dialog
+    if (target.closest('[role="dialog"]') || target.closest('.MuiModal-root') || target.closest('[class*="modal"]')) {
+      return true;
+    }
+    
+    // Check if it's inside a MUI component that should block HID
+    if (target.closest('.MuiButton-root') || 
+        target.closest('.MuiTextField-root') ||
+        target.closest('.MuiSelect-root') ||
+        target.closest('.MuiInputBase-root')) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Setup handlers to disable HID when inputs are focused or UI elements are clicked
    */
   private setupInputFocusHandlers() {
+    // Track canvas focus state
+    let canvasFocused = false;
+    
+    // Handle canvas focus (when Babylon canvas is clicked)
+    const handleCanvasFocus = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'CANVAS') {
+        canvasFocused = true;
+        this.inputFocused = false;
+        this.setEnabled(true);
+        console.log('[HID] Canvas focused - HID enabled');
+      }
+    };
+    
     // Disable HID when any input/textarea/select is focused
     const handleFocus = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable
-      ) {
+      
+      // If canvas is focused, allow it
+      if (target.tagName === 'CANVAS') {
+        canvasFocused = true;
+        this.inputFocused = false;
+        this.setEnabled(true);
+        return;
+      }
+      
+      // If it's a UI element, disable HID
+      if (this.isUIElement(target)) {
         this.inputFocused = true;
+        canvasFocused = false;
         this.setEnabled(false);
+        console.log('[HID] UI element focused - HID disabled');
       }
     };
 
-    // Re-enable HID when focus leaves inputs
+    // Handle clicks to determine if canvas/HexKeyboard or UI element was clicked
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      
+      // If canvas was clicked, enable HID
+      if (target.tagName === 'CANVAS' || target.closest('canvas')) {
+        canvasFocused = true;
+        this.inputFocused = false;
+        this.setEnabled(true);
+        // Focus the canvas programmatically to ensure it's the active element
+        const canvas = target.tagName === 'CANVAS' ? target as HTMLCanvasElement : target.closest('canvas') as HTMLCanvasElement;
+        if (canvas && canvas.tabIndex === -1) {
+          canvas.tabIndex = 0; // Make it focusable
+        }
+        canvas?.focus();
+        console.log('[HID] Canvas clicked - HID enabled');
+        return;
+      }
+      
+      // If HexKeyboard (SVG) was clicked, enable HID
+      if (target.tagName === 'svg' || target.closest('svg') || target.closest('[class*="HexKeyboard"]')) {
+        canvasFocused = true;
+        this.inputFocused = false;
+        this.setEnabled(true);
+        // Try to focus the canvas if available, otherwise focus the SVG
+        const canvas = document.querySelector('canvas#babylonCanvas') as HTMLCanvasElement;
+        if (canvas) {
+          canvas.focus();
+        } else {
+          (target.closest('svg') as SVGElement)?.focus?.();
+        }
+        console.log('[HID] HexKeyboard clicked - HID enabled');
+        return;
+      }
+      
+      // If UI element was clicked, disable HID
+      if (this.isUIElement(target)) {
+        canvasFocused = false;
+        this.inputFocused = true;
+        this.setEnabled(false);
+        console.log('[HID] UI element clicked - HID disabled');
+      }
+    };
+
+    // Re-enable HID when focus leaves inputs (but only if canvas is focused)
     const handleBlur = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
       if (
@@ -127,43 +265,46 @@ export class KeyboardHIDManager {
         // Small delay to allow for tab navigation
         setTimeout(() => {
           const activeElement = document.activeElement as HTMLElement | null;
-          if (
-            !activeElement ||
-            (activeElement.tagName !== 'INPUT' &&
-             activeElement.tagName !== 'TEXTAREA' &&
-             activeElement.tagName !== 'SELECT' &&
-             !activeElement.isContentEditable)
-          ) {
+          // Only re-enable if canvas is now focused
+          if (this.isCanvasFocused()) {
             this.inputFocused = false;
+            canvasFocused = true;
             this.setEnabled(true);
+            console.log('[HID] Input blurred, canvas focused - HID enabled');
+          } else if (
+            !activeElement ||
+            !this.isUIElement(activeElement)
+          ) {
+            // If nothing is focused or it's not a UI element, check canvas state
+            this.inputFocused = false;
+            // Don't auto-enable - wait for canvas click
           }
         }, 100);
       }
     };
 
-    // Re-enable when clicking on window (not an input)
+    // Re-enable when clicking on window (check if canvas)
     const handleWindowFocus = () => {
-      const activeElement = document.activeElement as HTMLElement | null;
-      if (
-        !activeElement ||
-        (activeElement.tagName !== 'INPUT' &&
-         activeElement.tagName !== 'TEXTAREA' &&
-         activeElement.tagName !== 'SELECT' &&
-         !activeElement.isContentEditable)
-      ) {
+      if (this.isCanvasFocused()) {
         this.inputFocused = false;
+        canvasFocused = true;
         this.setEnabled(true);
+        console.log('[HID] Window focused, canvas active - HID enabled');
       }
     };
 
     document.addEventListener('focusin', handleFocus);
+    document.addEventListener('focusin', handleCanvasFocus);
     document.addEventListener('focusout', handleBlur);
+    document.addEventListener('click', handleClick, true); // Use capture phase to catch early
     window.addEventListener('focus', handleWindowFocus);
 
     // Cleanup on destroy
     return () => {
       document.removeEventListener('focusin', handleFocus);
+      document.removeEventListener('focusin', handleCanvasFocus);
       document.removeEventListener('focusout', handleBlur);
+      document.removeEventListener('click', handleClick, true);
       window.removeEventListener('focus', handleWindowFocus);
     };
   }

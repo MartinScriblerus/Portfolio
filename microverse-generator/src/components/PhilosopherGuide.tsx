@@ -13,7 +13,6 @@ import obliqueStrategiesData from '../../data/oblique-strategies.json';
 import { searchDSPDocsClient } from '../lib/dsp-rag/search-dsp-docs';
 import { DSPDoc } from '../types/dsp-rag';
 import ChuckCodeDisplay from './ChuckCodeDisplay';
-// BYOTTokenManager removed - no longer needed (OpenAI removed)
 import { useChuckCodeState, formatCodeStateForRAG } from '../hooks/useChuckCodeState';
 
 export default function CodeGuide() {
@@ -49,18 +48,10 @@ export default function CodeGuide() {
 
   // Start state
   const [started, setStarted] = useState<boolean>(false);
-  
-  // API Key removed - no longer needed (using Supabase RAG directly)
-  
   // ChucK code state observation
   const chuckCodeState = useChuckCodeState(2000);
 
   const task = useMemo(() => tasks.find((t) => t.id === currentTaskId), [tasks, currentTaskId]);
-  
-  // Debug logging - must be before any conditional returns (Rules of Hooks)
-  useEffect(() => {
-    console.log('[CodeGuide] Component mounted/updated - introActive:', introActive, 'clickedBegin:', clickedBegin, 'shouldShow:', shouldShow, 'task:', task?.id, 'started:', started);
-  }, [introActive, clickedBegin, shouldShow, task?.id, started]);
 
   // On task changes, seed a guide line to keep it alive.
   useEffect(() => {
