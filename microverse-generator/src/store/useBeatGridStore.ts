@@ -232,7 +232,27 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
   setNoteBuilderFocus: (focus) => set({ noteBuilderFocus: focus }),
   setClickedFile: (file) => set({ clickedFile: file }),
   setIsEditing: (editing) => set({ isEditing: editing }),
-  setActiveCell: (cell) => set({ activeCell: cell }),
+  setActiveCell: (cell) => {
+    try {
+      const prev = get().activeCell;
+      // Only dispatch event / log when value actually changed. Keep console logging gated behind
+      // a runtime debug flag to avoid heavy console I/O on audio ticks.
+      const changed = !prev || !cell || prev.x !== cell.x || prev.y !== cell.y;
+      if (changed) {
+        try {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('beatgrid:activeCell', { detail: { activeCell: cell, ts: Date.now() } }));
+          }
+        } catch (e) {}
+        if (typeof window !== 'undefined' && (window as any).__DEBUG_TICK) {
+          console.log('[useBeatGridStore] setActiveCell:', { prev, next: cell, lastTick: (typeof window !== 'undefined' ? (window as any).__lastTick : undefined) });
+        }
+      }
+    } catch (e) {
+      // ignore logging errors
+    }
+    set({ activeCell: cell });
+  },
 }));
 
 // Helper function to create a stable selector for a specific cell

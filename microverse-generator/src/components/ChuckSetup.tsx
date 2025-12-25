@@ -473,6 +473,58 @@ export default function ChuckSetup() {
         };
     }
 
+    // Canonical chuckPrint error sink and installer
+    // Use a ref so the handler is stable across renders and available to native callbacks
+    const currentChuckPrintErrorSinkRef = useRef<string[] | null>(null);
+
+    const setupDefaultChuckPrint = (instance?: any) => {
+        if (!instance) return;
+        const previous = (instance as any).chuckPrint;
+        (instance as any).chuckPrint = (message: string) => {
+            try {
+                // If an ephemeral error sink is active, capture error-like messages
+                const lowered = typeof message === 'string' ? message.toLowerCase() : '';
+                if (currentChuckPrintErrorSinkRef.current && (lowered.includes('error') || lowered.includes('exception') || lowered.includes('fatal') || lowered.includes('syntax') || lowered.includes('line'))) {
+                    currentChuckPrintErrorSinkRef.current.push(message);
+                }
+
+                // Handle TICK messages (advance active cell)
+                if (typeof message === 'string' && message.includes('TICK')) {
+                    try {
+                        const nums = message.match(/\d+/g);
+                        if (nums && nums.length >= 1) {
+                            const tickNum = parseInt(nums[0], 10);
+                            advanceActiveCellFromTick(tickNum);
+                        }
+                    } catch (err) {
+                        console.warn('[defaultChuckPrint] Failed to parse TICK message:', message, err);
+                    }
+                }
+
+                // Handle CHUCK_UP_TO_DATE -> ensure store sync and mark running
+                if (typeof message === 'string' && message.includes('CHUCK_UP_TO_DATE')) {
+                    try {
+                        setIsRunning(true);
+                        // Allow any queued beatgrid sync work to run
+                        runNextEventDFSHelper();
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+            } catch (e) {
+                // swallow to avoid breaking native callbacks
+                console.warn('[setupDefaultChuckPrint] handler error', e);
+            }
+
+            // Call previous handler if present
+            try {
+                if (typeof previous === 'function') previous(message);
+            } catch (e) {
+                // ignore errors in original handler
+            }
+        };
+    };
+
 
 
     function defer() {

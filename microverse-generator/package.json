@@ -86,7 +86,9 @@
     "secrets:push": "dotenvx push .env.ingest.local",
     "secrets:pull": "dotenvx pull .env.ingest.local",
     "mcp:chuck": "tsx mcp-server/chuck-mcp-server.ts",
-    "postinstall": "node scripts/copy-ffmpeg.js"
+    "postinstall": "node scripts/copy-ffmpeg.js",
+    "fetch:webchugins": "node scripts/fetch-webchugins.js",
+    "fetch:meyda": "node scripts/fetch-meyda.js"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",

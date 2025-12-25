@@ -287,6 +287,12 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     // Update active cell indicator via DOM manipulation (no React re-render)
     useEffect(() => {
         if (!svgRef.current) return;
+        // Debug: log activeCell changes for diagnostics only when explicitly enabled
+        try {
+            if (typeof window !== 'undefined' && (window as any).__DEBUG_TICK) {
+                console.log('[BeatGridPanel] activeCell effect fired:', { activeCell, lastTick: (window as any).__lastTick });
+            }
+        } catch (e) {}
         
         // Remove previous active cell highlight
         if (activeCellRef.current) {

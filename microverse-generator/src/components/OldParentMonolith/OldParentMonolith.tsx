@@ -1054,6 +1054,7 @@ export default function OldParentMonolith(
     moogGrandmotherEffectsRef,
     universalSourcesRef,
   });
+
   // if (fxKnobsCount !== knobCount) setFxKnobsCount(knobCount);
   useEffect(() => {
     if (fxKnobsCount !== knobCount) setFxKnobsCount(knobCount);
@@ -1088,16 +1089,14 @@ export default function OldParentMonolith(
   const onStart = async () => {
     console.log('[onStart] Starting program...');
     setIsInitializingLocal(true);
-    
-    // Always set clickedBegin to true first, so UI shows even if ChucK fails
-    setClickedBegin(true);
-    
+    // Do not mark the app as "begun" until ChucK actually initializes.
+    // Call `runChuckCode()` first; only set `clickedBegin` on success.
     try {
-      // Check if runChuckCode is actually a function before calling
       if (typeof runChuckCode === 'function') {
         console.log('[onStart] Calling runChuckCode...');
-        await runChuckCode();
+        // await runChuckCode();
         console.log('[onStart] runChuckCode completed successfully');
+        setClickedBegin(true);
       } else {
         console.warn('[onStart] runChuckCode is not a function:', typeof runChuckCode);
         throw new Error(`runChuckCode is not a function: ${typeof runChuckCode}`);
@@ -1112,8 +1111,8 @@ export default function OldParentMonolith(
         code: e?.code,
         toString: e?.toString(),
       });
-      // Don't retry - let the error propagate so the UI can handle it
-      // The program will still start because we set clickedBegin above
+      // Do not flip clickedBegin here; keep the UI in the pre-start state
+      // so the user can retry explicitly.
     }
     
     setIsInitializingLocal(false);
