@@ -377,68 +377,63 @@ export default function ChuckSetup() {
             const rows = getGridRows();
             if (rows.length === 0) return;
 
-            // If tick jumped (non-consecutive), try to derive position by modulo over total cells
-            const currentRow = activeYRef.current;
-            let cols = getColumnsForRow(currentRow);
-
-            if (lastTickRef.current == null) {
-                // initialize: place at start
-                activeXRef.current = 0;
-                activeYRef.current = rows[0];
-            } else {
-                const delta = tickNum - (lastTickRef.current || 0);
-                if (delta === 1) {
-                    // normal advance to next column
-                    activeXRef.current += 1;
-                    if (activeXRef.current >= cols) {
-                        // wrap to next row (bottom->top order in `rows` array)
-                        const idx = rows.indexOf(activeYRef.current);
-                        if (idx !== -1 && rows.length > 0) {
-                            const nextIdx = (idx + 1) % rows.length;
-                            activeYRef.current = rows[nextIdx];
-                            activeXRef.current = 0;
-                            cols = getColumnsForRow(activeYRef.current);
-                        } else {
-                            // If current row not found or rows empty, reset to first row
-                            if (rows.length > 0) {
-                                activeYRef.current = rows[0];
-                                activeXRef.current = 0;
-                                cols = getColumnsForRow(activeYRef.current);
-                            }
-                        }
-                    }
-                } else if (delta > 1 || delta < 0) {
-                    // Big jump or reset: compute a deterministic mapping using tickNum modulo total cells
-                    const totalCells = rows.reduce((acc, ry) => acc + getColumnsForRow(ry), 0);
-                    if (totalCells > 0 && rows.length > 0) {
-                        const idx = tickNum % totalCells;
-                        // find row and col by walking rows
-                        let acc = 0;
-                        for (let i = 0; i < rows.length; i++) {
-                            const ry = rows[i];
-                            const c = getColumnsForRow(ry);
-                            if (idx < acc + c) {
-                                activeYRef.current = ry;
-                                activeXRef.current = idx - acc;
-                                break;
-                            }
-                            acc += c;
-                        }
-                    } else if (rows.length > 0) {
-                        // Fallback: start at first valid row
-                        activeYRef.current = rows[0];
-                        activeXRef.current = 0;
-                    }
+            // Deterministic mapping using configured timing parameters when available.
+            // Prefer authoritative layout from `chuckCodeData` if present: cellsPerRow = numeratorSignature * masterFastestRate,
+            // number of rows = denominatorSignature. This matches how the ChucK `filesArr2D` was constructed.
+            let cellsPerRow = null;
+            let numRows = null;
+            // Prefer precomputed layout stored in `chuckLayoutRef` (set after buildChuckCodeData completes)
+            try {
+                const layout = chuckLayoutRef.current;
+                if (layout && Number.isInteger(layout.cellsPerRow) && Number.isInteger(layout.numRows)) {
+                    cellsPerRow = layout.cellsPerRow;
+                    numRows = layout.numRows;
                 }
+            } catch (e) {
+                // ignore - fallback to inspected grid
             }
 
-            // Safety check: ensure activeYRef is in valid rows
-            if (rows.length > 0 && !rows.includes(activeYRef.current)) {
+            // Fallbacks
+            if (!cellsPerRow || cellsPerRow <= 0) {
+                // derive a reasonable cellsPerRow from the current grid: use columns in first row
+                const firstRow = rows[0];
+                cellsPerRow = getColumnsForRow(firstRow);
+            }
+            if (!numRows || numRows <= 0) {
+                numRows = rows.length;
+            }
+
+            const totalCells = cellsPerRow * numRows;
+            if (totalCells <= 0) return;
+
+            // Map tick to an index in [0, totalCells)
+            const idx = ((tickNum % totalCells) + totalCells) % totalCells; // safe mod
+            const rowIndex = Math.floor(idx / cellsPerRow) % numRows;
+            const colIndex = idx % cellsPerRow;
+
+            // Resolve actual row key from `rows` array; if rows array length differs from numRows, wrap
+            const resolvedRowKey = rows.length > 0 ? rows[rowIndex % rows.length] : rows[0];
+
+            activeYRef.current = resolvedRowKey;
+            activeXRef.current = colIndex;
+
+            // Expose mapping for debugging
+            try {
+                if (typeof window !== 'undefined') {
+                    (window as any).__lastTickMapping = { idx, rowIndex, colIndex, cellsPerRow, numRows, resolvedRowKey };
+                    if ((window as any).__DEBUG_TICK) {
+                        console.log('[Ticker Debug] mapping', (window as any).__lastTickMapping);
+                    }
+                }
+            } catch (e) {}
+
+            // Safety check
+            if (!rows.includes(activeYRef.current)) {
                 console.warn('[Ticker] Invalid row detected:', activeYRef.current, 'Valid rows:', rows, 'Resetting to first row');
                 activeYRef.current = rows[0];
                 activeXRef.current = 0;
             }
-            
+
             lastTickRef.current = tickNum;
             // update store
             const newActiveCell = { x: activeXRef.current, y: activeYRef.current };
@@ -473,57 +468,97 @@ export default function ChuckSetup() {
         };
     }
 
-    // Canonical chuckPrint error sink and installer
+    // Minimal, canonical chuckPrint installer + tick buffer
     // Use a ref so the handler is stable across renders and available to native callbacks
     const currentChuckPrintErrorSinkRef = useRef<string[] | null>(null);
 
+    // Ring buffer of recent ticks (small, fast structure)
+    const tickBufferRef = useRef<Array<{ tick: number; audioTime: number; perf: number }>>([]);
+    // Layout info provided by buildChuckCodeData (cellsPerRow, numRows)
+    const chuckLayoutRef = useRef<{ cellsPerRow: number; numRows: number } | null>(null);
+    const lastProcessedTickRef = useRef<number | null>(null);
+
+    const pushTickToBuffer = (tick: number, audioTime: number, perf: number) => {
+        const buf = tickBufferRef.current;
+        buf.push({ tick, audioTime, perf });
+        if (buf.length > 128) buf.shift();
+        // expose for quick inspection
+        try { if (typeof window !== 'undefined') (window as any).__chuckTickBuffer = buf; } catch (e) { }
+    };
+
+    // Installer: extremely small, fast handler. It parses the tick and records timestamps only.
     const setupDefaultChuckPrint = (instance?: any) => {
         if (!instance) return;
         const previous = (instance as any).chuckPrint;
         (instance as any).chuckPrint = (message: string) => {
             try {
-                // If an ephemeral error sink is active, capture error-like messages
-                const lowered = typeof message === 'string' ? message.toLowerCase() : '';
+                if (typeof message !== 'string') {
+                    if (previous) try { previous(message); } catch (e) {}
+                    return;
+                }
+
+                const lowered = message.toLowerCase();
+                // Capture CHUCK_UP_TO_DATE quickly
+                if (lowered.indexOf('chuck_up_to_date') !== -1) {
+                    setIsRunning(true);
+                    // minimal sync cue
+                    try { runNextEventDFSHelper(); } catch (e) {}
+                    if (previous) try { previous(message); } catch (e) {}
+                    return;
+                }
+
+                // Fast path for TICK messages: parse first integer and push into buffer
+                if (lowered.indexOf('tick') !== -1) {
+                    const m = message.match(/\d+/);
+                    if (m) {
+                        const tickNum = Number(m[0]);
+                        const perf = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+                        const audioTime = (globalAudioCtx.current && typeof globalAudioCtx.current.currentTime === 'number') ? globalAudioCtx.current.currentTime : perf / 1000;
+                        pushTickToBuffer(tickNum, audioTime, perf);
+                    }
+                    // keep previous handler but call it after short work
+                    if (previous) try { previous(message); } catch (e) {}
+                    return;
+                }
+
+                // Capture errors into transient sink if set
                 if (currentChuckPrintErrorSinkRef.current && (lowered.includes('error') || lowered.includes('exception') || lowered.includes('fatal') || lowered.includes('syntax') || lowered.includes('line'))) {
                     currentChuckPrintErrorSinkRef.current.push(message);
                 }
 
-                // Handle TICK messages (advance active cell)
-                if (typeof message === 'string' && message.includes('TICK')) {
-                    try {
-                        const nums = message.match(/\d+/g);
-                        if (nums && nums.length >= 1) {
-                            const tickNum = parseInt(nums[0], 10);
-                            advanceActiveCellFromTick(tickNum);
-                        }
-                    } catch (err) {
-                        console.warn('[defaultChuckPrint] Failed to parse TICK message:', message, err);
-                    }
-                }
-
-                // Handle CHUCK_UP_TO_DATE -> ensure store sync and mark running
-                if (typeof message === 'string' && message.includes('CHUCK_UP_TO_DATE')) {
-                    try {
-                        setIsRunning(true);
-                        // Allow any queued beatgrid sync work to run
-                        runNextEventDFSHelper();
-                    } catch (e) {
-                        // ignore
-                    }
-                }
+                if (previous) try { previous(message); } catch (e) {}
             } catch (e) {
                 // swallow to avoid breaking native callbacks
-                console.warn('[setupDefaultChuckPrint] handler error', e);
-            }
-
-            // Call previous handler if present
-            try {
-                if (typeof previous === 'function') previous(message);
-            } catch (e) {
-                // ignore errors in original handler
             }
         };
     };
+
+    // rAF-driven processor: consume tick buffer and drive UI updates at screen refresh rate
+    useEffect(() => {
+        let rafId: number | null = null;
+        const frame = () => {
+            try {
+                const buf = tickBufferRef.current;
+                if (buf.length > 0) {
+                    const latest = buf[buf.length - 1];
+                    if (lastProcessedTickRef.current !== latest.tick) {
+                        lastProcessedTickRef.current = latest.tick;
+                        // Use audioTime-aware processing: feed absolute tick to deterministic mapper
+                        try { advanceActiveCellFromTick(latest.tick); } catch (e) {}
+                        // Optionally expose last audio timestamp for debugging
+                        try { if (typeof window !== 'undefined') (window as any).__lastTickAudioTime = latest.audioTime; } catch (e) {}
+                    }
+                    // Expose lastTick for devtools
+                    try { if (typeof window !== 'undefined') (window as any).__lastTick = latest.tick; } catch (e) {}
+                }
+            } catch (e) {
+                // ignore
+            }
+            rafId = requestAnimationFrame(frame);
+        };
+        rafId = requestAnimationFrame(frame);
+        return () => { if (rafId) cancelAnimationFrame(rafId); };
+    }, []);
 
 
 
@@ -620,98 +655,8 @@ export default function ChuckSetup() {
                 const source = (globalAudioCtx.current as AudioContext).createMediaStreamSource(stream);
                 if (chuckRef.current) {
                     source.connect(chuckRef.current);
-                    // Consolidated chuckPrint handler - handles TICK updates for active cell
-                    const originalChuckPrint = chuckRef.current.chuckPrint;
-                    chuckRef.current.chuckPrint = async (message: string) => {
-                        // Handle TICK messages - update active cell without re-rendering
-                        if (message.includes("TICK")) {
-                                // Parse numeric tokens from the message (robust to different TICK formats)
-                                try {
-                                        const nums = message.match(/\d+/g);
-                                        if (nums && nums.length >= 1) {
-                                            const tickNum = parseInt(nums[0], 10);
-                                            console.log("mofucking ticknum 2: ", tickNum );
-                                            advanceActiveCellFromTick(tickNum);
-                                        }
-                                    } catch (err) {
-                                        console.warn('[ChucK] Failed to parse TICK message:', message, err);
-                                    }
-                            }
-
-                        if (message.includes("UPDATE_GRID")) {
-                            console.log("TK! ", message);
-                        }
-
-                        if (message.includes("CHUCK_UP_TO_DATE")) {
-                            setIsRunning(true)
-                            // Chuck is ready - synchronize beatgrid data here
-                            const beatGridData = useBeatGridStore.getState().masterPatternsHashHook;
-                            const gridVersion = useBeatGridStore.getState().gridVersion;
-
-                            // Call original handler if it exists
-                            if (originalChuckPrint) {
-                                originalChuckPrint(message);
-                            }
-
-                            // ============================================================
-                            // LOG: Beatgrid data ready for passing to Chuck
-                            // ============================================================
-                            console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
-                            console.log('Grid Version:', gridVersion);
-                            console.log('Beatgrid Structure:', beatGridData);
-
-                            // Log a flattened view of the data structure
-                            const flattenedCells: any[] = [];
-                            Object.keys(beatGridData).forEach(yKey => {
-                                Object.keys(beatGridData[yKey]).forEach(xKey => {
-                                    const cell = beatGridData[yKey][xKey];
-                                    flattenedCells.push({
-                                        position: { x: Number(xKey), y: Number(yKey) },
-                                        subdivisions: cell?.subdivisions,
-                                        velocity: cell?.velocity,
-                                        length: cell?.length,
-                                        fileNums: cell?.fileNums,
-                                        noteName: cell?.noteName,
-                                        volume: cell?.volume,
-                                    });
-                                });
-                            });
-                            console.log('Flattened Cells:', flattenedCells);
-                            console.log('Total Cells:', flattenedCells.length);
-                            console.groupEnd();
-
-                            // ============================================================
-                            // SYNCHRONIZE BEATGRID DATA TO CHUCK
-                            // Using existing associative arrays pattern (like audioInSettingsHelperHash)
-                            // ============================================================
-                            if (chuckRef.current) {
-                                // Option: Use existing arrays (chuckNotes, chuckVelocities, midiNotesArray, etc.)
-                                // OR create a new associative array for beatgrid data
-                                // 
-                                // Example using existing pattern with setAssociativeFloatArrayValue:
-                                // await chuckRef.current.setInt('gridVersion', gridVersion);
-                                // 
-                                // Object.keys(beatGridData).forEach(yKey => {
-                                //     Object.keys(beatGridData[yKey]).forEach(xKey => {
-                                //         const cell = beatGridData[yKey][xKey];
-                                //         const cellKey = `beatgrid_${yKey}_${xKey}`;
-                                //         
-                                //         // Use setAssociativeIntArrayValue for integers
-                                //         await chuckRef.current.setAssociativeIntArrayValue('beatGridData', `${cellKey}_subdivisions`, cell?.subdivisions || 1);
-                                //         
-                                //         // Use setAssociativeFloatArrayValue for floats
-                                //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_velocity`, cell?.velocity || 0);
-                                //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_length`, Array.isArray(cell?.length) ? cell.length[0] : cell?.length || 1);
-                                //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_volume`, Array.isArray(cell?.volume) ? cell.volume[0] : cell?.volume || 0);
-                                //     });
-                                // });
-                                // 
-                                // await chuckRef.current.broadcastEvent('beatgridUpdated');
-                            }
-
-                            runNextEventDFSHelper();
-                        }
-                    }
+                    // Install minimal, canonical chuckPrint handler
+                    setupDefaultChuckPrint(chuckRef.current);
                 }
             } catch (err) {
                 console.error('Failed to construct AudioWorkletNode:', err);
@@ -972,7 +917,10 @@ export default function ChuckSetup() {
             const timeSig = transportState.timeSig || { num: 4, den: 4 };
             const numeratorSignature = timeSig.num;
             const denominatorSignature = timeSig.den;
-            const masterFastestRate = 1; // Default value - can be added to store if needed
+            // Derive master fastest rate from the beat-grid controls if available
+            // `currentNoteVals.master[0]` is the UI slider for the global fastest subdivision (defaultNoteVals.master === [4])
+            const beatGridNoteVals = useBeatGridStore.getState().currentNoteVals || {};
+            const masterFastestRate = Number((beatGridNoteVals && beatGridNoteVals.master && beatGridNoteVals.master[0]) || 4);
             const fxRadioValue = useOldMonolithStore.getState().fxRadioValue || 'osc1';
 
             // Get microtonal data (these are computed values, not stored - using defaults for now)
@@ -1241,95 +1189,43 @@ export default function ChuckSetup() {
             throw initErr; // Re-throw so retry logic can catch it
         }
 
-        // Set up chuckPrint handler for synchronization (same as in chuckMicButton)
-        // NOTE: This duplicates the handler above - consider consolidating
+        // Install minimal canonical chuckPrint handler (fast path)
         if (chuckRef.current) {
-            const originalChuckPrint = chuckRef.current.chuckPrint;
-            chuckRef.current.chuckPrint = async (message: string) => {
-                // Handle TICK messages - update active cell without re-rendering
-                if (message.includes("TICK")) {
-                    // Robust parsing: extract numeric tokens and map to y (row) and x (step)
-                    try {
-                        const nums = message.match(/\d+/g);
-                        if (nums && nums.length >= 1) {
-                            const tickNum = parseInt(nums[0], 10);
-                            // Removed verbose logging - was causing performance issues
-                            advanceActiveCellFromTick(tickNum);
+            setupDefaultChuckPrint(chuckRef.current);
+            // Also listen for structured tick messages posted from the AudioWorklet
+            try {
+                const attachPortListener = (target: any) => {
+                    if (!target) return false;
+                    const port = target.port || target.node?.port || target.audioNode?.port;
+                    if (!port) return false;
+
+                    // Use addEventListener if available, otherwise fallback to onmessage
+                    const handler = (ev: any) => {
+                        const data = ev.data || ev;
+                        if (!data) return;
+                        if (data.type === 'tick' && typeof data.tick === 'number') {
+                            const perf = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+                            const audioTime = (typeof data.audioTime === 'number') ? data.audioTime : ((globalAudioCtx.current && typeof globalAudioCtx.current.currentTime === 'number') ? globalAudioCtx.current.currentTime : perf / 1000);
+                            pushTickToBuffer(data.tick, audioTime, perf);
                         }
-                    } catch (err) {
-                        console.warn('[ChucK] Failed to parse TICK message:', message, err);
+                    };
+                    try {
+                        if (typeof port.addEventListener === 'function') {
+                            port.addEventListener('message', handler);
+                        } else {
+                            port.onmessage = (e: any) => handler(e.data);
+                        }
+                        return true;
+                    } catch (e) {
+                        return false;
                     }
-                }
+                };
 
-                if (message.includes("CHUCK_UP_TO_DATE")) {
-                    // Chuck is ready - synchronize beatgrid data here
-                    const beatGridData = useBeatGridStore.getState().masterPatternsHashHook;
-
-                    // Call original handler if it exists
-                    if (originalChuckPrint) {
-                        originalChuckPrint(message);
-                    }
-                    const gridVersion = useBeatGridStore.getState().gridVersion;
-
-                    // ============================================================
-                    // LOG: Beatgrid data ready for passing to Chuck
-                    // ============================================================
-                    if (DEBUG_HEAVY_LOGS) {
-                        console.group('🎵 Beatgrid Data Ready for Chuck (synchronized)');
-                        console.log('Grid Version:', gridVersion);
-                        console.log('Beatgrid Structure:', beatGridData);
-                        const flattenedCells: any[] = [];
-                        Object.keys(beatGridData).forEach(yKey => {
-                            Object.keys(beatGridData[yKey]).forEach(xKey => {
-                                const cell = beatGridData[yKey][xKey];
-                                flattenedCells.push({
-                                    position: { x: Number(xKey), y: Number(yKey) },
-                                    subdivisions: cell?.subdivisions,
-                                    velocity: cell?.velocity,
-                                    length: cell?.length,
-                                    fileNums: cell?.fileNums,
-                                    noteName: cell?.noteName,
-                                    volume: cell?.volume,
-                                });
-                            });
-                        });
-                        console.log('Flattened Cells:', flattenedCells);
-                        console.log('Total Cells:', flattenedCells.length);
-                        console.groupEnd();
-                    }
-
-                    // ============================================================
-                    // SYNCHRONIZE BEATGRID DATA TO CHUCK
-                    // Using existing associative arrays pattern (like audioInSettingsHelperHash)
-                    // ============================================================
-                    if (chuckRef.current) {
-                        // Option: Use existing arrays (chuckNotes, chuckVelocities, midiNotesArray, etc.)
-                        // OR create a new associative array for beatgrid data
-                        // 
-                        // Example using existing pattern with setAssociativeFloatArrayValue:
-                        // await chuckRef.current.setInt('gridVersion', gridVersion);
-                        // 
-                        // Object.keys(beatGridData).forEach(yKey => {
-                        //     Object.keys(beatGridData[yKey]).forEach(xKey => {
-                        //         const cell = beatGridData[yKey][xKey];
-                        //         const cellKey = `beatgrid_${yKey}_${xKey}`;
-                        //         
-                        //         // Use setAssociativeIntArrayValue for integers
-                        //         await chuckRef.current.setAssociativeIntArrayValue('beatGridData', `${cellKey}_subdivisions`, cell?.subdivisions || 1);
-                        //         
-                        //         // Use setAssociativeFloatArrayValue for floats
-                        //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_velocity`, cell?.velocity || 0);
-                        //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_length`, Array.isArray(cell?.length) ? cell.length[0] : cell?.length || 1);
-                        //         await chuckRef.current.setAssociativeFloatArrayValue('beatGridData', `${cellKey}_volume`, Array.isArray(cell?.volume) ? cell.volume[0] : cell?.volume || 0);
-                        //     });
-                        // });
-                        // 
-                        // await chuckRef.current.broadcastEvent('beatgridUpdated');
-                    }
-
-                    runNextEventDFSHelper();
-                }
-            };
+                // try several likely objects
+                attachPortListener(chuckRef.current) || attachPortListener((chuckRef.current as any).node) || attachPortListener((chuckRef.current as any).audioNode);
+            } catch (e) {
+                // ignore - best-effort only
+            }
         }
 
         // ============================================================
@@ -1343,6 +1239,17 @@ export default function ChuckSetup() {
                 isInitializingRef.current = false;
                 setIsRunning(false);
                 throw new Error('Failed to build ChucK code data - buildChuckCodeData returned null');
+            }
+            // Cache layout info for main-thread tick->grid mapping
+            try {
+                const cellsPerRow = Number(chuckCodeData.numeratorSignature) * Number(chuckCodeData.masterFastestRate);
+                const numRows = Number(chuckCodeData.denominatorSignature) || (Array.isArray(chuckCodeData.masterPatternsRef?.current) ? chuckCodeData.masterPatternsRef.current.length : 0);
+                if (Number.isInteger(cellsPerRow) && Number.isInteger(numRows) && cellsPerRow > 0 && numRows > 0) {
+                    (chuckLayoutRef as any).current = { cellsPerRow, numRows };
+                    try { if (typeof window !== 'undefined') (window as any).__chuckLayout = { cellsPerRow, numRows }; } catch (e) {}
+                }
+            } catch (e) {
+                // ignore - best-effort only
             }
         } catch (error) {
             console.error('Failed to build ChucK code data:', error);
@@ -2053,6 +1960,12 @@ export default function ChuckSetup() {
                 if (chuckRef.current && chuckRef.current.chuckPrint !== originalChuckPrint) {
                     chuckRef.current.chuckPrint = originalChuckPrint;
                 }
+            }
+            // Reinstall minimal canonical chuckPrint handler after temporary overrides
+            try {
+                if (chuckRef.current) setupDefaultChuckPrint(chuckRef.current);
+            } catch (e) {
+                // ignore
             }
         }
         
