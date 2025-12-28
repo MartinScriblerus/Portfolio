@@ -23,6 +23,34 @@ type BeatGridState = {
   
   // File management
   clickedFile: string | null;
+  // Timing / transport (merged from useTimingStore)
+  bpm: number;
+  setBpm: (bpm: number) => void;
+  beatMs: number;
+  setBeatMs: (beatMs: number) => void;
+  // Subdivision (merged from useTimingSubdivision)
+  subdivision: any;
+  setSubdivision: (s: any) => void;
+  // Tick state (merged from useTickStore)
+  time: number;
+  delta: number;
+  setTick: (time: number, delta: number) => void;
+  // Subdivision rate (fastest subdivisions per beat)
+  masterFastestRate: number;
+  setMasterFastestRate: (r: number) => void;
+  rate: number; // legacy alias
+  setRate: (r: number) => void;
+  // Beats signature (numerator/denominator)
+  beatsNumerator: number;
+  beatsDenominator: number;
+  lastBeatNumeratorUpdate: number;
+  lastBeatDenominatorUpdate: number;
+  setBeatsNumerator: (n: number) => void;
+  setBeatsDenominator: (n: number) => void;
+  incrementNumerator: () => void;
+  decrementNumerator: () => void;
+  incrementDenominator: () => void;
+  decrementDenominator: () => void;
   
   // Actions
   setMasterPatternsHashHook: (patterns: Record<string, Record<string, any>>) => void;
@@ -53,6 +81,108 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
   clickedFile: null,
   isEditing: false,
   activeCell: null,
+  // Timing defaults (merged)
+  bpm: 120,
+  setBpm: (bpm: number) => set({ bpm }),
+  beatMs: 500,
+  setBeatMs: (beatMs: number) => set({ beatMs }),
+  subdivision: { unit: '1/16' },
+  setSubdivision: (s: any) => set({ subdivision: s }),
+  time: 0,
+  delta: 0,
+  setTick: (time: number, delta: number) => set({ time, delta }),
+  // Beats signature (numerator/denominator) - centralized here so UI controls can be robust
+  beatsNumerator: 4,
+  beatsDenominator: 4,
+  // Subdivision rate (fastest subdivisions per beat)
+  // Internal timestamps to guard against rapid repeated updates (click flood/wheel spam)
+  lastBeatNumeratorUpdate: 0,
+  lastBeatDenominatorUpdate: 0,
+  setBeatsNumerator: (n: number) => {
+    const now = Date.now();
+    const last = get().lastBeatNumeratorUpdate || 0;
+    const cur = get().beatsNumerator;
+    // avoid unnecessary updates when value is the same
+    if (n === cur) return;
+    // allow at most one update per 60ms to protect against UI spam
+    if (now - last < 60) return;
+    set({ beatsNumerator: n, lastBeatNumeratorUpdate: now });
+    try { typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { beatsNumerator: n } })); } catch {}
+    get().bumpGridVersion();
+  },
+  setBeatsDenominator: (n: number) => {
+    const now = Date.now();
+    const last = get().lastBeatDenominatorUpdate || 0;
+    const cur = get().beatsDenominator;
+    if (n === cur) return;
+    if (now - last < 60) return;
+    set({ beatsDenominator: n, lastBeatDenominatorUpdate: now });
+    try { typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { beatsDenominator: n } })); } catch {}
+    get().bumpGridVersion();
+  },
+  // canonical name for fastest subdivisions per beat (backwards-compatible with earlier prop names)
+  masterFastestRate: 4,
+  // Rate setter - powers-of-two friendly control for fastest subdivisions per beat
+  setMasterFastestRate: (r: number) => {
+    const val = Number(r) || 1;
+    set({ masterFastestRate: val, rate: val });
+    try { typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { masterFastestRate: val } })); } catch {}
+    get().bumpGridVersion();
+  },
+  // legacy alias kept for compatibility
+  rate: 16,
+  setRate: (r: number) => {
+    const val = Number(r) || 1;
+    set({ rate: val, masterFastestRate: val });
+    try { typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { rate: val } })); } catch {}
+    get().bumpGridVersion();
+  },
+  // Guarded single-step helpers (call these for spinner arrow clicks)
+  incrementNumerator: () => {
+    const now = Date.now();
+    const last = get().lastBeatNumeratorUpdate || 0;
+    if (now - last < 60) return;
+    const cur = get().beatsNumerator || 1;
+    const next = Math.min(cur + 1, 16);
+    set({ beatsNumerator: next, lastBeatNumeratorUpdate: now });
+    try { typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { beatsNumerator: next } })); } catch {}
+    get().bumpGridVersion();
+  },
+  decrementNumerator: () => {
+    const now = Date.now();
+    const last = get().lastBeatNumeratorUpdate || 0;
+    if (now - last < 60) return;
+    const cur = get().beatsNumerator || 1;
+    const next = Math.max(cur - 1, 1);
+    set({ beatsNumerator: next, lastBeatNumeratorUpdate: now });
+    try { typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { beatsNumerator: next } })); } catch {}
+    get().bumpGridVersion();
+  },
+  incrementDenominator: () => {
+    const now = Date.now();
+    const last = get().lastBeatDenominatorUpdate || 0;
+    if (now - last < 60) return;
+    const cur = get().beatsDenominator || 4;
+    // common denominators only (1,2,4,8,16)
+    const allowed = [1,2,4,8,16];
+    const idx = allowed.indexOf(cur);
+    const next = allowed[Math.min(allowed.length - 1, Math.max(0, idx + 1))];
+    set({ beatsDenominator: next, lastBeatDenominatorUpdate: now });
+    try { typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { beatsDenominator: next } })); } catch {}
+    get().bumpGridVersion();
+  },
+  decrementDenominator: () => {
+    const now = Date.now();
+    const last = get().lastBeatDenominatorUpdate || 0;
+    if (now - last < 60) return;
+    const cur = get().beatsDenominator || 4;
+    const allowed = [1,2,4,8,16];
+    const idx = allowed.indexOf(cur);
+    const next = allowed[Math.max(0, Math.min(allowed.length - 1, idx - 1))];
+    set({ beatsDenominator: next, lastBeatDenominatorUpdate: now });
+    try { typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { beatsDenominator: next } })); } catch {}
+    get().bumpGridVersion();
+  },
   
   // Actions
   setMasterPatternsHashHook: (patterns) => {

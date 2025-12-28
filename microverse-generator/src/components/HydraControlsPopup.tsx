@@ -135,24 +135,37 @@ const ChainParamControl: React.FC<ChainParamControlProps> = ({ chainId, param, l
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
             <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#ffffff' }}>Value</Typography>
-            <TextField
-              type="number"
-              size="small"
-              value={paramConfig?.value ?? 0}
-              onChange={(e) => {
-                const numVal = Number(e.target.value);
-                setChainParamValue(chainId, param, numVal);
-              }}
-              inputProps={{ min: paramConfig?.min ?? 0, max: paramConfig?.max ?? 100, step: paramConfig?.step ?? 1 }}
-              sx={{ 
-                width: 70, 
-                '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5, color: '#ffffff' },
-                '& .MuiInputLabel-root': { color: '#ffffff' },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.5)' },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.7)' },
-              }}
-            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig?.value ?? 0);
+                  const step = Number(paramConfig?.step ?? 1);
+                  const min = Number(paramConfig?.min ?? 0);
+                  const next = Math.max(min, cur - step);
+                  setChainParamValue(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                -
+              </Button>
+              <Box sx={{ width: 70, textAlign: 'center', color: '#ffffff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, py: '6px', background: 'rgba(20,20,25,0.6)' }}>
+                {paramConfig?.value ?? 0}
+              </Box>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig?.value ?? 0);
+                  const step = Number(paramConfig?.step ?? 1);
+                  const max = Number(paramConfig?.max ?? 100);
+                  const next = Math.min(max, cur + step);
+                  setChainParamValue(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                +
+              </Button>
+            </Box>
           </Box>
           <Slider
             value={paramConfig?.value ?? 0}
@@ -171,22 +184,67 @@ const ChainParamControl: React.FC<ChainParamControlProps> = ({ chainId, param, l
 
         {/* Min/Max Controls */}
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            label="Min"
-            type="number"
-            size="small"
-            value={paramConfig.min}
-            onChange={(e) => setChainParamMin(chainId, param, Number(e.target.value))}
-            sx={{ width: 70, '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5 } }}
-          />
-          <TextField
-            label="Max"
-            type="number"
-            size="small"
-            value={paramConfig.max}
-            onChange={(e) => setChainParamMax(chainId, param, Number(e.target.value))}
-            sx={{ width: 70, '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5 } }}
-          />
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig.min ?? 0);
+                  const step = 1;
+                  const next = Math.max(0, cur - step);
+                  setChainParamMin(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                -
+              </Button>
+              <Box sx={{ width: 70, textAlign: 'center', color: '#ffffff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, py: '6px', background: 'rgba(20,20,25,0.6)' }}>
+                {paramConfig.min}
+              </Box>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig.min ?? 0);
+                  const step = 1;
+                  const next = cur + step;
+                  setChainParamMin(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                +
+              </Button>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig.max ?? 100);
+                  const step = 1;
+                  const next = Math.max(0, cur - step);
+                  setChainParamMax(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                -
+              </Button>
+              <Box sx={{ width: 70, textAlign: 'center', color: '#ffffff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, py: '6px', background: 'rgba(20,20,25,0.6)' }}>
+                {paramConfig.max}
+              </Box>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig.max ?? 100);
+                  const step = 1;
+                  const next = cur + step;
+                  setChainParamMax(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                +
+              </Button>
+            </Box>
+          </Box>
         </Box>
 
         {/* Music Variable Latch */}
@@ -281,14 +339,33 @@ const ChainParamControl: React.FC<ChainParamControlProps> = ({ chainId, param, l
                 </Select>
               </FormControl>
               {paramConfig.musicOperator !== 'none' && paramConfig.musicOperator !== 'sqrt' && paramConfig.musicOperator !== 'log' && (
-                <TextField
-                  label="Val"
-                  type="number"
-                  size="small"
-                  value={paramConfig.musicOperand}
-                  onChange={(e) => setChainParamMusicOperand(chainId, param, Number(e.target.value))}
-                  sx={{ width: 80, '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5 } }}
-                />
+                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const cur = Number(paramConfig.musicOperand ?? 1);
+                      const next = Math.max(0, cur - 1);
+                      setChainParamMusicOperand(chainId, param, next);
+                    }}
+                    sx={{ minWidth: 28, height: 28, padding: '4px' }}
+                  >
+                    -
+                  </Button>
+                  <Box sx={{ width: 80, textAlign: 'center', color: '#ffffff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, py: '6px', background: 'rgba(20,20,25,0.6)' }}>
+                    {paramConfig.musicOperand}
+                  </Box>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const cur = Number(paramConfig.musicOperand ?? 1);
+                      const next = cur + 1;
+                      setChainParamMusicOperand(chainId, param, next);
+                    }}
+                    sx={{ minWidth: 28, height: 28, padding: '4px' }}
+                  >
+                    +
+                  </Button>
+                </Box>
               )}
             </Box>
           )}

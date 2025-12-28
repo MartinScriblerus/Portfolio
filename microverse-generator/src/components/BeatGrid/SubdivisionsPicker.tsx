@@ -1,5 +1,5 @@
 import { OBERHEIM_TEAL } from '../../constants';
-import { Box, FormControl, TextField, useTheme } from '@mui/material';
+import { Box, FormControl, Button, useTheme } from '@mui/material';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useBeatGridStore } from '../../store/useBeatGridStore';
 
@@ -85,59 +85,43 @@ const SubdivisionsPicker = (props: SubdivisionsPickerProps) => {
                     // height: 'auto', // ✅
                 }}
             >
-            <TextField
-                type="number"
-                value={localValue}
-                inputProps={{
-                    step: 1,
-                    min: 1,
-                    style: {
-                        color: 'primary.contrastText',
-                        fontFamily: 'monospace',
-                        fontSize: '16px',
-                        width: '100%',
-                        padding: "1.5px 14px"
-                    },
-                }}
-                onFocus={() => {
-                    isUserEditingRef.current = true;
-                }}
-                onChange={(event) => {
-                    event.stopPropagation();
-                    const val = Math.max(1, Math.floor(Number(event.target.value) || 1));
-                    // Update UI immediately
-                    setLocalValue(val);
-                    // Update store immediately, but guard against duplicate calls
-                    if (!updateInProgressRef.current && val !== lastStoreValueRef.current) {
-                        updateInProgressRef.current = true;
-                        lastStoreValueRef.current = val;
-                        handleChangeCellSubdivisions(val, xVal, yVal);
-                        // Clear flag after store update completes
-                        requestAnimationFrame(() => {
-                            updateInProgressRef.current = false;
-                        });
-                    }
-                }}
-                onBlur={() => {
-                    isUserEditingRef.current = false;
-                    // Final sync check
-                    if (localValue !== lastStoreValueRef.current && !updateInProgressRef.current) {
-                        updateInProgressRef.current = true;
-                        lastStoreValueRef.current = localValue;
-                        handleChangeCellSubdivisions(localValue, xVal, yVal);
-                        requestAnimationFrame(() => {
-                            updateInProgressRef.current = false;
-                        });
-                    }
-                }}
-                sx={{
-                    input: { color: 'primary.contrastText' },
-                    backgroundColor: OBERHEIM_TEAL,
-                    maxWidth: '6rem',
-                    width: '72px',
-                    padding: '0px',
-                }}
-            />
+                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                            <Button
+                                size="small"
+                                onClick={() => {
+                                    const next = Math.max(1, Math.floor(localValue - 1));
+                                    setLocalValue(next);
+                                    if (!updateInProgressRef.current && next !== lastStoreValueRef.current) {
+                                        updateInProgressRef.current = true;
+                                        lastStoreValueRef.current = next;
+                                        handleChangeCellSubdivisions(next, xVal, yVal);
+                                        requestAnimationFrame(() => { updateInProgressRef.current = false; });
+                                    }
+                                }}
+                                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+                            >
+                                -
+                            </Button>
+                            <Box sx={{ width: 56, textAlign: 'center', color: 'primary.contrastText', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 1, py: '6px', backgroundColor: OBERHEIM_TEAL }}>
+                                {localValue}
+                            </Box>
+                            <Button
+                                size="small"
+                                onClick={() => {
+                                    const next = Math.max(1, Math.floor(localValue + 1));
+                                    setLocalValue(next);
+                                    if (!updateInProgressRef.current && next !== lastStoreValueRef.current) {
+                                        updateInProgressRef.current = true;
+                                        lastStoreValueRef.current = next;
+                                        handleChangeCellSubdivisions(next, xVal, yVal);
+                                        requestAnimationFrame(() => { updateInProgressRef.current = false; });
+                                    }
+                                }}
+                                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+                            >
+                                +
+                            </Button>
+                        </Box>
             </FormControl>
         </Box>
     )

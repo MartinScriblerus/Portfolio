@@ -1,10 +1,11 @@
 'use client';
 
 import React from 'react';
-import { Box, Typography, Button } from '@mui/material';
+import { Box, Typography, Button, TextField } from '@mui/material';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import { useTransportStore } from '../store/useTransportStore';
 import { useTimingStore } from '../hooks/useTimingStore';
+import { useBeatGridStore } from '../store/useBeatGridStore';
 import { chuckRef, filesToProcess, uploadedBlob } from '../../app/state/refs';
 
 /**
@@ -25,6 +26,18 @@ export default function TimingControls() {
     setTimingBpm(bpm);
     setTimingBeatMs((60 / bpm) * 1000);
   }, [bpm, setTimingBpm, setTimingBeatMs]);
+
+  // Sync time signature from transport store into the beat grid store
+  const setBeatsNumerator = useBeatGridStore(s => s.setBeatsNumerator);
+  const setBeatsDenominator = useBeatGridStore(s => s.setBeatsDenominator);
+  React.useEffect(() => {
+    if (timeSig && typeof timeSig.num === 'number') {
+      setBeatsNumerator(Number(timeSig.num));
+    }
+    if (timeSig && typeof timeSig.den === 'number') {
+      setBeatsDenominator(Number(timeSig.den));
+    }
+  }, [timeSig, setBeatsNumerator, setBeatsDenominator]);
 
   const handleFileUpload = () => {
     const input = document.createElement('input');
@@ -110,17 +123,16 @@ export default function TimingControls() {
           >
             BPM: {bpm}
           </Typography>
-          <input
-            type="range"
-            min="60"
-            max="200"
-            step="1"
+          <TextField
+            size="small"
             value={bpm}
+            onWheel={(e) => { e.preventDefault(); }}
             onChange={(e) => {
-              const newBpm = Number(e.target.value);
-              setBpm(newBpm);
+              const val = Number(e.target.value);
+              if (!Number.isNaN(val) && val > 0) setBpm(val);
             }}
-            style={{ width: '100%' }}
+            inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', style: { color: '#e0e0e0' } }}
+            sx={{ width: '100%', background: '#1a1a1a', '& .MuiInputBase-input': { color: '#e0e0e0' } }}
           />
         </Box>
 
@@ -135,42 +147,75 @@ export default function TimingControls() {
             Time Signature: {timeSig.num}/{timeSig.den}
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            <input
-              type="number"
-              min="1"
-              max="32"
-              value={timeSig.num}
-              onChange={(e) => setTimeSig({ num: Number(e.target.value), den: timeSig.den })}
-              style={{
-                width: 40,
-                padding: '4px',
-                background: '#1a1a1a',
-                color: '#e0e0e0',
-                border: '1px solid #444',
-                borderRadius: 4,
-              }}
-            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  const next = Math.max(1, Number(timeSig.num) - 1);
+                  setTimeSig({ num: next, den: timeSig.den });
+                  // Also update beat grid store to keep grid in sync
+                  const setBeats = useBeatGridStore.getState().setBeatsNumerator;
+                  try { setBeats(next); } catch (e) {}
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                -
+              </Button>
+              <Box sx={{ width: 44, textAlign: 'center', color: '#e0e0e0', border: '1px solid #444', borderRadius: 1, py: '4px', background: '#1a1a1a' }}>
+                {timeSig.num}
+              </Box>
+              <Button
+                size="small"
+                onClick={() => {
+                  const next = Math.min(32, Number(timeSig.num) + 1);
+                  setTimeSig({ num: next, den: timeSig.den });
+                  const setBeats = useBeatGridStore.getState().setBeatsNumerator;
+                  try { setBeats(next); } catch (e) {}
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                +
+              </Button>
+            </Box>
+
             <span style={{ color: '#e0e0e0' }}>/</span>
-            <input
-              type="number"
-              min="1"
-              max="32"
-              value={timeSig.den}
-              onChange={(e) => {
-                const den = Number(e.target.value);
-                if ([1, 2, 4, 8, 16, 32].includes(den)) {
-                  setTimeSig({ num: timeSig.num, den });
-                }
-              }}
-              style={{
-                width: 40,
-                padding: '4px',
-                background: '#1a1a1a',
-                color: '#e0e0e0',
-                border: '1px solid #444',
-                borderRadius: 4,
-              }}
-            />
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  // move denominator to previous allowed value
+                  const allowed = [1,2,4,8,16,32];
+                  const cur = Number(timeSig.den);
+                  const idx = Math.max(0, allowed.indexOf(cur));
+                  const next = allowed[Math.max(0, idx - 1)];
+                  setTimeSig({ num: timeSig.num, den: next });
+                  const setDen = useBeatGridStore.getState().setBeatsDenominator;
+                  try { setDen(next); } catch (e) {}
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                -
+              </Button>
+              <Box sx={{ width: 44, textAlign: 'center', color: '#e0e0e0', border: '1px solid #444', borderRadius: 1, py: '4px', background: '#1a1a1a' }}>
+                {timeSig.den}
+              </Box>
+              <Button
+                size="small"
+                onClick={() => {
+                  const allowed = [1,2,4,8,16,32];
+                  const cur = Number(timeSig.den);
+                  const idx = Math.max(0, allowed.indexOf(cur));
+                  const next = allowed[Math.min(allowed.length - 1, idx + 1)];
+                  setTimeSig({ num: timeSig.num, den: next });
+                  const setDen = useBeatGridStore.getState().setBeatsDenominator;
+                  try { setDen(next); } catch (e) {}
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                +
+              </Button>
+            </Box>
           </Box>
         </Box>
       </Box>

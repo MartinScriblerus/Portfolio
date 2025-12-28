@@ -1015,8 +1015,10 @@ export default function OldParentMonolith(
   const setClickedBegin = useOldMonolithStore(s => s.setClickedBegin);
   const [isChuckRunning, setIsChuckRunning] = useState(false);
   const [bpm, setBpm] = useState(120);
-  const [beatsNumerator, setBeatsNumerator] = useState(4);
-  const [beatsDenominator, setBeatsDenominator] = useState(4);
+  const beatsNumerator = useBeatGridStore(s => s.beatsNumerator);
+  const beatsDenominator = useBeatGridStore(s => s.beatsDenominator);
+  const setBeatsNumerator = useBeatGridStore(s => s.setBeatsNumerator);
+  const setBeatsDenominator = useBeatGridStore(s => s.setBeatsDenominator);
   const fxRadioValue = useOldMonolithStore(s => s.fxRadioValue);
   const setFxRadioValue = useOldMonolithStore(s => s.setFxRadioValue);
   const [fxKnobsCount, setFxKnobsCount] = useState(0);
@@ -1036,8 +1038,8 @@ export default function OldParentMonolith(
   const [currentDenomCount] = useState(0);
   const [currentNumerCountColToDisplay] = useState(1);
   const [currentPatternCount] = useState(0);
-  const [numeratorSignature] = useState(4);
-  const [denominatorSignature] = useState(4);
+  const numeratorSignature = useBeatGridStore(s => s.beatsNumerator);
+  const denominatorSignature = useBeatGridStore(s => s.beatsDenominator);
   const [clockCounterKey] = useState('clock_0');
 
   // Shared refs
@@ -1225,18 +1227,27 @@ export default function OldParentMonolith(
 
   // Initialize grid with default empty cells on mount
   useEffect(() => {
-    const current = useBeatGridStore.getState().masterPatternsHashHook;
-    // Only initialize if store is empty
-    if (!current || Object.keys(current).length === 0) {
-      const nCol = Number(numeratorSignature) * Number(denominatorSignature);
-      const nRow = Number(denominatorSignature);
-      const initialGrid: Record<string, Record<string, any>> = {};
-      
-      // Create default cells for each row/column
+    const current = useBeatGridStore.getState().masterPatternsHashHook || {};
+    const nCol = Number(numeratorSignature) * Number(denominatorSignature);
+    const nRow = Number(denominatorSignature);
+
+    // Determine whether we need to initialize or rebuild the grid
+    const currentRowCount = Object.keys(current).length;
+    const currentFirstRow = currentRowCount > 0 ? current[Object.keys(current)[0]] : undefined;
+    const currentColCount = currentFirstRow ? Object.keys(currentFirstRow).length : 0;
+    const needsRebuild = !current || currentRowCount === 0 || currentRowCount !== nRow || currentColCount !== nCol;
+
+    if (needsRebuild) {
+      const newGrid: Record<string, Record<string, any>> = {};
+
       for (let y = 1; y <= nRow; y++) {
-        initialGrid[String(y)] = {};
+        const yKey = String(y);
+        newGrid[yKey] = {};
         for (let x = 0; x < nCol; x++) {
-          initialGrid[String(y)][String(x)] = {
+          const xKey = String(x);
+          // Preserve existing cell if present, otherwise create a default cell
+          const existing = (current && current[yKey] && current[yKey][xKey]) ? current[yKey][xKey] : null;
+          newGrid[yKey][xKey] = existing ? { ...existing } : {
             subdivisions: 1,
             velocity: 0.5,
             length: [1],
@@ -1246,9 +1257,9 @@ export default function OldParentMonolith(
           };
         }
       }
-      
-      console.log('[OldParentMonolith] Initializing grid with', Object.keys(initialGrid).length, 'rows');
-      setMasterPatternsHashHook(initialGrid);
+
+      console.log('[OldParentMonolith] Initializing/rebuilding grid -> rows:', nRow, 'cols:', nCol);
+      setMasterPatternsHashHook(newGrid);
     }
   }, [numeratorSignature, denominatorSignature, setMasterPatternsHashHook]);
   const selectFileForAssignment = () => {};

@@ -254,7 +254,10 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
     // Hover state for tooltip
 
     type HeatmapRow = { x: string; y: string; value: number };
-    const nCol = Number(numeratorSignature) * Number(denominatorSignature) || 16;
+    // Respect the canonical fastest-subdivision rate when computing total columns
+    const masterFastestRateFromStore = useBeatGridStore((s) => s.masterFastestRate);
+    const effectiveFastest = Number(masterFastestRate ?? masterFastestRateFromStore) || 1;
+    const nCol = (Number(numeratorSignature) * Number(denominatorSignature) * effectiveFastest) || 16;
     const nRow = Number(denominatorSignature) || 4;
     const xLabels = Number.isFinite(nCol) && nCol > 0 ? Array.from({ length: nCol }, (_, i) => i) : [];
     const yLabels = Number.isFinite(nRow) && nRow > 0 ? Array.from({ length: nRow }, (_, i) => i + 1) : [];
