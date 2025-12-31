@@ -30,12 +30,10 @@ export function buildSourceData(sourceName: keyof Sources) {
     // e.g. "bitcrusher_sampler"
     const varName = `${fx.VarName}_${String(sourceName)}`;
 
-    // chain wiring
-    signalChain.push(fx.Type.toLowerCase());               // "bitcrusher"
+    // chain wiring (only varName with =>, type is in declaration)
     signalChain.push(`${varName} => `);                    // "bitcrusher_sampler =>"
 
-    // declaration
-    signalChainDeclarations.push(`${fx.Type.toLowerCase()} => dac;`);
+    // declaration (type declaration only, no => dac)
     signalChainDeclarations.push(`${fx.Type} ${varName};`);
 
     console.log("SIGNAL CHAIN DECLARATIONS ARE: ", signalChainDeclarations);  

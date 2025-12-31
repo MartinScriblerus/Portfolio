@@ -109,7 +109,7 @@ export function useRhythmCache(options?: {
   );
 }
 
-function buildCacheFromGrid(
+export function buildCacheFromGrid(
   grid: Record<string, Record<string, any>>,
   version: number,
   options?: {

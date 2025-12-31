@@ -86,6 +86,7 @@
     "secrets:push": "dotenvx push .env.ingest.local",
     "secrets:pull": "dotenvx pull .env.ingest.local",
     "mcp:chuck": "tsx mcp-server/chuck-mcp-server.ts",
+    "mcp:test": "tsx mcp-server/test-mcp-client.ts",
     "postinstall": "node scripts/copy-ffmpeg.js",
     "fetch:webchugins": "node scripts/fetch-webchugins.js",
     "fetch:meyda": "node scripts/fetch-meyda.js"

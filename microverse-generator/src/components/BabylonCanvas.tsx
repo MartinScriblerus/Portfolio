@@ -2463,6 +2463,31 @@ export default function BabylonHydraCanvas() {
                     // Also focus on pointer down (for touch devices)
                     e.currentTarget.focus();
                 }}
+                onFocus={(e) => {
+                    // Notify HID manager that canvas is focused
+                    if ((window as any).__keyboardHIDManager) {
+                        (window as any).__keyboardHIDManager.setEnabled(true);
+                        console.log('[BabylonCanvas] Canvas focused - HID enabled');
+                    }
+                }}
+                onBlur={(e) => {
+                    // Check if focus moved to a UI element
+                    const activeElement = document.activeElement as HTMLElement | null;
+                    if (activeElement && (
+                        activeElement.tagName === 'INPUT' ||
+                        activeElement.tagName === 'TEXTAREA' ||
+                        activeElement.tagName === 'SELECT' ||
+                        activeElement.tagName === 'BUTTON' ||
+                        activeElement.closest('[role="dialog"]') ||
+                        activeElement.closest('.MuiModal-root')
+                    )) {
+                        // Focus moved to UI element, disable HID
+                        if ((window as any).__keyboardHIDManager) {
+                            (window as any).__keyboardHIDManager.setEnabled(false);
+                            console.log('[BabylonCanvas] Canvas blurred, UI element focused - HID disabled');
+                        }
+                    }
+                }}
             />
             {/* Top-left controls arranged to avoid overlap */}
             {/* Hydra Controls - top row, left side */}

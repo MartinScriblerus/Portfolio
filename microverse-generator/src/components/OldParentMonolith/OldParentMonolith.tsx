@@ -1122,7 +1122,22 @@ export default function OldParentMonolith(
   };
 
   const updateKeyScaleChord = () => {};
-  const handleUpdateSliderVal = () => {};
+  
+  // handleUpdateSliderVal: Updates synth parameters from knob controls
+  // Uses global function exposed by ChuckSetup if available, otherwise no-op
+  const handleUpdateSliderVal = async (source: string, knobSpec: any, value: number) => {
+    if (typeof window !== 'undefined' && (window as any).__handleUpdateSliderVal) {
+      return (window as any).__handleUpdateSliderVal(source, knobSpec, value);
+    }
+    // Fallback: update moogGrandmotherEffects ref directly if ChucK not available
+    if (knobSpec && knobSpec.name && moogGrandmotherEffectsRef.current) {
+      const paramName = knobSpec.name;
+      if (moogGrandmotherEffectsRef.current[paramName]) {
+        moogGrandmotherEffectsRef.current[paramName].value = value;
+      }
+    }
+  };
+  
   const handleViewSTK = () => {};
   const handleViewEffect = () => {};
   const handleBackToSynth = () => {};

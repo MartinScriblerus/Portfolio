@@ -750,7 +750,8 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
         value: Option[];
         placeholder?: string;
         onChange: (value: Option[]) => void;
-    }> = ({ options, value, placeholder = "Select...", onChange }) => {
+        disabled?: boolean;
+    }> = ({ options, value, placeholder = "Select...", onChange, disabled = false }) => {
         // Debug: parameter multi-select
         // console.log('[ParameterMultiSelect] Options:', options.length, 'Value:', value.length);
         return (
@@ -758,6 +759,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                 multiple
                 disableCloseOnSelect
                 openOnFocus
+                disabled={disabled}
                 options={options}
                 value={value}
                 onChange={(_e, v) => {
@@ -773,6 +775,7 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                         variant="outlined"
                         size="small"
                         placeholder={placeholder}
+                        disabled={disabled}
                         sx={{
                             color: 'rgba(245,245,245,0.78)',
                             '& .MuiOutlinedInput-notchedOutline': {
@@ -780,6 +783,9 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                             },
                             '& .MuiInputBase-input': {
                                 color: 'rgba(245,245,245,0.78)',
+                            },
+                            '&.Mui-disabled': {
+                                opacity: 0.6,
                             },
                         }}
                         onClick={(e) => {
@@ -1658,7 +1664,62 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                     </Box>
 
                                                                     {/* Integrated Notes Dropdown with Chord/Scale integrated */}
-                                    <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
+                                                                    <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
+                                                                        {/* Individual Note Chips with Remove Buttons */}
+                                                                        {notesSelectedState && notesSelectedState.length > 0 && (
+                                                                            <Box sx={{ 
+                                                                                display: 'flex', 
+                                                                                flexWrap: 'wrap', 
+                                                                                gap: '6px',
+                                                                                padding: '8px',
+                                                                                backgroundColor: 'rgba(0,0,0,0.2)',
+                                                                                borderRadius: '4px',
+                                                                                border: '1px solid rgba(255,255,255,0.1)',
+                                                                            }}>
+                                                                                {notesSelectedState.map((note) => (
+                                                                                    <Box
+                                                                                        key={note.value}
+                                                                                        sx={{
+                                                                                            display: 'flex',
+                                                                                            alignItems: 'center',
+                                                                                            gap: '4px',
+                                                                                            padding: '4px 8px',
+                                                                                            backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
+                                                                                            color: '#000',
+                                                                                            borderRadius: '4px',
+                                                                                            fontSize: '12px',
+                                                                                            fontWeight: 500,
+                                                                                        }}
+                                                                                    >
+                                                                                        <Typography sx={{ fontSize: '12px', fontWeight: 500 }}>
+                                                                                            {note.label || note.value}
+                                                                                        </Typography>
+                                                                                        <Button
+                                                                                            size="small"
+                                                                                            onClick={() => {
+                                                                                                handleNotesChange(notesSelectedState.filter(n => n.value !== note.value));
+                                                                                            }}
+                                                                                            sx={{
+                                                                                                minWidth: '20px',
+                                                                                                width: '20px',
+                                                                                                height: '20px',
+                                                                                                padding: 0,
+                                                                                                color: '#000',
+                                                                                                fontSize: '14px',
+                                                                                                fontWeight: 'bold',
+                                                                                                '&:hover': {
+                                                                                                    backgroundColor: 'rgba(0,0,0,0.2)',
+                                                                                                },
+                                                                                            }}
+                                                                                            aria-label={`Remove ${note.label || note.value}`}
+                                                                                        >
+                                                                                            ×
+                                                                                        </Button>
+                                                                                    </Box>
+                                                                                ))}
+                                                                            </Box>
+                                                                        )}
+                                                                        
                                                                         <Box sx={{ display: "flex", flexDirection: "row", gap: 1, alignItems: "flex-start" }}>
                                                                             <Box sx={{ flex: 1 }}>
                                                                                 <ParameterMultiSelect 
@@ -1680,10 +1741,13 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                                                         return [...specialOptions, ...notesOptions];
                                                                                     })()}
                                                                                     value={notesSelectedState} 
+                                                                                    disabled={false}
                                                                                     placeholder={
-                                                                                        mingusSelectionsRef.current?.chord?.label 
-                                                                                            ? `${mingusSelectionsRef.current.chord.label} (${mingusSelectionsRef.current.key || 'C'})` 
-                                                                                            : "Select Notes (or click keyboard)"
+                                                                                        notesOptions.length === 0 
+                                                                                            ? "No notes available (check octave range)"
+                                                                                            : mingusSelectionsRef.current?.chord?.label 
+                                                                                                ? `${mingusSelectionsRef.current.chord.label} (${mingusSelectionsRef.current.key || 'C'})` 
+                                                                                                : "Select Notes (or click keyboard)"
                                                                                     }
                                                                                     onChange={(vals) => {
                                                                                         // Handle special chord/scale options first

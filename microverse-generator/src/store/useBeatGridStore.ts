@@ -57,6 +57,7 @@ type BeatGridState = {
   updateCellSubdivisions: (num: number, x: number, y: number) => void;
   updateCellNotes: (notes: string[], x: number, y: number) => void;
   updateCellFiles: (fileNums: number[], x: number, y: number) => void;
+  updateCellFunction: (functionId: string | null, x: number, y: number) => void;
   markCellUpdated: (x: number, y: number) => void;
   bumpGridVersion: () => void;
   setCurrentNoteVals: (vals: any) => void;
@@ -331,6 +332,41 @@ export const useBeatGridStore = create<BeatGridState>((set, get) => ({
     try {
       const gv = get().gridVersion;
       if (DEBUG_STORE_LOGS) console.log("debug store logs(1): ", { gridVersion: gv, cell: { x, y }, fileNums });
+      typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, cell: { x, y } } }));
+    } catch {}
+  },
+  
+  updateCellFunction: (functionId, x, y) => {
+    const DEBUG_STORE_LOGS = false;
+    if (DEBUG_STORE_LOGS) console.log(`[useBeatGridStore] updateCellFunction: cell[${x}, ${y}] =`, functionId);
+    const state = get();
+    const yKey = String(y);
+    const xKey = String(x);
+    
+    set((state) => {
+      const updated = { ...state.masterPatternsHashHook };
+      if (!updated[yKey]) {
+        updated[yKey] = {};
+      }
+      updated[yKey] = { ...updated[yKey] };
+      updated[yKey][xKey] = {
+        ...(updated[yKey][xKey] || {}),
+        functionId: functionId || null
+      };
+      
+      return {
+        masterPatternsHashHook: updated,
+        masterPatternsHashHookUpdated: {
+          ...state.masterPatternsHashHookUpdated,
+          [`${y}_${x}`]: Date.now()
+        },
+        gridVersion: state.gridVersion + 1,
+      };
+    });
+    
+    try {
+      const gv = get().gridVersion;
+      if (DEBUG_STORE_LOGS) console.log("debug store logs(function): ", { gridVersion: gv, cell: { x, y }, functionId });
       typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent('beatgrid:updated', { detail: { gridVersion: gv, cell: { x, y } } }));
     } catch {}
   },

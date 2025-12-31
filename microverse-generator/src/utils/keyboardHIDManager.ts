@@ -103,14 +103,25 @@ export class KeyboardHIDManager {
 
   /**
    * Check if Babylon canvas or HexKeyboard is the active/focused element
+   * Specifically checks for the babylonCanvas element
    */
   private isCanvasFocused(): boolean {
+    // First check: Is the Babylon canvas itself focused?
+    const babylonCanvas = document.getElementById('babylonCanvas') as HTMLCanvasElement | null;
+    if (babylonCanvas && document.activeElement === babylonCanvas) {
+      return true;
+    }
+    
+    // Second check: Is any canvas focused? (fallback)
     const activeElement = document.activeElement as HTMLElement | null;
     if (!activeElement) return false;
     
     // Check if active element is a canvas (Babylon canvas)
     if (activeElement.tagName === 'CANVAS') {
-      return true;
+      // Verify it's the Babylon canvas specifically
+      if (activeElement.id === 'babylonCanvas' || activeElement === babylonCanvas) {
+        return true;
+      }
     }
     
     // Check if it's inside HexKeyboard (SVG element or its container)
@@ -123,7 +134,10 @@ export class KeyboardHIDManager {
     let parent = activeElement.parentElement;
     while (parent) {
       if (parent.tagName === 'CANVAS') {
-        return true;
+        // Verify it's the Babylon canvas
+        if (parent.id === 'babylonCanvas' || parent === babylonCanvas) {
+          return true;
+        }
       }
       // Check for HexKeyboard container
       if (parent.closest('svg') || parent.closest('[class*="HexKeyboard"]')) {
@@ -180,20 +194,24 @@ export class KeyboardHIDManager {
     // Handle canvas focus (when Babylon canvas is clicked)
     const handleCanvasFocus = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === 'CANVAS') {
+      const babylonCanvas = document.getElementById('babylonCanvas') as HTMLCanvasElement | null;
+      
+      // Check specifically for Babylon canvas
+      if (target === babylonCanvas || (target.tagName === 'CANVAS' && target.id === 'babylonCanvas')) {
         canvasFocused = true;
         this.inputFocused = false;
         this.setEnabled(true);
-        console.log('[HID] Canvas focused - HID enabled');
+        console.log('[HID] Babylon canvas focused - HID enabled');
       }
     };
     
     // Disable HID when any input/textarea/select is focused
     const handleFocus = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
+      const babylonCanvas = document.getElementById('babylonCanvas') as HTMLCanvasElement | null;
       
-      // If canvas is focused, allow it
-      if (target.tagName === 'CANVAS') {
+      // If Babylon canvas is focused, allow it
+      if (target === babylonCanvas || (target.tagName === 'CANVAS' && target.id === 'babylonCanvas')) {
         canvasFocused = true;
         this.inputFocused = false;
         this.setEnabled(true);
@@ -213,18 +231,22 @@ export class KeyboardHIDManager {
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       
-      // If canvas was clicked, enable HID
-      if (target.tagName === 'CANVAS' || target.closest('canvas')) {
+      // Check specifically for Babylon canvas
+      const babylonCanvas = document.getElementById('babylonCanvas') as HTMLCanvasElement | null;
+      
+      // If Babylon canvas was clicked, enable HID
+      if (target === babylonCanvas || target.tagName === 'CANVAS' && target.id === 'babylonCanvas') {
         canvasFocused = true;
         this.inputFocused = false;
         this.setEnabled(true);
-        // Focus the canvas programmatically to ensure it's the active element
-        const canvas = target.tagName === 'CANVAS' ? target as HTMLCanvasElement : target.closest('canvas') as HTMLCanvasElement;
-        if (canvas && canvas.tabIndex === -1) {
-          canvas.tabIndex = 0; // Make it focusable
+        // Ensure canvas is focusable and focus it
+        if (babylonCanvas) {
+          if (babylonCanvas.tabIndex === -1) {
+            babylonCanvas.tabIndex = 0; // Make it focusable
+          }
+          babylonCanvas.focus();
+          console.log('[HID] Babylon canvas clicked - HID enabled');
         }
-        canvas?.focus();
-        console.log('[HID] Canvas clicked - HID enabled');
         return;
       }
       
@@ -233,10 +255,12 @@ export class KeyboardHIDManager {
         canvasFocused = true;
         this.inputFocused = false;
         this.setEnabled(true);
-        // Try to focus the canvas if available, otherwise focus the SVG
-        const canvas = document.querySelector('canvas#babylonCanvas') as HTMLCanvasElement;
-        if (canvas) {
-          canvas.focus();
+        // Focus the Babylon canvas if available
+        if (babylonCanvas) {
+          if (babylonCanvas.tabIndex === -1) {
+            babylonCanvas.tabIndex = 0;
+          }
+          babylonCanvas.focus();
         } else {
           (target.closest('svg') as SVGElement)?.focus?.();
         }
@@ -417,38 +441,50 @@ export class KeyboardHIDManager {
    * Start listening for keyboard events via JavaScript
    * WebChucK HID automatically captures keyboard events, but we need to
    * also listen directly for better integration
+   * IMPORTANT: Only processes events when Babylon canvas is focused
    */
   async startListening() {
-    // Set up direct JavaScript keyboard event listeners as a fallback
+    // Set up direct JavaScript keyboard event listeners
     // The HID class in WebChucK handles the ChucK side, but we also want
     // to handle it on the JavaScript side for immediate feedback
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!this.getEnabled()) return;
-      // Prevent default only for our mapped keys
+      // CRITICAL: Only process if Babylon canvas is focused
+      if (!this.getEnabled() || !this.isCanvasFocused()) {
+        return;
+      }
+      
+      // Prevent default only for our mapped keys when canvas is focused
       if (KEYBOARD_MAP[e.key.toLowerCase()]) {
         e.preventDefault();
+        e.stopPropagation(); // Prevent event from bubbling to other handlers
         this.handleKeyPress(e.key, 100);
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (!this.getEnabled()) return;
+      // CRITICAL: Only process if Babylon canvas is focused
+      if (!this.getEnabled() || !this.isCanvasFocused()) {
+        return;
+      }
+      
       if (KEYBOARD_MAP[e.key.toLowerCase()]) {
         e.preventDefault();
+        e.stopPropagation(); // Prevent event from bubbling to other handlers
         this.handleKeyRelease(e.key);
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    // Use capture phase to catch events early, but still check focus
+    document.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('keyup', handleKeyUp, true);
 
     // Store cleanup function
     (this as any)._cleanupKeyboardListeners = () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      document.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('keyup', handleKeyUp, true);
     };
 
-    console.log('✅ JavaScript keyboard listeners active');
+    console.log('✅ JavaScript keyboard listeners active (Babylon canvas focus required)');
   }
 
   /**
