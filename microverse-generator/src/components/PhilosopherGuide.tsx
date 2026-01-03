@@ -404,7 +404,7 @@ export default function CodeGuide() {
           position: 'fixed', // Use fixed to ensure it's above the canvas
           bottom: 240, 
           left: 16, 
-          maxWidth: 340, 
+          maxWidth: 240, 
           padding: '12px 14px', 
           background: 'rgba(0,0,0,0.5)', 
           color: '#e9f1ff', 
@@ -420,10 +420,10 @@ export default function CodeGuide() {
       >
         <div style={{ marginBottom: 12 }}>
           <h3 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 'bold' }}>
-            ChucK Code Generator
+            ChucK Code Companion
           </h3>
           <p style={{ margin: '0 0 12px 0', fontSize: '11px', opacity: 0.8 }}>
-            An agent guided by Oblique Strategies will help you generate ChucK code. Describe the sound or effect you want to create.
+            For technical guidance and inspiration, this guide draws on ChucK and Hydra docs, along with Brian Eno’s Oblique Strategies.
           </p>
           <button
             onClick={(e) => {

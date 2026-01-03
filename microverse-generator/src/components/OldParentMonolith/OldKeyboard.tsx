@@ -94,6 +94,9 @@ const Keyboard = ({
         const removeHyphen = e.target.id.replace('-', '');
         const convertPoundTheNote = removeHyphen.replace('♯', '#');
     
+        console.log("Convert Pound the Note: ", convertPoundTheNote);
+        
+
         console.log("A D D E D * D E T A I L S ! ", addedDetails.current.length, addedDetails.current);
     
         const match:any = Array.from(addedDetails.current).find((d: any) => convertPoundTheNote === d.name);

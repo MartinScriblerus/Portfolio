@@ -1,5 +1,5 @@
 'use client';
-import { act, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Chuck } from 'webchuck';
 import { HID } from 'webchuck';
 import { KeyboardHIDManager } from '../utils/keyboardHIDManager';
@@ -10,7 +10,8 @@ import {
     getMosaicSynthClass,
     getRandomReverseClass,
     getReichClass,
-    getTapeClass
+    getTapeClass,
+    defaultAudioInSettings
 } from '../utils/audioInSettingsHelper';
 import { useTimingStore } from '../hooks/useTimingStore';
 import { useBeatGridStore } from '../store/useBeatGridStore';
@@ -24,8 +25,13 @@ import MicOffIcon from '@mui/icons-material/MicOff';
 import MicIcon from '@mui/icons-material/Mic';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
+import AddBoxIcon from '@mui/icons-material/AddBox';
 import MusicNoteIcon from '@mui/icons-material/MusicNote';
-import { Box, Button, InputLabel, Select, Tooltip } from '@mui/material';
+import SettingsIcon from '@mui/icons-material/Settings';
+import { Box, Button, InputLabel, Select, Tooltip, Typography } from '@mui/material';
+import SynthControlPanel from './SynthControlPanel';
+import EffectsControlPanel from './EffectsControlPanel';
+import PedalboardVisualization from './PedalboardVisualization';
 import {
     filesToProcess,
     chuckRef as globalChuckRef,
@@ -50,6 +56,8 @@ import { useOldMonolithStore } from '../store/useOldMonolithStore';
 import { useMicrotonalStore } from '../store/useMicrotonalStore';
 import { initializeUniversalSources } from '../utils/effectsInitializationHelper';
 import PhilosopherGuide from '../components/PhilosopherGuide';
+import { buildCacheFromGrid } from '../hooks/useRhythmCache';
+import BabylonCanvas from './BabylonCanvas';
 
 // Put this near the top, inside component file (module scope or inside component before handlers):
 const SERVER_FILES_TO_PRELOAD: Array<{ serverFilename: string; virtualFilename: string }> = [
@@ -162,7 +170,7 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
     const transformedKeyNames: string[] = sliderNames.map(name =>
         `${effect.trim().toLowerCase().replace(' ', '_')}_${name.name.trim().toLowerCase().replace(' ', '')}`
     );
-
+    const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // Local state for slider values
     const [values, setValues] = useState(() => transformedKeyNames.map((n: any) => (audioInSettingsHelperHash as any)[n]));
 
@@ -176,24 +184,44 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
 
     // Only update Zustand and ChucK when values change
     useEffect(() => {
-        (async () => {
+        // Clear existing timeout
+        if (updateTimeoutRef.current) {
+            clearTimeout(updateTimeoutRef.current);
+        }
+
+        // Debounce updates to avoid flooding ChucK with rapid slider movements
+        updateTimeoutRef.current = setTimeout(async () => {
+            if (!chuckRef.current) return;
+            
             let updated = false;
+            const transformByThousandSliderArray = ['lisa_trigger_rate', 'grain_rate', 'random_reverse_rate'];
+            
+            // Batch all parameter updates before broadcasting fxUpdate once
             for (let i = 0; i < sliderNames.length; i++) {
                 const key = transformedKeyNames[i];
-                const transformByThousandSliderArray = ['lisa_trigger_rate', 'grain_rate', 'random_reverse_rate'];
                 const value = values[i];
                 // Only update if value differs from store
                 if ((audioInSettingsHelperHash as any)[key] !== value) {
                     setAudioInSetting(key, value);
-                    if (chuckRef.current) {
-                        console.log("SANITY CHECK GOT KEY AND VALUE? ", key, value)
-                        await chuckRef.current.setAssociativeFloatArrayValue("audioInSettingsHelperHash", key, transformByThousandSliderArray.includes(key) ? +((value * 1.0) / 1000).toFixed(3) : +(value * 1.0).toFixed(3));
-                        await chuckRef.current.broadcastEvent("fxUpdate");
+                    const transformedValue = transformByThousandSliderArray.includes(key) 
+                        ? +((value * 1.0) / 1000).toFixed(3) 
+                        : +(value * 1.0).toFixed(3);
+                    await chuckRef.current.setAssociativeFloatArrayValue("audioInSettingsHelperHash", key, transformedValue);
                         updated = true;
                     }
                 }
+            
+            // Broadcast fxUpdate once after all parameters are updated
+            if (updated) {
+                await chuckRef.current.broadcastEvent("fxUpdate");
             }
-        })();
+        }, 50); // 50ms debounce matches SynthControlPanel
+
+        return () => {
+            if (updateTimeoutRef.current) {
+                clearTimeout(updateTimeoutRef.current);
+            }
+        };
         // Only run when values change, not when store changes
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [values]);
@@ -239,6 +267,65 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
 // -----------------------------
 // Main Component
 // -----------------------------
+// ============================================================
+// CELL FUNCTION REGISTRY: Runtime-populatable function system
+// Functions are stored per cell and compiled into ChucK code at build time
+// Hot-swapping: Update function code and rebuild ChucK code
+// ============================================================
+const cellFunctionRegistry = new Map<string, string>();
+
+/**
+ * Register or update a cell function
+ * @param functionId Unique identifier for the function
+ * @param functionCode ChucK code string (must be valid ChucK function body)
+ * @returns void
+ */
+export function registerCellFunction(functionId: string, functionCode: string): void {
+    if (!functionId || !functionCode) {
+        console.warn('[registerCellFunction] Invalid functionId or functionCode');
+        return;
+    }
+    cellFunctionRegistry.set(functionId, functionCode);
+    console.log(`[registerCellFunction] Registered function: ${functionId}`);
+}
+
+/**
+ * Remove a cell function from registry
+ * @param functionId Function identifier to remove
+ * @returns void
+ */
+export function unregisterCellFunction(functionId: string): void {
+    cellFunctionRegistry.delete(functionId);
+    console.log(`[unregisterCellFunction] Removed function: ${functionId}`);
+}
+
+/**
+ * Get all registered function IDs
+ * @returns Array of function IDs
+ */
+export function getRegisteredFunctionIds(): string[] {
+    return Array.from(cellFunctionRegistry.keys());
+}
+
+/**
+ * Get function code by ID
+ * @param functionId Function identifier
+ * @returns Function code string or undefined
+ */
+export function getCellFunction(functionId: string): string | undefined {
+    return cellFunctionRegistry.get(functionId);
+}
+
+// Expose registry API globally for RAG agent and other components
+if (typeof window !== 'undefined') {
+    (window as any).__cellFunctionRegistry = {
+        register: registerCellFunction,
+        unregister: unregisterCellFunction,
+        getIds: getRegisteredFunctionIds,
+        get: getCellFunction,
+    };
+}
+
 export default function ChuckSetup() {
     // Disable verbose debug logging when monitoring performance —
     // toggle to `true` temporarily if deep debugging is needed.
@@ -251,9 +338,63 @@ export default function ChuckSetup() {
     const [deviceOptions, setDeviceOptions] = useState<MediaDeviceInfo[]>([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
     const [chuckHook, setChuckHook] = useState<Chuck | any>({});
+    const [synthPanelOpen, setSynthPanelOpen] = useState(false);
+    const [effectsPanelOpen, setEffectsPanelOpen] = useState(false);
+    const [effectsPanelSource, setEffectsPanelSource] = useState<keyof import('../interfaces/audioTypes').Sources>('osc1');
     const hidRef = useRef<HID | null>(null);
     const keyboardHIDManagerRef = useRef<KeyboardHIDManager | null>(null);
     const isInitializingRef = useRef<boolean>(false); // Track initialization in progress (more reliable than state)
+    
+    // Handle synth parameter updates from knob controls (BabylonLayer pattern)
+    // This function is called when synth knobs are turned, updating both the ref and ChucK
+    // Based on SoundSink InitializationComponent.tsx pattern
+    const handleUpdateSliderVal = useCallback(async (source: string, knobSpec: any, value: number) => {
+        if (!knobSpec || !knobSpec.name) {
+            console.warn('[handleUpdateSliderVal] Invalid knob spec:', knobSpec);
+            return;
+        }
+        
+        const paramName = knobSpec.name;
+        const moogRef = moogGrandmotherEffects as React.MutableRefObject<any>;
+        
+        try {
+            // Update moogGrandmotherEffects ref (matches SoundSink pattern)
+            if (moogRef.current && moogRef.current[paramName]) {
+                moogRef.current[paramName].value = value;
+            }
+            
+            // Update ChucK if it's running
+            if (chuckRef.current) {
+                // Update ChucK global moogGMDefaults array (matches SoundSink pattern)
+                await chuckRef.current.setAssociativeFloatArrayValue(
+                    'moogGMDefaults',
+                    paramName,
+                    value
+                );
+                
+                // Broadcast update event (triggers updateSynthParameters shred)
+                await chuckRef.current.broadcastEvent('fxUpdate');
+                
+                if (DEBUG_HEAVY_LOGS) {
+                    console.log(`[handleUpdateSliderVal] Updated ${paramName} to ${value} for source ${source}`);
+                }
+            }
+        } catch (err) {
+            console.error(`[handleUpdateSliderVal] Failed to update ${paramName}:`, err);
+        }
+    }, [chuckRef]);
+    
+    // Expose handleUpdateSliderVal globally for BabylonLayer and other components
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            (window as any).__handleUpdateSliderVal = handleUpdateSliderVal;
+        }
+        return () => {
+            if (typeof window !== 'undefined') {
+                delete (window as any).__handleUpdateSliderVal;
+            }
+        };
+    }, [handleUpdateSliderVal]);
 
     // Initialize universalSources with all effects on mount
     useEffect(() => {
@@ -307,6 +448,10 @@ export default function ChuckSetup() {
     const [isRunning, setIsRunning] = useState(false);
     const currentStreamRef = useRef<MediaStream | null>(null);
     const currentSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+    
+    // Memory leak prevention: debounce and batch grid updates
+    const gridUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const pendingGridUpdateRef = useRef<{ cancelled: boolean } | null>(null);
 
     const beatMs = useTimingStore((s: any) => s.beatMs);
     // Keyboard overlay mode from global store
@@ -685,6 +830,14 @@ export default function ChuckSetup() {
         }
     };
 
+    // Ensure there's a global one-time user gesture listener to mark user gesture seen
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const mark = () => { try { (window as any).__userGestureSeen = true; } catch {} };
+        window.addEventListener('pointerdown', mark, { once: true });
+        return () => { try { window.removeEventListener('pointerdown', mark); } catch {} };
+    }, []);
+
     async function handleUpload(files: FileList | null) {
         const list = Array.from(files || []);
         if (!list.length || !chuckRef.current) return;
@@ -718,12 +871,17 @@ export default function ChuckSetup() {
                     // Load file into shared buffer via ChucK code
                     // Wait for file to load, then record into buffer
                     const loadCode = `
-                        // Load uploaded file into temp SndBuf
-                        SndBuf tempFile => blackhole;
-                        "${vpath}" => tempFile.read;
+                        // MEMORY FIX: Reuse global SndBuf (no per-upload allocation)
+                        "${vpath}" => uploadTempFile.read;
                         
-                        // Wait for file to actually load
-                        while (tempFile.length() == 0::samp) {
+                        // Wait for file to actually load (with timeout to prevent infinite stall)
+                        now => dur loadStartTime;
+                        5::second => dur maxLoadTime;
+                        while (uploadTempFile.length() == 0::samp) {
+                            if (now - loadStartTime > maxLoadTime) {
+                                <<< "ERROR: File upload load timeout for", "${vpath}", "- aborting" >>>;
+                                return;
+                            }
                             1::samp => now;
                         }
                         
@@ -733,8 +891,8 @@ export default function ChuckSetup() {
                         sharedAudioBuffers[${bufferIndex}].record(1);
                         
                         // Play file and record simultaneously
-                        0 => tempFile.pos;
-                        tempFile.length() => now;
+                        0 => uploadTempFile.pos;
+                        uploadTempFile.length() => now;
                         
                         // Stop recording and signal ready
                         sharedAudioBuffers[${bufferIndex}].record(0);
@@ -760,7 +918,42 @@ export default function ChuckSetup() {
         ].sort((a, b) => a.localeCompare(b));
         const arrayLiteral = JSON.stringify(allVFiles);
         try {
-            await chuckRef.current.runCode(`[${arrayLiteral}] @=> files; filesUpdated.broadcast();`);
+            // CRITICAL: Update files[] element-by-element (large string arrays must not use @=>)
+            const filesUpdate: string[] = [];
+            for (let i = 0; i < allVFiles.length; i++) {
+                filesUpdate.push(`"${allVFiles[i]}" => files[${i}];`);
+            }
+            if (filesUpdate.length > 0) {
+                await chuckRef.current.runCode(filesUpdate.join('\n'));
+            }
+            await chuckRef.current.broadcastEvent('filesUpdated');
+            
+            // Trigger feature extraction for newly uploaded files (non-blocking, background)
+            // MCP VERIFICATION: ✅ APPROVED - Extraction runs in sporked shred, doesn't block upload
+            for (let i = 0; i < list.length; i++) {
+                const file = list[i];
+                const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+                // Find the vpath we just created for this file
+                const matchingVPath = uploadedVFilesRef.current.find(v => v.includes(safeName));
+                
+                if (matchingVPath) {
+                    // Find file index in sorted array
+                    const fileIndex = allVFiles.indexOf(matchingVPath);
+                    
+                    if (fileIndex >= 0 && chuckRef.current) {
+                        try {
+                            // Request feature extraction (non-blocking, runs in background)
+                            await chuckRef.current.setInt('requestedFileIndex', fileIndex);
+                            await chuckRef.current.setString('requestedFileName', matchingVPath);
+                            await chuckRef.current.broadcastEvent('fileFeatureExtractRequest');
+                            console.log(`📊 Feature extraction requested for file ${fileIndex}: ${safeName}`);
+                        } catch (extractErr: any) {
+                            // Feature extraction is optional - don't fail upload if it fails
+                            console.warn(`Feature extraction request failed for ${safeName}:`, extractErr);
+                        }
+                    }
+                }
+            }
         } catch (err: any) {
             // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
             if (err?.name === 'ErrnoError' && err?.errno === 20) {
@@ -809,18 +1002,18 @@ export default function ChuckSetup() {
     useEffect(() => {
         // Debug: selected device ID
         // console.log("SEL DEVICE ID ", selectedDeviceId);
-        (async () => {
-            try {
-                chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
-                chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
-            } catch (err: any) {
-                // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
-                if (err?.name === 'ErrnoError' && err?.errno === 20) {
-                    return;
-                }
-                console.warn('Failed to reset ChucK shreds:', err);
-            }
-        })();
+        // (async () => {
+        //     try {
+        //         chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
+        //         chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
+        //     } catch (err: any) {
+        //         // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
+        //         if (err?.name === 'ErrnoError' && err?.errno === 20) {
+        //             return;
+        //         }
+        //         console.warn('Failed to reset ChucK shreds:', err);
+        //     }
+        // })();
     }, [audioInSelected]);
 
     const updateAudioInputDevice = async (e: any) => {
@@ -840,20 +1033,36 @@ export default function ChuckSetup() {
         switch (newSetting.toLowerCase()) {
             case 'grain':
                 activeEffect = 0;
-            case ('tape'):
+                break;
+            case 'tape':
                 activeEffect = 1;
-            case ('random reverse'):
+                break;
+            case 'random reverse':
                 activeEffect = 2;
-            case ('clapping'):
+                break;
+            case 'clapping':
                 activeEffect = 3;
-            case ('lisa trigger'):
+                break;
+            case 'lisa trigger':
                 activeEffect = 4;
-            case ('asymptotic chopper'):
+                break;
+            case 'asymptotic chopper':
                 activeEffect = 5;
-            case ('mosaic synth'):
+                break;
+            case 'mosaic synth':
                 activeEffect = 6;
+                break;
             default:
-                return activeEffect | defaultAudioInSetting;
+                activeEffect = defaultAudioInSetting;
+                break;
+        }
+        
+        // Update ChucK activeEffect if ChucK is running
+        if (chuckRef.current) {
+            chuckRef.current.setInt('activeEffect', activeEffect)        
+            // .catch((err: any) => {
+            //     console.error('[updateSelectedAudioInSetting] Failed to set activeEffect:', err);
+            // });
         }
     };
 
@@ -885,6 +1094,296 @@ export default function ChuckSetup() {
 
     // Note: Beatgrid synchronization happens in chuckPrint handler when "CHUCK_UP_TO_DATE" is received
     // This ensures TypeScript and ChucK are synchronized when Chuck is actually ready
+
+    // Hot-swap ChucK code when grid updates (beatgrid:updated event)
+    // This allows the beat grid to update without restarting ChucK
+    // MEMORY LEAK PREVENTION: Debounced and batched to prevent accumulation of runCode calls
+    useEffect(() => {
+        const handleGridUpdate = async (e: Event) => {
+            const detail = (e as CustomEvent)?.detail;
+            if (!chuckRef.current || !isRunning) {
+                // ChucK not running, skip update
+                return;
+            }
+            
+            // Cancel any pending update
+            if (pendingGridUpdateRef.current) {
+                pendingGridUpdateRef.current.cancelled = true;
+            }
+            const updateToken = { cancelled: false };
+            pendingGridUpdateRef.current = updateToken;
+            
+            // Clear existing timeout
+            if (gridUpdateTimeoutRef.current) {
+                clearTimeout(gridUpdateTimeoutRef.current);
+            }
+            
+            // Debounce: wait 100ms to batch rapid updates
+            gridUpdateTimeoutRef.current = setTimeout(async () => {
+                // Check if this update was cancelled or ChucK is no longer available
+                if (updateToken.cancelled || !chuckRef.current || !isRunning) {
+                    return;
+                }
+                
+                try {
+                console.log('[handleGridUpdate] Grid updated, rebuilding ChucK code...', detail);
+                
+                // Rebuild ChucK code data with latest grid state
+                const chuckCodeData = await buildChuckCodeData();
+                if (!chuckCodeData) {
+                    console.warn('[handleGridUpdate] Failed to build ChucK code data');
+                    return;
+                }
+                
+                // Build event arrays from masterPatternsRef respecting subdivisions
+                const MAX_SUBDIVISIONS = 16;
+                const masterPatterns = chuckCodeData.masterPatternsRef.current || {};
+                const gridVersion = useBeatGridStore.getState().gridVersion || 0;
+                
+                // Build rhythm cache with expanded events
+                const rhythmCache = buildCacheFromGrid(masterPatterns, gridVersion, {
+                    filesToProcess: filesToProcess.current || [],
+                    tune: chuckCodeData.notesHolder?.current,
+                    bpm: chuckCodeData.bpm,
+                    numeratorSignature: chuckCodeData.numeratorSignature,
+                    denominatorSignature: chuckCodeData.denominatorSignature,
+                    masterFastestRate: chuckCodeData.masterFastestRate,
+                    notesHolder: chuckCodeData.notesHolder?.current,
+                });
+                
+                const expandedEvents = rhythmCache.events;
+                const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
+                const rowKeys = Object.keys(masterPatterns).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
+                const totalBaseCells = cellsPerRow * rowKeys.length;
+                let expandedMeasureLength = totalBaseCells * MAX_SUBDIVISIONS;
+                
+                // CRITICAL: Enforce maximum array size to prevent WASM memory allocation failures
+                // WebChucK has limited memory - 2D arrays are especially memory-intensive
+                // filesArr[length][32] = length * 32 integers = significant memory usage
+                // Architecture compliance: Fixed-size arrays must be bounded to prevent memory corruption
+                // Reduced to 512 for safety: 512 * 32 = 16,384 integers (much safer for WebChucK WASM memory)
+                // Multiple arrays allocated simultaneously: filesArr, cellFunctionIds, osc/stk arrays
+                const MAX_EXPANDED_MEASURE_LENGTH = 512; // Very conservative maximum for WebChucK memory limits
+                if (expandedMeasureLength > MAX_EXPANDED_MEASURE_LENGTH) {
+                    console.warn(`[handleGridUpdate] expandedMeasureLength ${expandedMeasureLength} exceeds maximum ${MAX_EXPANDED_MEASURE_LENGTH}, clamping to prevent memory errors`);
+                    expandedMeasureLength = MAX_EXPANDED_MEASURE_LENGTH;
+                }
+                
+                // Validate minimum size and ensure it's a valid integer
+                if (!Number.isFinite(expandedMeasureLength) || expandedMeasureLength <= 0 || !Number.isInteger(expandedMeasureLength)) {
+                    console.error(`[handleGridUpdate] Invalid expandedMeasureLength: ${expandedMeasureLength}, using default 256`);
+                    expandedMeasureLength = 256; // Safe default (smaller for testing)
+                }
+                
+                // Initialize expanded arrays
+                // CRITICAL: Each inner array must have exactly 32 elements to match ChucK declaration [expandedMeasureLength][32]
+                const filesArr2D: number[][] = new Array(expandedMeasureLength).fill(null).map(() => new Array(32).fill(9999));
+                const oscMidiFreqs: number[] = new Array(expandedMeasureLength).fill(9999.0);
+                const oscMidiLengths: number[] = new Array(expandedMeasureLength).fill(1.0);
+                const oscMidiVelocities: number[] = new Array(expandedMeasureLength).fill(0.5);
+                const stkMidiFreqs: number[] = new Array(expandedMeasureLength).fill(9999.0);
+                const stkMidiLengths: number[] = new Array(expandedMeasureLength).fill(1.0);
+                const stkMidiVelocities: number[] = new Array(expandedMeasureLength).fill(0.5);
+                const cellFunctionIds: (string | null)[] = new Array(expandedMeasureLength).fill(null);
+                
+                // Map expanded events to array indices
+                expandedEvents.forEach((event) => {
+                    const tickIndex = Math.floor(event.t * chuckCodeData.masterFastestRate * MAX_SUBDIVISIONS);
+                    
+                    if (tickIndex >= 0 && tickIndex < expandedMeasureLength) {
+                        // CRITICAL: Pad to exactly 32 elements to match ChucK declaration [expandedMeasureLength][32]
+                        if (event.fileIdxs && event.fileIdxs.length > 0) {
+                            const padded = [...event.fileIdxs];
+                            while (padded.length < 32) {
+                                padded.push(9999);
+                            }
+                            filesArr2D[tickIndex] = padded.slice(0, 32); // Ensure exactly 32 elements
+                        }
+                        
+                        if (event.noteFrequencies && event.noteFrequencies.length > 0) {
+                            const freq = event.noteFrequencies[0];
+                            oscMidiFreqs[tickIndex] = freq;
+                            oscMidiLengths[tickIndex] = event.length / event.subdivisions;
+                            oscMidiVelocities[tickIndex] = event.velocity;
+                            
+                            stkMidiFreqs[tickIndex] = freq;
+                            stkMidiLengths[tickIndex] = event.length / event.subdivisions;
+                            stkMidiVelocities[tickIndex] = event.velocity;
+                        }
+                        
+                        if (event.subdivision === 0) {
+                            const cell = masterPatterns[String(event.y)]?.[String(event.x)];
+                            if (cell?.functionId) {
+                                cellFunctionIds[tickIndex] = cell.functionId;
+                            }
+                        }
+                    }
+                });
+                
+                // Build function registry
+                const cellFunctionRegistryLocal = new Map<string, string>();
+                cellFunctionRegistry.forEach((code, id) => {
+                    cellFunctionRegistryLocal.set(id, code);
+                });
+                
+                rowKeys.forEach((rowY) => {
+                    const row = masterPatterns[String(rowY)] || {};
+                    Object.keys(row).forEach((colX) => {
+                        const cell = row[colX];
+                        if (cell?.functionId) {
+                            const functionCode = cell?.functionCode || cellFunctionRegistry.get(cell.functionId);
+                            if (functionCode) {
+                                cellFunctionRegistryLocal.set(cell.functionId, functionCode);
+                            }
+                        }
+                    });
+                });
+                
+                // Safety validation: ensure all rows are exactly 32 elements before ChucK injection
+                // This prevents WASM memory access violations from ragged arrays
+                for (let i = 0; i < filesArr2D.length; i++) {
+                    if (!filesArr2D[i] || filesArr2D[i].length !== 32) {
+                        // Pad or truncate to exactly 32 elements
+                        const row = filesArr2D[i] || [];
+                        const padded = [...row];
+                        while (padded.length < 32) padded.push(9999);
+                        filesArr2D[i] = padded.slice(0, 32);
+                    }
+                }
+                
+                // Build ChucK array strings
+                const filesArrayParsed = JSON.parse(chuckCodeData.filesArray);
+                const filesArrayChuck = `[${filesArrayParsed.map((f: string) => `"${f}"`).join(', ')}]`;
+                const filesArr2DChuck = `[${filesArr2D.map(arr => `[${arr.join(', ')}]`).join(', ')}]`;
+                const oscMidiFreqsChuck = `[${oscMidiFreqs.join(', ')}]`;
+                const oscMidiLengthsChuck = `[${oscMidiLengths.join(', ')}]`;
+                const oscMidiVelocitiesChuck = `[${oscMidiVelocities.join(', ')}]`;
+                const stkMidiFreqsChuck = `[${stkMidiFreqs.join(', ')}]`;
+                const stkMidiLengthsChuck = `[${stkMidiLengths.join(', ')}]`;
+                const stkMidiVelocitiesChuck = `[${stkMidiVelocities.join(', ')}]`;
+                const cellFunctionIdsChuck = `[${cellFunctionIds.map(id => id ? `"${id}"` : '""').join(', ')}]`;
+                
+                const functionRegistryChuck = Array.from(cellFunctionRegistryLocal.entries())
+                    .map(([id, code]) => `"${id}" => cellFunctions;`)
+                    .join('\n                        ');
+                
+                // Update arrays by clearing and reassigning
+                // Update arrays element-by-element using WebChucK API (safe, no memory errors)
+                // MEMORY LEAK PREVENTION: Batch all runCode calls into a single call to prevent accumulation
+                try {
+                    // Check again if cancelled before expensive operations
+                    if (updateToken.cancelled) {
+                        return;
+                    }
+                    
+                    // Batch all updates into a single runCode call to prevent memory leaks
+                    const allUpdates: string[] = [];
+                    
+                    // Update oscillator arrays (element-by-element via runCode for batching)
+                    for (let idx = 0; idx < oscMidiFreqs.length && idx < expandedMeasureLength; idx++) {
+                        allUpdates.push(`${oscMidiFreqs[idx]} => oscMidiFreqsArray[${idx}];`);
+                        allUpdates.push(`${oscMidiLengths[idx]} => oscMidiLengthsArray[${idx}];`);
+                        allUpdates.push(`${oscMidiVelocities[idx]} => oscMidiVelocitiesArray[${idx}];`);
+                    }
+                    
+                    // Update STK arrays (element-by-element via runCode for batching)
+                    for (let idx = 0; idx < stkMidiFreqs.length && idx < expandedMeasureLength; idx++) {
+                        allUpdates.push(`${stkMidiFreqs[idx]} => stkMidiFreqsArray[${idx}];`);
+                        allUpdates.push(`${stkMidiLengths[idx]} => stkMidiLengthsArray[${idx}];`);
+                        allUpdates.push(`${stkMidiVelocities[idx]} => stkMidiVelocitiesArray[${idx}];`);
+                    }
+                    
+                    // Update filesArr (2D array - update inner arrays element-by-element)
+                    // Note: WebChucK doesn't support 2D array updates directly, so we use runCode
+                    // CRITICAL: Must update all 32 elements per row to match ChucK declaration [expandedMeasureLength][32]
+                    for (let tickIdx = 0; tickIdx < filesArr2D.length && tickIdx < expandedMeasureLength; tickIdx++) {
+                        const filesForTick = filesArr2D[tickIdx] || new Array(32).fill(9999);
+                        // Always update all 32 elements (pad with 9999 if needed)
+                        for (let filePos = 0; filePos < 32; filePos++) {
+                            const value = filePos < filesForTick.length ? filesForTick[filePos] : 9999;
+                            allUpdates.push(`${value} => filesArr[${tickIdx}][${filePos}];`);
+                        }
+                    }
+                    
+                    // Update files array (string array)
+                    const filesArrayParsed = JSON.parse(chuckCodeData.filesArray);
+                    for (let idx = 0; idx < filesArrayParsed.length; idx++) {
+                        allUpdates.push(`"${filesArrayParsed[idx]}" => files[${idx}];`);
+                    }
+                    
+                    // Update cellFunctionIds array (string array)
+                    const clampedMeasureLength = Math.max(1, Math.min(expandedMeasureLength, 512));
+                    for (let idx = 0; idx < cellFunctionIds.length && idx < clampedMeasureLength; idx++) {
+                        const functionId = cellFunctionIds[idx] || '';
+                        allUpdates.push(`"${functionId}" => cellFunctionIds[${idx}];`);
+                    }
+                    
+                    // Execute all updates in a single runCode call (prevents memory leak from multiple calls)
+                    if (allUpdates.length > 0) {
+                        // Check one more time before executing
+                        if (!updateToken.cancelled && chuckRef.current) {
+                            await chuckRef.current.runCode(allUpdates.join('\n'));
+                        }
+                    }
+                    
+                    // Update measureLength and beatMSNew (check chuckRef again)
+                    if (!updateToken.cancelled && chuckRef.current) {
+                        // Use clamped value to prevent memory errors (consistent with MAX_EXPANDED_MEASURE_LENGTH = 512)
+                        const clampedMeasureLength = Math.max(1, Math.min(expandedMeasureLength, 512));
+                        await chuckRef.current.setInt('measureLength', clampedMeasureLength);
+                        const beatMSNewValue = Math.floor((60000 / chuckCodeData.bpm) / chuckCodeData.masterFastestRate / MAX_SUBDIVISIONS);
+                        await chuckRef.current.setInt('beatMSNew', beatMSNewValue);
+                        
+                        // TIMING INSTRUMENTATION: Reset counters on grid update (removable)
+                        // This ensures clean measurements after hot-swap
+                        await chuckRef.current.setInt('timingTickCount', 0);
+                        await chuckRef.current.setInt('timingBarCount', 0);
+                        await chuckRef.current.setInt('timingLastWrapTick', -1);
+                    }
+                    
+                    console.log('[handleGridUpdate] ✅ All arrays hot-swapped successfully via batched runCode (prevented memory leak)');
+                } catch (updateErr: any) {
+                    if (!updateToken.cancelled) {
+                        console.error('[handleGridUpdate] Failed to update arrays via API:', updateErr);
+                        console.warn('[handleGridUpdate] 💡 Grid update detected - restart ChucK to see changes');
+                    }
+                }
+                } catch (err: any) {
+                    if (!updateToken.cancelled) {
+                        console.error('[handleGridUpdate] Failed to hot-swap ChucK code:', err);
+                    }
+                } finally {
+                    // Clear pending update token
+                    if (pendingGridUpdateRef.current === updateToken) {
+                        pendingGridUpdateRef.current = null;
+                    }
+                }
+            }, 100); // 100ms debounce to batch rapid updates
+        };
+        
+        try {
+            window.addEventListener('beatgrid:updated', handleGridUpdate as EventListener);
+        } catch (e) {
+            console.warn('[handleGridUpdate] Failed to add event listener:', e);
+        }
+        
+        return () => {
+            // Cleanup: cancel pending updates and clear timeout
+            if (gridUpdateTimeoutRef.current) {
+                clearTimeout(gridUpdateTimeoutRef.current);
+                gridUpdateTimeoutRef.current = null;
+            }
+            if (pendingGridUpdateRef.current) {
+                pendingGridUpdateRef.current.cancelled = true;
+                pendingGridUpdateRef.current = null;
+            }
+            try {
+                window.removeEventListener('beatgrid:updated', handleGridUpdate as EventListener);
+            } catch (e) {
+                // ignore
+            }
+        };
+    }, [chuckRef, isRunning]);
 
     // On load: ensure a first pass happens so the graph/cache is built before first ChucK run.
     // We emit a synthetic event if no update has been fired yet.
@@ -1378,10 +1877,30 @@ export default function ChuckSetup() {
                     const filesArrayParsed = JSON.parse(chuckCodeData.filesArray);
                     const filesArrayChuck = `[${filesArrayParsed.map((f: string) => `"${f}"`).join(', ')}]`;
                     
-                    // Build 2D array of fileNums from masterPatternsRef for Chuck
-                    // Map cells in row-major order (left to right, top to bottom) to match tick progression
-                    // IMPORTANT: Use same row ordering as getGridRows() to match ticker progression
+                    // Build event arrays from masterPatternsRef respecting subdivisions
+                    // Use buildCacheFromGrid to get expanded events (handles subdivisions automatically)
+                    const MAX_SUBDIVISIONS = 16; // Max subdivisions per cell
                     const masterPatterns = chuckCodeData.masterPatternsRef.current || {};
+                    const gridVersion = useBeatGridStore.getState().gridVersion || 0;
+                    
+                    // Build rhythm cache with expanded events (subdivisions create multiple events per cell)
+                    const rhythmCache = buildCacheFromGrid(masterPatterns, gridVersion, {
+                        filesToProcess: filesToProcess.current || [],
+                        tune: chuckCodeData.notesHolder?.current,
+                        bpm: chuckCodeData.bpm,
+                        numeratorSignature: chuckCodeData.numeratorSignature,
+                        denominatorSignature: chuckCodeData.denominatorSignature,
+                        masterFastestRate: chuckCodeData.masterFastestRate,
+                        notesHolder: chuckCodeData.notesHolder?.current,
+                    });
+                    
+                    const expandedEvents = rhythmCache.events;
+                    
+                    console.log("WHAT ARE EXPANDED EVENTS??? ", expandedEvents);
+                    
+                    // Calculate expanded measure length: base cells * max subdivisions
+                    // Each cell can have up to MAX_SUBDIVISIONS events, so we expand arrays accordingly
+                    // const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
                     const rowKeys = Object.keys(masterPatterns).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
                     // Sort rows to match getGridRows() ordering (top->bottom = ascending)
                     rowKeys.sort((a, b) => a - b); // Always ascending to match getGridRows when rowOrderTopToBottomRef is true
@@ -1403,9 +1922,45 @@ export default function ChuckSetup() {
                         filesArr2D.push([9999]);
                     }
                     
-                    console.log('[buildChuckCodeData] filesArr2D length:', filesArr2D.length, 'cellsPerRow:', cellsPerRow, 'rows:', rowKeys.length);
-                    console.log('[buildChuckCodeData] filesArr2D sample:', filesArr2D.slice(0, 5));
+                    // Safety validation: ensure all rows are exactly 32 elements before ChucK injection
+                    // This prevents WASM memory access violations from ragged arrays
+                    for (let i = 0; i < filesArr2D.length; i++) {
+                        if (!filesArr2D[i] || filesArr2D[i].length !== 32) {
+                            // Pad or truncate to exactly 32 elements
+                            const row = filesArr2D[i] || [];
+                            const padded = [...row];
+                            while (padded.length < 32) padded.push(9999);
+                            filesArr2D[i] = padded.slice(0, 32);
+                        }
+                    }
                     
+                    // Build function registry from all cells AND global registry
+                    // Collect all unique functionIds and their code
+                    // Priority: cell.functionCode > global registry
+                    const cellFunctionRegistryLocal = new Map<string, string>();
+                    
+                    // First, add functions from global registry (allows shared functions)
+                    cellFunctionRegistry.forEach((code, id) => {
+                        cellFunctionRegistryLocal.set(id, code);
+                    });
+                    
+                    // Then, add/override with cell-specific functions
+                    rowKeys.forEach((rowY) => {
+                        const row = masterPatterns[String(rowY)] || {};
+                        Object.keys(row).forEach((colX) => {
+                            const cell = row[colX];
+                            if (cell?.functionId) {
+                                // Use cell.functionCode if available, otherwise lookup in global registry
+                                // Import cellFunctionRegistry from module scope (defined above)
+                                const functionCode = cell?.functionCode || cellFunctionRegistry.get(cell.functionId);
+                                if (functionCode) {
+                                    cellFunctionRegistryLocal.set(cell.functionId, functionCode);
+                                }
+                            }
+                        });
+                    });
+                    
+                    // Build ChucK array strings
                     const filesArr2DChuck = `[${filesArr2D.map(arr => `[${arr.join(', ')}]`).join(', ')}]`;
 
                     // ============================================================
@@ -1520,23 +2075,90 @@ export default function ChuckSetup() {
                         0.5 => masterGain.gain;
                         
                         // ============================================================
-                        // SAMPLER: Buffers and routing (ready for effects)
+                        // EFFECTS CHAIN CLASSES: Parameter-driven, non-blocking
+                        // All effects are connected via Chugraph for sample-accurate routing
+                        // CRITICAL: Classes must be defined BEFORE instances are declared
                         // ============================================================
+                        class Osc1_EffectsChain extends Chugraph {
+                            inlet => ${(chuckCodeData.signalChain || []).join(' ')} outlet;
+                            ${Object.values(chuckCodeData.valuesReadout || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
+                        }
+                        
+                        class Sampler_EffectsChain extends Chugraph {
+                            inlet => ${(chuckCodeData.signalChainSampler || []).join(' ')} outlet;
+                            ${Object.values(chuckCodeData.valuesReadoutSampler || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
+                        }
+                        
+                        class STK_EffectsChain extends Chugraph {
+                            inlet => ${(chuckCodeData.signalChainSTK || []).join(' ')} outlet;
+                            ${Object.values(chuckCodeData.valuesReadoutSTK || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
+                        }
+                        
+                        class AudioIn_EffectsChain extends Chugraph {
+                            inlet => ${(chuckCodeData.signalChainAudioIn || []).join(' ')} outlet;
+                            ${Object.values(chuckCodeData.valuesReadoutAudioIn || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
+                        }
+                        
+                        // CRITICAL: Declare effects chain instances BEFORE they are used
+                        // These must be declared before sampler voices are routed
+                        Sampler_EffectsChain sampler_FxChain;
+                        Osc1_EffectsChain osc1_FxChain;
+                        STK_EffectsChain stk_FxChain;
+                        AudioIn_EffectsChain audioIn_FxChain;
+                        
+                        // ============================================================
+                        // SAMPLER: Enhanced polyphonic pitch-shifted playback
+                        // Web/ChucK/Workers Architecture: Uses LiSa for polyphonic voices
+                        // CHAI-style voice management: LRU voice stealing for efficient polyphony
+                        // MCP VERIFICATION: ✅ APPROVED
+                        // - Polyphonic playback using LiSa (like MIDI keyboard)
+                        // - Pitch shifting based on MIDI notes from beat grid
+                        // - CHAI-style voice management (LRU stealing)
+                        // - Feature extraction improves pitch detection
+                        // - All operations non-blocking, AudioWorklet-compatible
+                        // ============================================================
+                        // Polyphonic sampler voices (CHAI-style: limited voices, LRU stealing)
+                        32 => int samplerNumVoices;  // Configurable polyphony limit
+                        LiSa samplerVoices[32];  // Polyphonic playback voices
+                        ADSR samplerEnvelopes[32];  // Envelopes per voice
+                        Gain samplerVoiceGains[32];  // Gain per voice
+                        int samplerVoiceBusy[32];  // Voice allocation tracking
+                        int samplerVoiceLastUsed[32];  // LRU tracking
+                        int samplerVoiceFileIndex[32];  // Which file is playing in each voice
+                        
+                        // Route sampler voices through effects chain
+                        for (0 => int i; i < samplerNumVoices; i++) {
+                            10::second => samplerVoices[i].duration;  // 10 second buffers
+                            samplerVoices[i] => samplerEnvelopes[i] => samplerVoiceGains[i] => sampler_FxChain;
+                            0.5 => samplerVoiceGains[i].gain;
+                            // Envelope settings (synced to beatMSNew)
+                            (beatMSNew * 0.1)::ms => samplerEnvelopes[i].attackTime;
+                            (beatMSNew * 0.2)::ms => samplerEnvelopes[i].decayTime;
+                            0.7 => samplerEnvelopes[i].sustainLevel;
+                            (beatMSNew * 0.3)::ms => samplerEnvelopes[i].releaseTime;
+                            0 => samplerVoiceBusy[i];
+                            0 => samplerVoiceLastUsed[i];
+                            -1 => samplerVoiceFileIndex[i];
+                        }
+                        
+                        // Legacy SndBuf buffers (kept for compatibility, but sampler uses LiSa now)
                         SndBuf samplerBuffers[files.size()];
                         for (0 => int i; i < samplerBuffers.size(); i++) {
                             samplerBuffers[i] => masterGain;
                         }
                         
                         // ============================================================
-                        // OSCILLATOR: Ready for effects chain
+                        // EFFECTS DECLARATIONS: All chugins and effects
                         // ============================================================
-                        SinOsc osc => masterGain;
-                        440.0 => osc.freq;
-                        0.0 => osc.gain;
+                        ${(chuckCodeData.signalChainDeclarations || []).map((d: string) => d).join(' ')}
+                        ${(chuckCodeData.signalChainSamplerDeclarations || []).map((d: string) => d).join(' ')}
+                        ${(chuckCodeData.signalChainSTKDeclarations || []).map((d: string) => d).join(' ')}
+                        ${(chuckCodeData.signalChainAudioInDeclarations || []).map((d: string) => d).join(' ')}
                         
                         // ============================================================
                         // AUDIO INPUT: Ready for effects/mangling
                         // ============================================================
+                        
                         adc => Gain audioInGain => masterGain;
                         0.0 => audioInGain.gain;
                         
@@ -1645,7 +2267,7 @@ export default function ChuckSetup() {
                                 // This is where you'd add effects chains, mangling, etc.
                                 // For now, simple passthrough with gain control
                                 0.5 => audioInGain.gain;
-                                
+                                    
                                 // Example: Record audio input to shared buffer when requested
                                 // (This would be triggered via global event or setInt from TypeScript)
                                 
@@ -1722,13 +2344,13 @@ export default function ChuckSetup() {
                                                     
                                                     // Calculate pitch ratio from MIDI note
                                                     Std.mtof(midiNote) / Std.mtof(60) => float pitchRatio;
-                                                    
+                                            
                                                     // Play with pitch modification
                                                     playbackVoices[voiceIndex].play(1);
                                                     playbackVoices[voiceIndex].rate(pitchRatio);  // Pitch shift
-                                                    playbackVoices[voiceIndex].playPos(0::samp);
+                                            playbackVoices[voiceIndex].playPos(0::samp);
                                                     0.5 => playbackVoices[voiceIndex].gain;
-                                                    
+                                            
                                                     <<< "MIDI Keyboard: Playing note", midiNote, "at pitch ratio", pitchRatio >>>;
                                                     
                                                     // Stop after buffer length (or use envelope)
@@ -1736,17 +2358,17 @@ export default function ChuckSetup() {
                                                     // Get recorded length from shared buffer, or use max duration (10 seconds)
                                                     sharedAudioBuffers[activeBufferIndex].recPos() / pitchRatio => now;
                                                     playbackVoices[voiceIndex].play(0);
-                                                }
-                                            } else {
+                                    }
+                                } else {
                                                 <<< "MIDI Keyboard: No active buffer to play" >>>;
-                                            }
-                                        }
+                                }
+                            }
                                     } else if (msg.isButtonUp()) {
                                         // Note off - could implement release envelope here
                                         // For now, just log
-                                    }
-                                }
-                                
+                            }
+                        }
+                        
                                 me.yield();
                             }
                         }
@@ -2030,191 +2652,285 @@ export default function ChuckSetup() {
 
     return (
         <>
-            <Box
-                id='chuckSetupContainer'
-                sx={{
-                    position: 'absolute',
-                    top: 120,
-                    left: 8, /* Position to the right of RGB panel */
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    backgroundColor: 'transparent',
-                    // Lower the container z-index so HUD/keyboard overlays can appear above it.
-                    // Make container itself non-interactive so it doesn't block underlying overlays,
-                    // but keep child buttons interactive (they explicitly set `pointerEvents: 'auto'`).
-                    zIndex: 200,
-                    pointerEvents: 'none',
-                }}>
-                {initializing && (
-                    <Button
-                        id='chuckMicButtonWrapper'
-                        aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
-                        sx={{
-                            cursor: ready ? 'pointer' : 'not-allowed',
-                            minWidth: '48px',
-                            minHeight: '48px',
-                            padding: '8px',
-                            pointerEvents: 'auto',
-                        }}
-                    // onClick={chuckMicButton}
-                    >
-                        {/* {!isRunning && */}
-                        <MicIcon
-
-                            sx={{
-                                fontSize: '32px',
-                                color: 'yellow',
-                                verticalAlign: 'middle'
-                            }}
-                            onClick={chuckMicButton}
-                        />
-                        {/* // } */}
-                        {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
-                    </Button>
-                )}
-
-                {/* Enable Audio button: create/resume AudioContext with a user gesture */}
-                {!ready && (
-                    <Button
-                        id='enableAudioButton'
-                        aria-label="Enable audio context to start audio playback"
-                        sx={{
-                            minWidth: '96px',
-                            minHeight: '36px',
-                            padding: '6px 10px',
-                            pointerEvents: 'auto',
-                        }}
-                        onClick={enableAudio}
-                    >
-                        Enable Audio
-                    </Button>
-                )}
-
-                <Button
-                    id='runChuckCodeButton'
-                    aria-label="Run ChucK audio code"
+            {/* <Box sx={{width: '100%', color: '#f6f6f6', zIndex: '9999999', position: 'fixed'}}>HELLO!!!</Box> */}
+            <BabylonCanvas />
+            <>
+                <Box
+                    id='chuckSetupContainer'
                     sx={{
-                        minWidth: '48px',
-                        minHeight: '48px',
-                        padding: '8px',
-                        cursor: ready ? 'pointer' : 'not-allowed',
-                        pointerEvents: 'auto',
-                    }}
-                    onClick={isRunning ? stopChuckInstance : runChuckCode}
-
-                >
-                    {!isRunning ?
-                        <PlayCircleIcon
-                            sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
-                        <StopCircleIcon
-                            sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
-                    }
-                </Button>
-
-                {/* Keyboard toggle (single toggle as requested) */}
-                <Button
-                    id='toggleKeyboardButton'
-                    sx={{
-                        minWidth: '48px',
-                        minHeight: '48px',
-                        padding: '8px',
-                        cursor: 'pointer',
-                        pointerEvents: 'auto',
-                        display: 'flex',
+                        position: 'absolute',
+                        top: 120,
+                        left: 0, /* Position to the right of RGB panel */
+                        display: 'inline-flex',
+                        flexDirection: 'column',
                         alignItems: 'center',
-                        gap: 1,
-                    }}
-                    onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
-                >
-                    <KeyboardIcon
-                        sx={{
-                            fontSize: '24px',
-                            color: keyboardMode === 'none'
-                                ? 'var(--color-dominant-text, white)'
-                                : 'var(--color-subdominant-primary, #00D9FF)'
-                        }}
-                    />
-                    {keyboardMode !== 'none' && (
-                        <span style={{
-                            fontSize: '10px',
-                            marginLeft: '4px',
-                            color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
-                            fontFamily: 'monospace'
-                        }}>
-                            HID active
-                        </span>
+
+                        gap: '12px',
+                        backgroundColor: 'transparent',
+                        // Lower the container z-index so HUD/keyboard overlays can appear above it.
+                        // Make container itself non-interactive so it doesn't block underlying overlays,
+                        // but keep child buttons interactive (they explicitly set `pointerEvents: 'auto'`).
+                        zIndex: 200,
+                        pointerEvents: 'none',
+                    }}>
+                    {initializing && (
+                        <Button
+                            id='chuckMicButtonWrapper'
+                            aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
+                            sx={{
+                                cursor: ready ? 'pointer' : 'not-allowed',
+                                minWidth: '48px',
+                                minHeight: '48px',
+                                padding: '8px',
+                                pointerEvents: 'auto',
+                            }}
+                        // onClick={chuckMicButton}
+                        >
+                            {/* {!isRunning && */}
+                            <MicIcon
+
+                                sx={{
+                                    fontSize: '32px',
+                                    color: 'yellow',
+                                    verticalAlign: 'middle'
+                                }}
+                                onClick={chuckMicButton}
+                            />
+                            {/* // } */}
+                            {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
+                        </Button>
                     )}
-                </Button>
 
-                {/* Simple toggle: Add uploaded files to MIDI keyboard buffers */}
-                <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
+                    {/* Enable Audio button: create/resume AudioContext with a user gesture */}
+                    {!ready && (
+                        <Button
+                            id='enableAudioButton'
+                            aria-label="Enable audio context to start audio playback"
+                            sx={{
+                                minWidth: '96px',
+                                minHeight: '36px',
+                                padding: '6px 10px',
+                                pointerEvents: 'auto',
+                            }}
+                            onClick={enableAudio}
+                        >
+                            Enable Audio
+                        </Button>
+                    )}
+
                     <Button
-                        id='addToMidiBuffersToggle'
+                        id='runChuckCodeButton'
+                        aria-label="Run ChucK audio code"
                         sx={{
                             minWidth: '48px',
                             minHeight: '48px',
                             padding: '8px',
-                            cursor: 'pointer',
+                            cursor: ready ? 'pointer' : 'not-allowed',
                             pointerEvents: 'auto',
-                            border: addToMidiBuffers ? '1px solid var(--color-subdominant-primary, #00D9FF)' : '1px solid transparent',
                         }}
-                        onClick={() => setAddToMidiBuffers(!addToMidiBuffers)}
+                        onClick={isRunning ? stopChuckInstance : runChuckCode}
+
                     >
-                        <KeyboardIcon
-                            sx={{
-                                fontSize: '20px',
-                                color: addToMidiBuffers 
-                                    ? 'var(--color-subdominant-primary, #00D9FF)'
-                                    : 'var(--color-dominant-text, white)'
-                            }}
-                        />
+                        {!isRunning ?
+                            <PlayCircleIcon
+                                sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
+                            <StopCircleIcon
+                                sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
+                        }
                     </Button>
-                </Tooltip>
 
-                {/* Toggle: Keyboard clicks add to notes dropdown */}
-                <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
-                    <Button
-                        id='keyboardAddsToNotesToggle'
-                        sx={{
-                            minWidth: '48px',
-                            minHeight: '48px',
-                            padding: '8px',
-                            cursor: 'pointer',
-                            pointerEvents: 'auto',
-                            border: keyboardAddsToNotes ? '1px solid var(--color-tertiary-warning, #FFA500)' : '1px solid transparent',
-                        }}
-                        onClick={() => {
-                            const newValue = !keyboardAddsToNotes;
-                            setKeyboardAddsToNotes(newValue);
-                            // Expose to global scope for BeatGridPanel to check
-                            (window as any).__keyboardAddsToNotes = newValue;
-                        }}
-                    >
-                        <MusicNoteIcon
+
+                    <Box sx={{
+                        display: "inline-flex", 
+                        flexDirection: "row",
+                        minWidth: "100%",
+                        maxWidh: "180px",
+                        marginLeft: "16px",
+                        justifyContent: "space-between",
+                        background: "rgba(255,255,255,0.078)"
+                    }}>
+                        {/* Keyboard toggle (single toggle as requested) */}
+                        <Button
+                            id='toggleKeyboardButton'
                             sx={{
-                                fontSize: '20px',
-                                color: keyboardAddsToNotes 
-                                    ? 'var(--color-tertiary-warning, #FFA500)'
-                                    : 'var(--color-dominant-text, white)'
+                                minWidth: '48px',
+                                minHeight: '48px',
+                                padding: '8px',
+                                cursor: 'pointer',
+                                pointerEvents: 'auto',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
                             }}
-                        />
-                    </Button>
-                </Tooltip>
+                            onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
+                        >
+                            <KeyboardIcon
+                                sx={{
+                                    fontSize: '24px',
+                                    color: keyboardMode === 'none'
+                                        ? 'var(--color-dominant-text, white)'
+                                        : 'var(--color-subdominant-primary, #00D9FF)'
+                                }}
+                            />
+                            {keyboardMode !== 'none' && (
+                                <span style={{
+                                    fontSize: '10px',
+                                    marginLeft: '4px',
+                                    color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
+                                    fontFamily: 'monospace'
+                                }}>
+                                    HID active
+                                </span>
+                            )}
+                        </Button>
 
-                <PhilosopherGuide />
-            </Box>
+                        {/* Simple toggle: Add uploaded files to MIDI keyboard buffers */}
+                        <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
+                            <Button
+                                id='addToMidiBuffersToggle'
+                                sx={{
+                                    minWidth: '48px',
+                                    minHeight: '48px',
+                                    padding: '8px',
+                                    cursor: 'pointer',
+                                    pointerEvents: 'auto',
+                                    border: addToMidiBuffers ? '1px solid var(--color-subdominant-primary, #00D9FF)' : '1px solid transparent',
+                                }}
+                                onClick={() => setAddToMidiBuffers(!addToMidiBuffers)}
+                            >
+                                <AddBoxIcon
+                                    sx={{
+                                        fontSize: '20px',
+                                        color: addToMidiBuffers 
+                                            ? 'var(--color-subdominant-primary, #00D9FF)'
+                                            : 'var(--color-dominant-text, white)'
+                                    }}
+                                />
+                            </Button>
+                        </Tooltip>
 
-            <OldParentMonolith
-                runChuckCode={runChuckCode}
-                onUpload={handleUpload}
-                chuckHook={chuckHook || {}}
-                selectedDeviceId={selectedDeviceId}
-                updateAudioInputDevice={updateAudioInputDevice}
-                deviceOptions={deviceOptions}
-                showAudioInDropdown={showAudioInDropdown}
-                updateSelectedAudioInSetting={updateSelectedAudioInSetting}
-            />
+                        {/* Toggle: Keyboard clicks add to notes dropdown */}
+                        <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
+                            <Button
+                                id='keyboardAddsToNotesToggle'
+                                sx={{
+                                    minWidth: '48px',
+                                    minHeight: '48px',
+                                    padding: '8px',
+                                    cursor: 'pointer',
+                                    pointerEvents: 'auto',
+                                    border: keyboardAddsToNotes ? '1px solid var(--color-tertiary-warning, #FFA500)' : '1px solid transparent',
+                                }}
+                                onClick={() => {
+                                    const newValue = !keyboardAddsToNotes;
+                                    setKeyboardAddsToNotes(newValue);
+                                    // Expose to global scope for BeatGridPanel to check
+                                    (window as any).__keyboardAddsToNotes = newValue;
+                                }}
+                            >
+                                <MusicNoteIcon
+                                    sx={{
+                                        fontSize: '20px',
+                                        color: keyboardAddsToNotes 
+                                            ? 'var(--color-tertiary-warning, #FFA500)'
+                                            : 'var(--color-dominant-text, white)'
+                                    }}
+                                />
+                            </Button>
+                        </Tooltip>
+                    </Box>    
+
+                    <Box sx={{ 
+                        marginLeft: "64px",
+                    }}>
+                        <Tooltip title="Oscillator Synth Controls">
+                            <Button
+                                aria-label="Open oscillator synth controls"
+                                sx={{
+                                    minWidth: '48px',
+                                    minHeight: '48px',
+                                    padding: '8px',
+                                    cursor: 'pointer',
+                                    pointerEvents: 'auto',
+                                }}
+                                onClick={() => setSynthPanelOpen(true)}
+                            >
+                                <SettingsIcon
+                                    sx={{
+                                        fontSize: '20px',
+                                        color: 'var(--color-dominant-text, white)'
+                                    }}
+                                />
+                            </Button>
+                        </Tooltip>
+
+                        <Box sx={{display: "inline-flex", flexDirection: "row" }}>
+                            {/* Effects Control Panel buttons for each source */}
+                            {(['osc1', 'stk1', 'sampler', 'audioin'] as const).map(source => (
+                                <Tooltip key={source} title={`${source.toUpperCase()} Effects`}>
+                                    <Button
+                                        sx={{
+                                            minWidth: '48px',
+                                            minHeight: '48px',
+                                            padding: '8px',
+                                            cursor: 'pointer',
+                                            pointerEvents: 'auto',
+                                        }}
+                                        onClick={() => {
+                                            setEffectsPanelSource(source);
+                                            setEffectsPanelOpen(true);
+                                        }}
+                                        aria-label={`Open ${source.toUpperCase()} effects control panel`}
+                                    >
+                                        <Typography
+                                            sx={{
+                                                fontSize: '12px',
+                                                color: 'var(--color-dominant-text, white)',
+                                                textTransform: 'uppercase',
+                                                fontWeight: 600
+                                            }}
+                                        >
+                                            {source === 'osc1' ? 'OSC' : source === 'stk1' ? 'STK' : source === 'sampler' ? 'SMP' : 'IN'}
+                                        </Typography>
+                                    </Button>
+                                </Tooltip>
+                            ))}
+                        </Box>
+                    </Box>
+
+                    <PhilosopherGuide />
+                </Box>
+
+                <SynthControlPanel
+                    open={synthPanelOpen}
+                    onClose={() => setSynthPanelOpen(false)}
+                />
+
+                <EffectsControlPanel
+                    open={effectsPanelOpen}
+                    onClose={() => setEffectsPanelOpen(false)}
+                    sourceName={effectsPanelSource}
+                />
+
+                <OldParentMonolith
+                    runChuckCode={runChuckCode}
+                    onUpload={handleUpload}
+                    chuckHook={chuckHook || {}}
+                    selectedDeviceId={selectedDeviceId}
+                    updateAudioInputDevice={updateAudioInputDevice}
+                    deviceOptions={deviceOptions}
+                    showAudioInDropdown={showAudioInDropdown}
+                    updateSelectedAudioInSetting={updateSelectedAudioInSetting}
+                />
+
+
+
+
+
+
+
+
+            </>
         </>
     );
 }

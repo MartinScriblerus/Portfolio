@@ -347,8 +347,25 @@ export const audioInEffectSlidersHelper = (selected: string) => {
                     type: 'float'
                 }, 
             ];
-        // case 'Mosaic Synth':
-        //     return [''];
+        case 'Mosaic Synth':
+            return [
+                {
+                    name: 'Voices',
+                    keyname: 'mosaic_voices',
+                    max: 32.0,
+                    min: 1.0,
+                    default: 16.0,
+                    type: 'int'
+                },
+                {
+                    name: 'Window Length',
+                    keyname: 'mosaic_windowlength',
+                    max: 4.0,
+                    min: 0.1,
+                    default: 0.5,
+                    type: 'float'
+                }
+            ];
         default:
             return [];
     }

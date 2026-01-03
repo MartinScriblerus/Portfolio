@@ -152,8 +152,8 @@ function RightDrawer(props: RightDrawerProps) {
   // Update CSS variable for keyboard positioning when drawer state changes
   useEffect(() => {
     if (typeof document !== 'undefined') {
-      document.documentElement.style.setProperty('--keyboard-right-offset', open ? '420px' : '0px');
-      document.documentElement.style.setProperty('--keyboard-width', open ? 'calc(100% - 560px)' : 'calc(100% - 140px)');
+      document.documentElement.style.setProperty('--keyboard-right-offset', open ? '360px' : '0px');
+      document.documentElement.style.setProperty('--keyboard-width', open ? 'calc(100% - 500px)' : 'calc(100% - 140px)');
     }
   }, [open]);
   const latestTimeDomainRef = useRef<Float32Array | null>(null);
@@ -274,6 +274,45 @@ function RightDrawer(props: RightDrawerProps) {
     stepsPerMeasure } =
   deriveGridParams(timeSig.num, timeSig.den);
 
+  const handleFileUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/*';
+    input.onchange = async (e: any) => {
+      const files = e.target.files;
+      if (files && files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+          const f: File | null = files.item(i);
+          if (!f) continue;
+          try {
+            const arrayBuffer = await f.arrayBuffer();
+            const data = new Uint8Array(arrayBuffer);
+            try {
+              filesToProcess.current = filesToProcess.current || [];
+              filesToProcess.current.push({ filename: f.name, data, processed: false });
+            } catch (err) {
+              console.warn('filesToProcess push failed:', err);
+            }
+            try {
+              if (chuckRef && chuckRef.current) {
+                await chuckRef.current.createFile('', f.name, arrayBuffer);
+              }
+            } catch (err) {
+              console.warn('Chuck createFile failed:', err);
+            }
+            try {
+              uploadedBlob.current = new Blob([arrayBuffer], { type: f.type || 'audio/wav' });
+            } catch (err) {}
+            console.log('Files selected and processed:', f.name);
+          } catch (err) {
+            console.error('Failed to read file:', err);
+          }
+        }
+      }
+    };
+    input.click();
+  };
+
   return (
     <>
       {/* Floating toggle button when drawer is closed */}
@@ -306,10 +345,10 @@ function RightDrawer(props: RightDrawerProps) {
         aria-label="Composer tools"
         style={{
           position: 'fixed',
-          right: open ? 0 : -420,
+          right: open ? 0 : -360,
           top: 0,
           bottom: 0,
-          width: 420,
+          width: 360,
           transition: 'right 180ms ease',
           background: 'rgba(10,10,14,0.98)',
           borderLeft: '2px solid #444',
@@ -317,12 +356,13 @@ function RightDrawer(props: RightDrawerProps) {
           display: 'flex',
           flexDirection: 'column',
           zIndex: 10001,
+          maxWidth: '360px',
           pointerEvents: 'auto',
           boxShadow: open ? '-4px 0 20px rgba(0,0,0,0.5)' : 'none',
         }}
       >
-        <header style={{ padding: '8px 12px', borderBottom: '1px solid #222' }}>
-          <Button sx={{
+        <header style={{ padding: '4px 4px', borderBottom: '1px solid #222' }}>
+          {/* <Button sx={{
             position: !open ? 'absolute' : 'relative',
             top:  !open ? 24 : 'auto',
             right: !open ? 24 : 'auto',
@@ -336,15 +376,30 @@ function RightDrawer(props: RightDrawerProps) {
             {
               !open ? <MenuOpenIcon sx={{ fontSize: 24, pointerEvents: 'none' }} /> : <CloseIcon sx={{ fontSize: 24, pointerEvents: 'none'}} />
             }
-          </Button>
+          </Button> */}
           <Box style={{ 
             display: 'inline-flex', 
-            gap: 8, 
-            marginLeft: 8,
+            // gap: 2, 
+            // marginLeft: 8,
             pointerEvents: 'auto',
             zIndex: 9999,
           }}
         >
+            <Button sx={{
+              position: !open ? 'absolute' : 'relative',
+              // top:  !open ? 24 : 'auto',
+              // right: !open ? 24 : 'auto',
+              zIndex: 99999,
+              pointerEvents: 'auto',
+              pointer: 'cursor',
+              background: 'rgba(0,0,0,0.5)',
+              color: '#e0e0e0',
+              border: '1px solid #444',
+            }} onClick={() => setOpen(false)} aria-label="Close panel">
+              {
+                !open ? <MenuOpenIcon sx={{ fontSize: 12, pointerEvents: 'none' }} /> : <CloseIcon sx={{ fontSize: 24, pointerEvents: 'none'}} />
+              }
+            </Button>
             <Button sx={{
               pointerEvents: 'auto',
               pointer: 'cursor',
@@ -360,6 +415,23 @@ function RightDrawer(props: RightDrawerProps) {
               pointer: 'cursor',
               zIndex: 99999,
             }} onClick={() => { setOpen(true); setTab('fx'); }} aria-pressed={tab === 'fx'} aria-label="Open effects panel">FX</Button>
+                  <Button
+                    startIcon={<FileUploadIcon />}
+                    onClick={handleFileUpload}
+                    sx={{
+                      backgroundColor: '#3f51b5',
+                      color: '#fff',
+                      minWidth: '100px',
+                      height: '36px',
+                      padding: '8px',
+                      margin: '8px 8px 8px 0px',
+                      '&:hover': {
+                        backgroundColor: '#303f9f',
+                      },
+                    }}
+                  >
+                    File
+                  </Button>
           </Box>
           <Box sx={{ maxHeight: '200px', overflowY: 'auto'}}>
             <TimingControls />
@@ -368,7 +440,7 @@ function RightDrawer(props: RightDrawerProps) {
           {/* <EditingModeToggle /> */}
           {/* <div style={{ marginTop: 8 }}> */}
           {/* Debug: always render waveform while troubleshooting */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          {tab.toLowerCase().indexOf("mixer") !== -1 && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
             <div style={{ flex: 1 }}>
               <WaveformCanvas
                 getSamples={() => latestTimeDomainRef.current}
@@ -380,7 +452,7 @@ function RightDrawer(props: RightDrawerProps) {
               <div style={{ fontWeight: 600 }}>FPS</div>
               <div>{debugFps}</div>
             </div>
-          </div>
+          </div>}
             {/* } */}
           {/* </div> */}
         </header>
@@ -1122,7 +1194,22 @@ export default function OldParentMonolith(
   };
 
   const updateKeyScaleChord = () => {};
-  const handleUpdateSliderVal = () => {};
+  
+  // handleUpdateSliderVal: Updates synth parameters from knob controls
+  // Uses global function exposed by ChuckSetup if available, otherwise no-op
+  const handleUpdateSliderVal = async (source: string, knobSpec: any, value: number) => {
+    if (typeof window !== 'undefined' && (window as any).__handleUpdateSliderVal) {
+      return (window as any).__handleUpdateSliderVal(source, knobSpec, value);
+    }
+    // Fallback: update moogGrandmotherEffects ref directly if ChucK not available
+    if (knobSpec && knobSpec.name && moogGrandmotherEffectsRef.current) {
+      const paramName = knobSpec.name;
+      if (moogGrandmotherEffectsRef.current[paramName]) {
+        moogGrandmotherEffectsRef.current[paramName].value = value;
+      }
+    }
+  };
+  
   const handleViewSTK = () => {};
   const handleViewEffect = () => {};
   const handleBackToSynth = () => {};

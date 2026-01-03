@@ -754,7 +754,7 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
           position: 'fixed',
           bottom: '16rem', // Above piano keys
           //left: '360px', // To the right of rgb panels and buttons
-          right: rightDrawerOpen ? '420px' : '20px', // Slide left when right drawer opens
+          right: rightDrawerOpen ? '360px' : '20px', // Slide left when right drawer opens
           top: '20px',
           margin: 0,
           maxHeight: 'calc(100vh - 140px)',

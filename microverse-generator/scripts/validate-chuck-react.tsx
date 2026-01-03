@@ -16,7 +16,7 @@ import { Chuck } from 'webchuck';
  * Returns { valid: boolean, errors: string[] }
  */
 export async function validateChuckCodeWithWebChuck(
-  chuckInstance: typeof Chuck | null,
+  chuckInstance: typeof Chuck | null | any,
   code: string
 ): Promise<{ valid: boolean; errors: string[] }> {
   if (!chuckInstance) {
@@ -27,7 +27,7 @@ export async function validateChuckCodeWithWebChuck(
   
   try {
     // Try to run the code - if it throws, it's invalid
-    await chuckInstance.runCode(code);
+    await chuckInstance && await chuckInstance.runCode(code);
     
     // If it runs without throwing, it's at least syntactically valid
     // You might want to let it run briefly and then stop it
