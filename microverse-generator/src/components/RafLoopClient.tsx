@@ -4,7 +4,7 @@ import { useRafLoop } from '../hooks/useRafLoop';
 import { useTickStore } from '../store/useTickStore';
 
 export default function RafLoopClient() {
-  const setTick = useTickStore((s) => s.setTick);
+  const setTick = useTickStore((s: any) => s.setTick);
 
   // RAF loop updates global store
   useRafLoop((time, delta) => {
