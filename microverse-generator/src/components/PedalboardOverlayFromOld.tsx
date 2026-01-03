@@ -46,7 +46,7 @@ export default function PedalboardOverlayFromOld({
         borderRadius: 2,
         p: 1.5,
         pointerEvents: 'none', // only children receive events
-        width: 420,
+        width: 360,
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'auto' }}>

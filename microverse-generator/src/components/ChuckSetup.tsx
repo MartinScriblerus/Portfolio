@@ -1,5 +1,5 @@
 'use client';
-import { act, useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Chuck } from 'webchuck';
 import { HID } from 'webchuck';
 import { KeyboardHIDManager } from '../utils/keyboardHIDManager';
@@ -25,6 +25,7 @@ import MicOffIcon from '@mui/icons-material/MicOff';
 import MicIcon from '@mui/icons-material/Mic';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
+import AddBoxIcon from '@mui/icons-material/AddBox';
 import MusicNoteIcon from '@mui/icons-material/MusicNote';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { Box, Button, InputLabel, Select, Tooltip, Typography } from '@mui/material';
@@ -56,6 +57,7 @@ import { useMicrotonalStore } from '../store/useMicrotonalStore';
 import { initializeUniversalSources } from '../utils/effectsInitializationHelper';
 import PhilosopherGuide from '../components/PhilosopherGuide';
 import { buildCacheFromGrid } from '../hooks/useRhythmCache';
+import BabylonCanvas from './BabylonCanvas';
 
 // Put this near the top, inside component file (module scope or inside component before handlers):
 const SERVER_FILES_TO_PRELOAD: Array<{ serverFilename: string; virtualFilename: string }> = [
@@ -169,7 +171,6 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
         `${effect.trim().toLowerCase().replace(' ', '_')}_${name.name.trim().toLowerCase().replace(' ', '')}`
     );
     const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
     // Local state for slider values
     const [values, setValues] = useState(() => transformedKeyNames.map((n: any) => (audioInSettingsHelperHash as any)[n]));
 
@@ -181,8 +182,7 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [effect, audioInSettingsHelperHash]);
 
-    // Debounced update to Zustand and ChucK when values change
-    // Matches SynthControlPanel pattern for consistent performance
+    // Only update Zustand and ChucK when values change
     useEffect(() => {
         // Clear existing timeout
         if (updateTimeoutRef.current) {
@@ -551,13 +551,8 @@ export default function ChuckSetup() {
             const totalCells = cellsPerRow * numRows;
             if (totalCells <= 0) return;
 
-            // ChucK ticker counts in expanded ticks (includes subdivisions), so divide by MAX_SUBDIVISIONS
-            // to get base cell index. MAX_SUBDIVISIONS matches the expansion factor used in ChucK code generation.
-            const MAX_SUBDIVISIONS = 16; // Must match the value used in buildChuckCodeData
-            const baseTick = Math.floor(tickNum / MAX_SUBDIVISIONS);
-            
-            // Map base tick to an index in [0, totalCells)
-            const idx = ((baseTick % totalCells) + totalCells) % totalCells; // safe mod
+            // Map tick to an index in [0, totalCells)
+            const idx = ((tickNum % totalCells) + totalCells) % totalCells; // safe mod
             const rowIndex = Math.floor(idx / cellsPerRow) % numRows;
             const colIndex = idx % cellsPerRow;
 
@@ -835,6 +830,14 @@ export default function ChuckSetup() {
         }
     };
 
+    // Ensure there's a global one-time user gesture listener to mark user gesture seen
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const mark = () => { try { (window as any).__userGestureSeen = true; } catch {} };
+        window.addEventListener('pointerdown', mark, { once: true });
+        return () => { try { window.removeEventListener('pointerdown', mark); } catch {} };
+    }, []);
+
     async function handleUpload(files: FileList | null) {
         const list = Array.from(files || []);
         if (!list.length || !chuckRef.current) return;
@@ -999,10 +1002,18 @@ export default function ChuckSetup() {
     useEffect(() => {
         // Debug: selected device ID
         // console.log("SEL DEVICE ID ", selectedDeviceId);
-        // CRITICAL: Do NOT call Machine.removeAllShreds() during runtime
-        // This would kill the mainTickLoop and all active shreds
-        // Only allowed during initialization or explicit stop
-        // Removed runtime shred removal - audioInSelected changes should not restart ChucK
+        // (async () => {
+        //     try {
+        //         chuckRef.current && await chuckRef.current.runCode(`Machine.removeAllShreds();`);
+        //         chuckRef.current && await chuckRef.current.runCode(`Machine.resetShredID();`);
+        //     } catch (err: any) {
+        //         // Suppress ErrnoError errno 20 (file system errors) - these are often non-critical
+        //         if (err?.name === 'ErrnoError' && err?.errno === 20) {
+        //             return;
+        //         }
+        //         console.warn('Failed to reset ChucK shreds:', err);
+        //     }
+        // })();
     }, [audioInSelected]);
 
     const updateAudioInputDevice = async (e: any) => {
@@ -1845,13 +1856,10 @@ export default function ChuckSetup() {
                     // If test fails, the main code will likely fail too, but continue anyway
                 }
 
-                // CRITICAL: Machine.removeAllShreds() ONLY during initialization
-                // This is initialization-only (runChuckCode is called once at startup)
-                // FORBIDDEN: Never call during runtime (tick handlers, callbacks, audio paths)
-                // Compliance: This call is safe because it's in the initialization path
+                // // Clear any existing code first to avoid conflicts
                 try {
-                    // await chuckRef.current.runCode(`Machine.removeAllShreds();`);
-                    // await chuckRef.current.runCode(`Machine.resetShredID();`);
+                    await chuckRef.current.runCode(`Machine.removeAllShreds();`);
+                    await chuckRef.current.runCode(`Machine.resetShredID();`);
                 } catch (clearErr: any) {
                     // Ignore clear errors - might not be necessary
                 }
@@ -1888,89 +1896,30 @@ export default function ChuckSetup() {
                     
                     const expandedEvents = rhythmCache.events;
                     
+                    console.log("WHAT ARE EXPANDED EVENTS??? ", expandedEvents);
+                    
                     // Calculate expanded measure length: base cells * max subdivisions
                     // Each cell can have up to MAX_SUBDIVISIONS events, so we expand arrays accordingly
-                    const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
+                    // const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
                     const rowKeys = Object.keys(masterPatterns).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
-                    const totalBaseCells = cellsPerRow * rowKeys.length;
-                    let expandedMeasureLength = totalBaseCells * MAX_SUBDIVISIONS;
+                    // Sort rows to match getGridRows() ordering (top->bottom = ascending)
+                    rowKeys.sort((a, b) => a - b); // Always ascending to match getGridRows when rowOrderTopToBottomRef is true
+                    const filesArr2D: number[][] = [];
+                    const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
                     
-                    // CRITICAL: Enforce maximum array size to prevent WASM memory allocation failures
-                    // WebChucK has limited memory - 2D arrays are especially memory-intensive
-                    // filesArr[length][32] = length * 32 integers = significant memory usage
-                    // Architecture compliance: Fixed-size arrays must be bounded to prevent memory corruption
-                    // Reduced to 512 for safety: 512 * 32 = 16,384 integers (much safer for WebChucK WASM memory)
-                    // Multiple arrays allocated simultaneously: filesArr, cellFunctionIds, osc/stk arrays
-                    const MAX_EXPANDED_MEASURE_LENGTH = 512; // Very conservative maximum for WebChucK memory limits
-                    if (expandedMeasureLength > MAX_EXPANDED_MEASURE_LENGTH) {
-                        console.warn(`[buildChuckCodeData] expandedMeasureLength ${expandedMeasureLength} exceeds maximum ${MAX_EXPANDED_MEASURE_LENGTH}, clamping to prevent memory errors`);
-                        expandedMeasureLength = MAX_EXPANDED_MEASURE_LENGTH;
-                    }
-                    
-                    // Validate minimum size and ensure it's a valid integer
-                    if (!Number.isFinite(expandedMeasureLength) || expandedMeasureLength <= 0 || !Number.isInteger(expandedMeasureLength)) {
-                        console.error(`[buildChuckCodeData] Invalid expandedMeasureLength: ${expandedMeasureLength}, using default 256`);
-                        expandedMeasureLength = 256; // Safe default (256 * 32 = 8,192 integers) (smaller for testing)
-                    }
-                    
-                    // Initialize expanded arrays (indexed by tick)
-                    // CRITICAL: Each inner array must have exactly 32 elements to match ChucK declaration [expandedMeasureLength][32]
-                    const filesArr2D: number[][] = new Array(expandedMeasureLength).fill(null).map(() => new Array(32).fill(9999));
-                    const oscMidiFreqs: number[] = new Array(expandedMeasureLength).fill(9999.0);
-                    const oscMidiLengths: number[] = new Array(expandedMeasureLength).fill(1.0);
-                    const oscMidiVelocities: number[] = new Array(expandedMeasureLength).fill(0.5);
-                    const stkMidiFreqs: number[] = new Array(expandedMeasureLength).fill(9999.0);
-                    const stkMidiLengths: number[] = new Array(expandedMeasureLength).fill(1.0);
-                    const stkMidiVelocities: number[] = new Array(expandedMeasureLength).fill(0.5);
-                    const cellFunctionIds: (string | null)[] = new Array(expandedMeasureLength).fill(null);
-                    
-                    // Map expanded events to array indices
-                    // Event.t is in "cell units" (e.g., 0, 0.25, 0.5, 0.75 for cell 0 with subdivisions=4)
-                    // Convert to tick index: t * masterFastestRate * MAX_SUBDIVISIONS
-                    expandedEvents.forEach((event) => {
-                        // Calculate tick index from event time
-                        // t is fractional (cell position + subdivision offset)
-                        // Scale by masterFastestRate to get base ticks, then by MAX_SUBDIVISIONS for expansion
-                        const tickIndex = Math.floor(event.t * chuckCodeData.masterFastestRate * MAX_SUBDIVISIONS);
-                        
-                        if (tickIndex >= 0 && tickIndex < expandedMeasureLength) {
-                            // Files: use fileIdxs from event
-                            // CRITICAL: Pad to exactly 32 elements to match ChucK declaration [expandedMeasureLength][32]
-                            if (event.fileIdxs && event.fileIdxs.length > 0) {
-                                const padded = [...event.fileIdxs];
-                                while (padded.length < 32) {
-                                    padded.push(9999);
-                                }
-                                filesArr2D[tickIndex] = padded.slice(0, 32); // Ensure exactly 32 elements
-                            }
-                            
-                            // Notes: use noteFrequencies from event (already calculated by cache)
-                            if (event.noteFrequencies && event.noteFrequencies.length > 0) {
-                                const freq = event.noteFrequencies[0]; // Use first frequency
-                                oscMidiFreqs[tickIndex] = freq;
-                                oscMidiLengths[tickIndex] = event.length / event.subdivisions; // Adjust length for subdivisions
-                                oscMidiVelocities[tickIndex] = event.velocity;
-                                
-                                // STK uses same notes
-                                stkMidiFreqs[tickIndex] = freq;
-                                stkMidiLengths[tickIndex] = event.length / event.subdivisions;
-                                stkMidiVelocities[tickIndex] = event.velocity;
-                            }
-                            
-                            // Function ID: get from original cell (only on first subdivision to avoid duplicates)
-                            if (event.subdivision === 0) {
-                                const cell = masterPatterns[String(event.y)]?.[String(event.x)];
-                                if (cell?.functionId) {
-                                    cellFunctionIds[tickIndex] = cell.functionId;
-                                }
-                            }
+                    // Build array in row-major order to match tick progression
+                    rowKeys.forEach((rowY) => {
+                        const row = masterPatterns[String(rowY)] || {};
+                        for (let colX = 0; colX < cellsPerRow; colX++) {
+                            const cell = row[String(colX)];
+                            const fileNums = cell?.fileNums || [];
+                            filesArr2D.push(fileNums.length > 0 ? fileNums : [9999]);
                         }
                     });
                     
-                    // Fallback: ensure at least one entry (must be rectangular: 32 elements)
-                    // CRITICAL: Never push ragged arrays - all rows must have exactly 32 elements
+                    // If no cells, create empty array
                     if (filesArr2D.length === 0) {
-                        filesArr2D.push(new Array(32).fill(9999));
+                        filesArr2D.push([9999]);
                     }
                     
                     // Safety validation: ensure all rows are exactly 32 elements before ChucK injection
@@ -2013,28 +1962,6 @@ export default function ChuckSetup() {
                     
                     // Build ChucK array strings
                     const filesArr2DChuck = `[${filesArr2D.map(arr => `[${arr.join(', ')}]`).join(', ')}]`;
-                    const oscMidiFreqsChuck = `[${oscMidiFreqs.join(', ')}]`;
-                    const oscMidiLengthsChuck = `[${oscMidiLengths.join(', ')}]`;
-                    const oscMidiVelocitiesChuck = `[${oscMidiVelocities.join(', ')}]`;
-                    const stkMidiFreqsChuck = `[${stkMidiFreqs.join(', ')}]`;
-                    const stkMidiLengthsChuck = `[${stkMidiLengths.join(', ')}]`;
-                    const stkMidiVelocitiesChuck = `[${stkMidiVelocities.join(', ')}]`;
-                    const cellFunctionIdsChuck = `[${cellFunctionIds.map(id => id ? `"${id}"` : '""').join(', ')}]`;
-                    
-                    // Build function registry ChucK code (associative array: functionId => code string)
-                    // Note: This is for reference only - actual functions are pre-compiled below
-                    const functionRegistryChuck = Array.from(cellFunctionRegistryLocal.entries())
-                        .map(([id, code]) => `"${id}" => cellFunctions;`)
-                        .join('\n                        ');
-                    
-                    console.log('[buildChuckCodeData] Arrays built with subdivisions:', {
-                        baseCells: totalBaseCells,
-                        expandedMeasureLength,
-                        expandedEvents: expandedEvents.length,
-                        filesArr2DLength: filesArr2D.length,
-                        cellsPerRow,
-                        rows: rowKeys.length
-                    });
 
                     // ============================================================
                     // OLD TEMP CODE STRUCTURE (SAVED FOR REFERENCE - DO NOT DELETE)
@@ -2134,60 +2061,12 @@ export default function ChuckSetup() {
                         global int beatMSNew;
                         global Event tickEvent;  // Main tick event for coordination
                         global Event stopEvent;  // Global stop signal
-                        global int currentTicker;  // Shared tick counter (prevents drift from now-based calculation)
                         
-                        // Global arrays (hot-swappable element-by-element via WebChucK API)
-                        // Use fixed-size arrays and update elements individually to avoid memory errors
-                        // These arrays are initialized here and updated via handleGridUpdate() in TypeScript:
-                        // - Float arrays: setFloatArrayValue() API method
-                        // - Int arrays: setIntArrayValue() API method (or runCode for 2D)
-                        // - String arrays: runCode() with element assignment (no direct API)
-                        global string files[${filesArrayParsed ? Math.max(1, Math.min(filesArrayParsed.length, 100)) : 5}];
-                        // CRITICAL: Array initialized BEFORE this code runs (see runChuckCode function)
-                        // Initialization happens in separate runCode call to prevent memory access violations
-                        // This ensures files.size() is valid when SndBuf samplerBuffers[files.size()] is declared
-                        // CRITICAL: Bounded array size to prevent WASM memory allocation failures
-                        // Architecture compliance: Fixed-size arrays must be bounded (max 4096) to prevent memory corruption
-                        global int filesArr[${Math.max(1, Math.min(expandedMeasureLength, 512))}][32];  // Max 32 files per tick, max 512 ticks (512*32=16,384 ints)
-                        // CRITICAL: Arrays initialized AFTER code runs (see runChuckCode function)
-                        // Initialization loops removed to prevent memory access violations
-                        // Arrays will be populated element-by-element via runCode before shreds start
-                        global string cellFunctionIds[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        // CRITICAL: Arrays initialized AFTER code runs (see runChuckCode function)
-                        // Initialization loops removed to prevent memory access violations
-                        // Arrays will be populated element-by-element via runCode before shreds start
-                        global int measureLength;
-                        ${Math.max(1, Math.min(expandedMeasureLength, 512))} => measureLength;
+                        ${filesArrayChuck} @=> string files[];
+                        ${filesArr2DChuck} @=> int filesArr[][];
                         
-                        // Runtime function registry: functionId => ChucK code string
-                        // Functions are hot-swappable: update cellFunctions[functionId] to change behavior
-                        global string cellFunctions[0];
-                        ${functionRegistryChuck || '// No functions registered'}
-                        
-                        // beatMSNew: duration of smallest tick (base beat / masterFastestRate / MAX_SUBDIVISIONS)
-                        Std.ftoi((60000 / ${chuckCodeData.bpm}) / ${chuckCodeData.masterFastestRate} / ${MAX_SUBDIVISIONS}) => beatMSNew;
-                        
-                        // ============================================================
-                        // TIMING INSTRUMENTATION: Zero-drift verification (removable)
-                        // Tracks expected vs actual time to detect timing drift
-                        // ============================================================
-                        global int timingInstrumentationEnabled;
-                        0 => timingInstrumentationEnabled;  // Set to 1 to enable, 0 to disable (removable)
-                        
-                        global int timingTickCount;  // Total ticks since start
-                        0 => timingTickCount;
-                        
-                        global dur timingExpectedElapsed;  // Expected time elapsed (tickCount * beatMSNew)
-                        0::ms => timingExpectedElapsed;
-                        
-                        global dur timingActualElapsed;  // Actual time elapsed (from ChucK's now)
-                        0::ms => timingActualElapsed;
-                        
-                        global int timingBarCount;  // Number of complete bars (measures)
-                        0 => timingBarCount;
-                        
-                        global int timingLastWrapTick;  // Tick value at last wrap
-                        -1 => timingLastWrapTick;
+                        Std.ftoi(60000 / ${chuckCodeData.bpm}) => beatMSNew;
+                        ${chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate * chuckCodeData.denominatorSignature} => int measureLength;
                         
                         // ============================================================
                         // MASTER GAIN & ROUTING
@@ -2265,12 +2144,8 @@ export default function ChuckSetup() {
                         // Legacy SndBuf buffers (kept for compatibility, but sampler uses LiSa now)
                         SndBuf samplerBuffers[files.size()];
                         for (0 => int i; i < samplerBuffers.size(); i++) {
-                            samplerBuffers[i] => blackhole;  // Disconnected - sampler uses LiSa now
+                            samplerBuffers[i] => masterGain;
                         }
-                        
-                        // MEMORY FIX: Global reusable SndBuf for file uploads (prevents per-upload allocation)
-                        global SndBuf uploadTempFile => blackhole;
-                        global SndBuf defaultSoundTempFile => blackhole;
                         
                         // ============================================================
                         // EFFECTS DECLARATIONS: All chugins and effects
@@ -2281,491 +2156,11 @@ export default function ChuckSetup() {
                         ${(chuckCodeData.signalChainAudioInDeclarations || []).map((d: string) => d).join(' ')}
                         
                         // ============================================================
-                        // AUDIO-IN SPECIFIC EFFECTS: Available for all 4 inputs
-                        // These are Chugraph classes that can be used in any effects chain
-                        // Time-based effects are synced to beatMSNew (main tick loop)
+                        // AUDIO INPUT: Ready for effects/mangling
                         // ============================================================
-                        // Global audioInSettingsHelperHash for effect parameters
-                        global float audioInSettingsHelperHash[0];
                         
-                        // Initialize default values for audioIn effects
-                        ${Object.entries(defaultAudioInSettings).map(([key, value]) => `${value} => audioInSettingsHelperHash["${key}"];`).join('\n                        ')}
-                        
-                        // ============================================================
-                        // FEATURE EXTRACTION: Extract audio features for improved sampler pitch detection
-                        // Adapted from SoundSink extract.ck for beat-grid integration
-                        // Web/ChucK/Workers Architecture: Runs in AudioWorklet, improves sampler functionality
-                        // MCP VERIFICATION: ✅ APPROVED
-                        // - Extraction runs in sporked shreds (non-blocking)
-                        // - Feature analysis is analysis-only (no time advancement in main loop)
-                        // - Features improve sampler pitch detection and window selection
-                        // - Does not interfere with file upload or playback
-                        // ============================================================
-                        // Global storage for extracted features
-                        // Using associative arrays for flexible storage (ChucK doesn't support 3D arrays)
-                        // Format: featureVectors["fileIndex_windowIndex_dimension"] = value
-                        global float featureVectors[0];  // Associative array: "fileIndex_windowIndex_dimension" => value
-                        global float featureWindowTimes[0];  // Associative array: "fileIndex_windowIndex" => windowTime
-                        global int featureWindowsPerFile[0];    // Number of windows extracted per file
-                        global int featureExtractionComplete[0]; // 1 if extraction done, 0 if not
-                        global int featureNumDimensions;        // Number of feature dimensions
-                        
-                        // Feature extraction parameters (matching extract.ck)
-                        4410 => int EXTRACT_FFT_SIZE;  // FFT size for extraction
-                        3 => int EXTRACT_NUM_FRAMES;   // Frames to aggregate
-                        0 => featureNumDimensions;      // Will be set after first extraction
-                        
-                        // Feature extraction class (runs analysis in background)
-                        class FeatureExtractor {
-                            // Feature extraction network (matching extract.ck)
-                            SndBuf audioFile => FFT fft;
-                            FeatureCollector combo => blackhole;
-                            fft =^ Centroid centroid =^ combo;
-                            fft =^ Flux flux =^ combo;
-                            fft =^ RMS rms =^ combo;
-                            fft =^ MFCC mfcc =^ combo;
-                            fft =^ RollOff rolloff =^ combo;
-                            fft =^ Chroma chroma =^ combo;
-                            
-                            // Initialize feature extractor
-                            fun void init() {
-                                EXTRACT_FFT_SIZE => fft.size;
-                                Windowing.hann(fft.size()) => fft.window;
-                                20 => mfcc.numCoeffs;
-                                10 => mfcc.numFilters;
-                                
-                                // Initialize FeatureCollector dimensions
-                                combo.upchuck();
-                                combo.fvals().size() => featureNumDimensions;
-                                
-                                EXTRACT_FFT_SIZE => audioFile.chunks;
-                            }
-                            
-                            // Extract features from a single file (non-blocking, sporked)
-                            fun void extractFileFeatures(int fileIndex, string filename) {
-                                if (fileIndex < 0 || fileIndex >= files.size()) return;
-                                
-                                // Initialize extractor (lazy initialization - only when needed)
-                                // This ensures audio chain is ready before calling combo.upchuck()
-                                if (featureNumDimensions == 0) {
-                                    init();
-                                }
-                                
-                                // Load file
-                                filename => audioFile.read;
-                                
-                                // Wait for file to load (with timeout to prevent infinite stall)
-                                now => dur loadStartTime;
-                                5::second => dur maxLoadTime;
-                                while (audioFile.length() == 0::samp) {
-                                    if (now - loadStartTime > maxLoadTime) {
-                                        <<< "ERROR: Feature extraction file load timeout for", filename, "- skipping extraction" >>>;
-                                        return;
-                                    }
-                                    1::samp => now;
-                                }
-                                
-                                // Calculate hop size
-                                (fft.size() / 2)::samp => dur HOP;
-                                
-                                // Extract features in windows
-                                int windowIndex;
-                                0 => windowIndex;
-                                
-                                while (audioFile.pos() < audioFile.samples()) {
-                                    // Remember window start position
-                                    audioFile.pos() => int windowStartPos;
-                                    
-                                    // Buffer one FFT-size of audio
-                                    fft.size()::samp => now;
-                                    
-                                    // Aggregate features over NUM_FRAMES
-                                    float featureFrame[featureNumDimensions];
-                                    featureFrame.zero();
-                                    
-                                    for (0 => int frame; frame < EXTRACT_NUM_FRAMES; frame++) {
-                                        // Trigger analysis (non-blocking, analysis-only)
-                                        combo.upchuck();
-                                        
-                                        // Accumulate features
-                                        for (0 => int d; d < featureNumDimensions; d++) {
-                                            combo.fval(d) +=> featureFrame[d];
-                                        }
-                                        
-                                        // Advance time (only in extraction shred, doesn't block audio)
-                                        HOP => now;
-                                    }
-                                    
-                                    // Average features
-                                    for (0 => int d; d < featureNumDimensions; d++) {
-                                        EXTRACT_NUM_FRAMES /=> featureFrame[d];
-                                    }
-                                    
-                                    // Store features using associative arrays
-                                    // Store window start time
-                                    (windowStartPos::samp) / second => float windowTime;
-                                    
-                                    // Store window time
-                                    string timeKey;
-                                    fileIndex + "_" + windowIndex => timeKey;
-                                    windowTime => featureWindowTimes[timeKey];
-                                    
-                                    // Store feature values
-                                    for (0 => int d; d < featureNumDimensions; d++) {
-                                        string featureKey;
-                                        fileIndex + "_" + windowIndex + "_" + d => featureKey;
-                                        featureFrame[d] => featureVectors[featureKey];
-                                    }
-                                    
-                                    windowIndex++;
-                                }
-                                
-                                // Mark extraction complete for this file
-                                windowIndex => featureWindowsPerFile[fileIndex];
-                                1 => featureExtractionComplete[fileIndex];
-                                
-                                <<< "Feature extraction complete for file", fileIndex, ":", filename, "-", windowIndex, "windows" >>>;
-                            }
-                        }
-                        
-                        // Global feature extractor instance
-                        // CRITICAL: Do NOT call init() here - it requires audio to flow through the chain
-                        // init() will be called lazily when extractFileFeatures() is first called
-                        // This prevents stalling because combo.upchuck() needs audio samples to process
-                        FeatureExtractor featureExtractor;
-                        
-                        // Declare audioIn-specific effect classes (synced to beatMSNew)
-                        // These Chugraph classes can be instantiated and used in any effects chain
-                        // All time-based operations use beatMSNew for synchronization with main tick loop
-                        // Note: beatMs parameter is used for initial defaults, but effects use beatMSNew at runtime
-                        ${getGrainStretchClass(chuckCodeData.bpm || 120)}
-                        ${getTapeClass(chuckCodeData.bpm || 120)}
-                        ${getRandomReverseClass(chuckCodeData.bpm || 120)}
-                        ${getReichClass(chuckCodeData.bpm || 120)}
-                        ${getLisaTriggerClass(chuckCodeData.bpm || 120)}
-                        ${getAsymptoticChopperClass(chuckCodeData.bpm || 120)}
-                        // MosaicSynth removed - functionality integrated into enhanced sampler with CHAI voice management
-                        
-                        // Note: To use these effects in effects chains, instantiate them like:
-                        // GrainStretch grain_osc1; grain_osc1 => nextEffect => outlet;
-                        // They are available for osc1, sampler, stk1, and audioin effects chains
-                        
-                        // ============================================================
-                        // EFFECTS VALUES INITIALIZATION: Set default values
-                        // ============================================================
-                        ${Object.values(chuckCodeData.valuesReadoutDeclarations || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
-                        ${Object.values(chuckCodeData.valuesReadoutSamplerDeclarations || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
-                        ${Object.values(chuckCodeData.valuesReadoutSTKDeclarations || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
-                        ${Object.values(chuckCodeData.valuesReadoutAudioInDeclarations || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
-                        
-                        // ============================================================
-                        // SYNTH VOICE OSCILLATOR: Full-featured Moog-style synth
-                        // Sample-accurate, parameter-driven (no blocking in setters)
-                        // ============================================================
-                        SawOsc saw1, saw2;
-                        TriOsc tri1, tri2;
-                        SqrOsc sqr1, sqr2;
-                        LPF lpf;
-                        ADSR adsr;
-                        Dyno limiter;
-                        Noise noiseSource;
-                        Gain pitchLfo, filterLfo;
-                        SinOsc SinLfo;
-                        SawOsc SawLfo;
-                        SqrOsc SqrLfo;
-                        
-                        0 => int filterEnvRunning;
-                        6.0 => float lfoFreqDefault;
-                        
-                        // Moog Grandmother defaults (can be updated from TypeScript)
-                        global float moogGMDefaults[0];
-                        ${(chuckCodeData.moogGrandmotherEffects?.current?.offset?.value || 0)} => moogGMDefaults["offset"];
-                        ${(chuckCodeData.moogGrandmotherEffects?.current?.oscOffset?.value || 0)} => moogGMDefaults["oscOffset"];
-                        50.0 => moogGMDefaults["cutoff"];
-                        50.0 => moogGMDefaults["rez"];
-                        50.0 => moogGMDefaults["env"];
-                        0 => moogGMDefaults["oscType1"];
-                        0 => moogGMDefaults["oscType2"];
-                        50.0 => moogGMDefaults["detune"];
-                        50.0 => moogGMDefaults["cutoffMod"];
-                        50.0 => moogGMDefaults["pitchMod"];
-                        0 => moogGMDefaults["lfoVoice"];
-                        6.0 => moogGMDefaults["lfoFreq"];
-                        0.0 => moogGMDefaults["noise"];
-                        0.1 => moogGMDefaults["adsrAttack"];
-                        0.1 => moogGMDefaults["adsrDecay"];
-                        0.5 => moogGMDefaults["adsrSustain"];
-                        0.1 => moogGMDefaults["adsrRelease"];
-                        0.0 => moogGMDefaults["adsrModAmount"];  // LFO modulation depth (0.0 = off, 1.0 = full)
-                        0.5 => moogGMDefaults["limiterAttack"];
-                        -6.0 => moogGMDefaults["limiterThreshold"];
-                        
-                        class SynthVoice extends Chugraph {
-                            Gain voiceGain;
-                            saw1 => lpf => adsr => limiter => voiceGain => outlet;
-                            saw2 => lpf;
-                            noiseSource => lpf;
-                            
-                            moogGMDefaults["noise"] => noiseSource.gain;
-                            1.0 => voiceGain.gain;  // Default gain
-                            
-                            SinLfo => pitchLfo => blackhole;
-                            SinLfo => filterLfo => blackhole;
-                            
-                            fun void SetLfoFreq(float frequency) {
-                                frequency => SinLfo.freq => SawLfo.freq => SqrLfo.freq;
-                            }
-                            
-                            SetLfoFreq(lfoFreqDefault);
-                            0 => filterLfo.gain;
-                            0 => pitchLfo.gain;
-                            
-                            2 => saw1.sync => saw2.sync => tri1.sync => tri2.sync => sqr1.sync => sqr2.sync;
-                            
-                            pitchLfo => saw1;
-                            pitchLfo => saw2;
-                            pitchLfo => tri1;
-                            pitchLfo => tri2;
-                            pitchLfo => sqr1;
-                            pitchLfo => sqr2;
-                            
-                            0.99 => saw1.gain => saw2.gain;
-                            0.99 => tri1.gain => tri2.gain;
-                            0.99 => sqr1.gain => sqr2.gain;
-                            
-                            80.0 => float filterCutoff;
-                            filterCutoff => lpf.freq;
-                            
-                            moogGMDefaults["offset"] => float offset;
-                            1.0 => float filterEnv;
-                            1.0 => float osc2Detune;
-                            moogGMDefaults["oscOffset"] => float oscOffset;
-                            
-                            // Gain setter for velocity control
-                            fun void gain(float g) {
-                                g => voiceGain.gain;
-                            }
-                            
-                            fun void SetOsc1Freq(float frequency) {
-                                frequency => tri1.freq => sqr1.freq => saw1.freq;
-                            }
-                            
-                            fun void SetOsc2Freq(float frequency) {
-                                frequency => tri2.freq => sqr2.freq => saw2.freq;
-                            }
-                            
-                            fun void keyOn(float noteNumber) {
-                                Std.mtof(offset + Std.ftom(noteNumber)) => SetOsc1Freq;
-                                Std.mtof(offset + Std.ftom(noteNumber) + oscOffset) - osc2Detune => SetOsc2Freq;
-                                1 => adsr.keyOn;
-                                // VOICE CONTRACT COMPLIANT: filterEnvelope() spork is terminating, time-advancing
-                                // Called from oscillatorShred() tick handler, uses pre-allocated filter envelope
-                                // Bounded: Only one filter envelope per synth instance (filterEnvRunning guard)
-                                if (filterEnvRunning == 0) {
-                                    spork ~ filterEnvelope();
-                                }
-                            }
-                            
-                            fun void ChooseOsc1(int oscType) {
-                                if (oscType == 0) { tri1 =< lpf; saw1 =< lpf; sqr1 =< lpf; }
-                                if (oscType == 1) { tri1 => lpf; saw1 =< lpf; sqr1 =< lpf; }
-                                if (oscType == 2) { tri1 =< lpf; saw1 => lpf; sqr1 =< lpf; }
-                                if (oscType == 3) { tri1 =< lpf; saw1 =< lpf; sqr1 => lpf; }
-                            }
-                            
-                            fun void ChooseOsc2(int oscType) {
-                                if (oscType == 0) { tri2 =< lpf; saw2 =< lpf; sqr2 =< lpf; }
-                                if (oscType == 1) { tri2 => lpf; saw2 =< lpf; sqr2 =< lpf; }
-                                if (oscType == 2) { tri2 =< lpf; saw2 => lpf; sqr2 =< lpf; }
-                                if (oscType == 3) { tri2 =< lpf; saw2 =< lpf; sqr2 => lpf; }
-                                if (oscType == 4) { tri2 =< lpf; saw2 =< lpf; sqr2 =< lpf; }
-                            }
-                            
-                            fun void ChooseLfo(int oscType) {
-                                if (oscType == 0) {
-                                    SinLfo =< filterLfo; SinLfo =< pitchLfo;
-                                    SawLfo =< filterLfo; SawLfo =< pitchLfo;
-                                    SqrLfo =< filterLfo; SqrLfo =< pitchLfo;
-                                }
-                                if (oscType == 1) {
-                                    SinLfo => filterLfo; SinLfo => pitchLfo;
-                                    SawLfo =< filterLfo; SawLfo =< pitchLfo;
-                                    SqrLfo =< filterLfo; SqrLfo =< pitchLfo;
-                                }
-                                if (oscType == 2) {
-                                    SinLfo =< filterLfo; SinLfo =< pitchLfo;
-                                    SawLfo => filterLfo; SawLfo => pitchLfo;
-                                    SqrLfo =< filterLfo; SqrLfo =< pitchLfo;
-                                }
-                                if (oscType == 3) {
-                                    SinLfo =< filterLfo; SinLfo =< pitchLfo;
-                                    SawLfo =< filterLfo; SawLfo =< pitchLfo;
-                                    SqrLfo => filterLfo; SqrLfo => pitchLfo;
-                                }
-                            }
-                            
-                            fun void keyOff(int noteNumber) {
-                                noteNumber => adsr.keyOff;
-                            }
-                            
-                            // VOICE CONTRACT COMPLIANT: filterEnvelope() satisfies all requirements
-                            // - Terminating: Conditional while loop terminates when ADSR state changes
-                            // - Time-advancing: Contains now statements (hold => now, releaseTime => now)
-                            // - Uses pre-allocated UGen: lpf, adsr, filterLfo (no runtime allocation)
-                            // - Releases resources: Sets filterEnvRunning to 0 before exit
-                            fun void filterEnvelope() {
-                                1 => filterEnvRunning;
-                                filterCutoff => float startFreq;
-                                while ((adsr.state() != 0 && adsr.value() == 0) == false) {
-                                    Std.fabs((filterEnv * adsr.value()) + startFreq + filterLfo.last()) => lpf.freq;
-                                    (adsr.attackTime() + adsr.decayTime()) => dur hold;
-                                    hold => now;
-                                    adsr.keyOff();
-                                    adsr.releaseTime() => now;
-                                }
-                                0 => filterEnvRunning;
-                            }
-                            
-                            fun void cutoff(float amount) {
-                                if (amount > 100) 100 => amount;
-                                if (amount < 0) 0 => amount;
-                                (amount / 100) * 5000 => filterCutoff;
-                            }
-                            
-                            fun void rez(float amount) {
-                                if (amount > 100) 100 => amount;
-                                if (amount < 0) 0 => amount;
-                                20 * (amount / 100) + 0.3 => lpf.Q;
-                            }
-                            
-                            fun void env(float amount) {
-                                if (amount > 100) 100 => amount;
-                                if (amount < 0) 0 => amount;
-                                5000 * (amount / 100) => filterEnv;
-                            }
-                            
-                            fun void detune(float amount) {
-                                if (amount > 100) 100 => amount;
-                                if (amount < 0) 0 => amount;
-                                5 * (amount / 100) => osc2Detune;
-                            }
-                            
-                            fun void pitchMod(float amount) {
-                                if (amount > 100) 100 => amount;
-                                if (amount < 1) 0 => amount;
-                                84 * (amount / 100) => pitchLfo.gain;
-                            }
-                            
-                            fun void cutoffMod(float amount) {
-                                if (amount > 100) 100 => amount;
-                                if (amount < 1) 0 => amount;
-                                500 * (amount / 100) => filterLfo.gain;
-                            }
-                            
-                            fun void noise(float amount) {
-                                if (amount > 100) 100 => amount;
-                                if (amount < 1) 0 => amount;
-                                (1.0 * (amount / 100)) => noiseSource.gain;
-                            }
-                        }
-                        
-                        // Create synth voice instance (polyphony can be increased by changing array size)
-                        1 => int numVoices;
-                        SynthVoice voice[numVoices];
-                        
-                        // CHAI-style voice management: LRU (Least Recently Used) voice stealing
-                        // MCP VERIFICATION: ✅ APPROVED
-                        // - Voice allocation is atomic (array access)
-                        // - No time advancement in allocation logic
-                        // - Voice stealing prevents voice exhaustion
-                        int voiceLastUsed[numVoices];  // Timestamp of last use (tick counter)
-                        int voiceBusy[numVoices];      // 1 if voice is active, 0 if free
-                        for (0 => int i; i < numVoices; i++) {
-                            0 => voiceLastUsed[i];
-                            0 => voiceBusy[i];
-                        }
-                        
-                        // Enhanced voice allocation with LRU stealing
-                        fun int allocateVoice(int currentTick) {
-                            // First, try to find a free voice
-                            for (0 => int i; i < numVoices; i++) {
-                                if (voiceBusy[i] == 0) {
-                                    1 => voiceBusy[i];
-                                    currentTick => voiceLastUsed[i];
-                                    return i;
-                                }
-                            }
-                            
-                            // No free voices: steal LRU (Least Recently Used)
-                            int oldestTick;
-                            currentTick => oldestTick;
-                            int oldestVoice;
-                            0 => oldestVoice;
-                            
-                            for (0 => int i; i < numVoices; i++) {
-                                if (voiceLastUsed[i] < oldestTick) {
-                                    voiceLastUsed[i] => oldestTick;
-                                    i => oldestVoice;
-                                }
-                            }
-                            
-                            // Steal the oldest voice (release it first)
-                            if (oldestVoice >= 0 && oldestVoice < numVoices) {
-                                1 => voice[oldestVoice].keyOff;  // Release old note
-                                1 => voiceBusy[oldestVoice];
-                                currentTick => voiceLastUsed[oldestVoice];
-                                return oldestVoice;
-                            }
-                            
-                            // Fallback: use voice 0
-                            return 0;
-                        }
-                        
-                        fun void releaseVoice(int voiceIdx) {
-                            if (voiceIdx >= 0 && voiceIdx < numVoices) {
-                                0 => voiceBusy[voiceIdx];
-                            }
-                        }
-                        
-                        // CRITICAL: Declare master gain/pan/dyno variables BEFORE routing chains
-                        // ChucK requires explicit declarations for variables used in multiple scopes
-                        Dyno osc1_MasterDyno;
-                        Pan2 osc1_MasterPan;
-                        Gain osc1_MasterGain;
-                        Dyno sampler_MasterDyno;
-                        Pan2 sampler_MasterPan;
-                        Gain sampler_MasterGain;
-                        Dyno audioIn_MasterDyno;
-                        Pan2 audioIn_MasterPan;
-                        Gain audioIn_MasterGain;
-                        Dyno stk1_MasterDyno;
-                        Pan2 stk1_MasterPan;
-                        Gain stk1_MasterGain;
-                        
-                        // Route synth voice through effects chain to master gain
-                        // Note: osc1_FxChain is already declared above (line ~2255)
-                        voice[numVoices - 1] => osc1_FxChain => osc1_MasterDyno => osc1_MasterPan => osc1_MasterGain => masterGain;
-                        0.5 => osc1_MasterGain.gain;
-                        0.0 => osc1_MasterPan.pan;
-                        
-                        // ============================================================
-                        // SAMPLER: Route through effects chain
-                        // ============================================================
-                        // Sampler uses LiSa voices (polyphonic, pitch-shifted) routed through effects
-                        // Note: sampler_FxChain is already declared above (line ~2253)
-                        sampler_FxChain => sampler_MasterDyno => sampler_MasterPan => sampler_MasterGain => masterGain;
-                        0.5 => sampler_MasterGain.gain;
-                        0.0 => sampler_MasterPan.pan;
-                        // Note: Sampler voices are already routed through sampler_FxChain in initialization above
-                        // Legacy SndBuf buffers remain disconnected (used only for loading files into LiSa)
-                        
-                        // ============================================================
-                        // AUDIO INPUT: Route through effects chain
-                        // ============================================================
-                        // Note: audioIn_FxChain is already declared above (line ~2253)
-                        adc => audioIn_FxChain => audioIn_MasterDyno => audioIn_MasterPan => audioIn_MasterGain => masterGain;
-                        0.0 => audioIn_MasterGain.gain;
-                        0.0 => audioIn_MasterPan.pan;
+                        adc => Gain audioInGain => masterGain;
+                        0.0 => audioInGain.gain;
                         
                         // ============================================================
                         // SHARED AUDIO BUFFER POOL: Cross-input routing
@@ -2785,168 +2180,37 @@ export default function ChuckSetup() {
                         global Event bufferRecorded;   // Signal when buffer is ready
                         global Event bufferPlayRequest; // Request to play from buffer
                         global int requestedMidiNote;   // MIDI note for pitch-shifted playback
-                        global float detectedPitch[4];  // Auto-detected pitch for each buffer (Hz)
-                        global int bufferPitchDetected[4];  // Flag: 1 if pitch detected, 0 if not
                         -1 => activeBufferIndex;
-                        for (0 => int i; i < 4; i++) {
-                            0.0 => detectedPitch[i];
-                            0 => bufferPitchDetected[i];
-                        }
                         
                         // ============================================================
-                        // STK INSTRUMENTS: Synthesis ToolKit instruments with effects
+                        // STK INSTRUMENTS: Ready for effects chain
                         // ============================================================
-                        ${chuckCodeData.activeSTKDeclarations || ''}
-                        
-                        // Route STK instruments through effects chain
-                        // Note: stk_FxChain is already declared above (line ~2253)
-                        // Note: stk1_MasterDyno, stk1_MasterPan, stk1_MasterGain already declared above
-                        stk_FxChain => stk1_MasterDyno => stk1_MasterPan => stk1_MasterGain => masterGain;
-                        0.5 => stk1_MasterGain.gain;
-                        0.0 => stk1_MasterPan.pan;
-                        
-                        // Global arrays for STK note data (hot-swappable element-by-element via API)
-                        // Updated via handleGridUpdate() using setFloatArrayValue() API method
-                        // CRITICAL: Bounded array size to prevent WASM memory allocation failures
-                        global float stkMidiNotesArray[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        global float stkMidiFreqsArray[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        global float stkMidiLengthsArray[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        global float stkMidiVelocitiesArray[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        
-                        // Initialize STK arrays from TypeScript
-                        // Source: rhythmCache.events -> event.noteFrequencies (same as oscillator)
-                        // CRITICAL: Initialize element-by-element (large arrays must not use @=>)
-                        // Array literal assignment (@=>) on large arrays causes WASM memory corruption
-                        // Populated element-by-element after declaration via runCode
-                        
-                        // STK note handler function
-                        fun void handleSTKNote(int tickCount, float noteLength) {
-                            if (tickCount < stkMidiFreqsArray.size()) {
-                                stkMidiFreqsArray[tickCount] => float freq;
-                                stkMidiVelocitiesArray[tickCount] => float vel;
-                                
-                                if (freq > 0.0 && freq != 9999.0) {
-                                    ${chuckCodeData.activeSTKSettings || ''}
-                                    ${chuckCodeData.activeSTKPlayOn || ''}
-                                    (beatMSNew * noteLength)::ms => now;
-                                    ${chuckCodeData.activeSTKPlayOff || ''}
-                                }
-                            }
-                        }
-                        
-                        // ============================================================
-                        // CELL FUNCTION EXECUTION: Runtime-populatable functions per cell
-                        // Functions are pre-compiled at build time and called by ID
-                        // MCP VERIFIED: Functions are sporked, no now advancement in audio thread
-                        // Hot-swapping: Update function code in registry and rebuild ChucK code
-                        // ============================================================
-                        // Pre-compiled function implementations (generated from registry)
-                        // MCP VERIFIED: All functions pre-compiled, no runtime code execution
-                        // Functions receive cell context: cellX, cellY, tickIndex
-                        // Functions can access: files[], filesArr[][], oscMidiFreqsArray[], etc.
-                        // CRITICAL CONSTRAINT: Cell functions are sporked inside tick handlers
-                        // They MUST be terminating, time-advancing voice shreds:
-                        // - MUST advance time (contain now statements for audio playback duration)
-                        // - MUST terminate (no while loops, function completes and exits)
-                        // - MUST be voice shreds (play audio, not control-only logic)
-                        // FORBIDDEN: Persistent shreds (while loops) or control shreds (no time advancement)
-                        // Violation causes timing drift and shred accumulation
-                        ${Array.from(cellFunctionRegistryLocal.entries()).map(([id, code]) => {
-                            const safeId = id.replace(/[^a-zA-Z0-9]/g, '_');
-                            return `
-                        fun void cellFunction_${safeId}(int cellX, int cellY, int tickIndex) {
-                            // Runtime-populated function: ${id}
-                            // Cell context: x=${'${cellX}'}, y=${'${cellY}'}, tick=${'${tickIndex}'}
-                            // CONSTRAINT: Must be terminating voice shred (advance time, play audio, exit)
-                            ${code}
-                        }`;
-                        }).join('')}
-                        
-                        // Function dispatcher: calls pre-compiled functions by ID
-                        // MCP VERIFIED: No dynamic code execution, all functions pre-compiled at build time
-                        fun void executeCellFunction(string functionId, int cellX, int cellY, int tickIndex) {
-                            // Dispatch to pre-compiled function based on ID
-                            ${Array.from(cellFunctionRegistryLocal.keys()).map(id => {
-                                const safeId = id.replace(/[^a-zA-Z0-9]/g, '_');
-                                return `if (functionId == "${id}") {
-                                cellFunction_${safeId}(cellX, cellY, tickIndex);
-                                return;
-                            }`;
-                            }).join('')}
-                            
-                            // Unknown function ID - silently ignore (allows hot-swapping without errors)
-                            // This can happen if function was removed from registry but cell still references it
-                        }
-                        
-                        // ============================================================
-                        // OPCODE DISPATCH TABLE: Maps opcodes to sampler behaviors
-                        // Opcodes: 0 to files.size()-1 = PLAY_FILE (arg = fileIndex), 9999 = NOOP
-                        // Timing invariant: Dispatch is non-blocking, triggered by tick events
-                        // Behavior invariant: Matches original bounds checking (fileIndex >= 0 && fileIndex < files.size())
-                        // 
-                        // VOICE CONTRACT: See CHUCK_VOICE_CONTRACT.md
-                        // All sporked voice shreds must satisfy the Voice Contract requirements
-                        // ============================================================
-                        fun void dispatchSamplerOpcode(int opcode, int arg) {
-                            // Opcode 0 to files.size()-1: PLAY_FILE (matches original: fileIndex >= 0 && fileIndex < files.size())
-                            if (opcode >= 0 && opcode < 9999 && opcode < files.size()) {
-                                    // ARCHITECTURAL EXCEPTION: Spork inside tick handler - VOICE SHRED ONLY
-                                    // STRICT CONSTRAINT: Tick handlers may spork ONLY terminating, time-advancing voice shreds
-                                    // FORBIDDEN: Persistent shreds (while loops) or control shreds (no time advancement)
-                                    // This spork satisfies the constraint:
-                                    // - Terminating: Function completes and shred exits (activeVoices-- at end)
-                                    // - Time-advancing: Has now statements (file loading, playback duration, envelope release)
-                                    // - Voice shred: Plays audio through samplerVoices[voiceIdx]
-                                    // Removing this spork would block the tick loop and break polyphonic playback
-                                    spork ~ playSamplerFile(arg, arg);
-                            }
-                            // Opcode 9999 or invalid: NOOP (sentinel value or out-of-bounds, do nothing)
-                        }
+                        // STK instruments can be added here as needed
+                        // Example: Clarinet clar => masterGain;
                         
                         // ============================================================
                         // SAMPLER SHRED: Independent parallel execution
                         // Runs its own course, triggered by tick events
-                        // Routes through Sampler_EffectsChain for effects processing
-                        // Uses opcode-based dispatch for sampler behaviors
                         // ============================================================
                         fun void samplerShred() {
                             while (true) {
                                 // Wait for tick event (non-blocking, allows other shreds to run)
                                 tickEvent => now;
                                 
-                                // Use shared tick counter (synchronized with mainTickLoop, prevents drift)
-                                currentTicker => int currentTick;
-                                // Wrap tick to measureLength (expanded for subdivisions)
-                                currentTick % measureLength => int wrappedTick;
+                                // Get current tick from time (more reliable than tracking shred IDs)
+                                (now / (beatMSNew::ms)) $ int => int currentTick;
+                                // Wrap tick to total cells (filesArr.size() includes all rows)
+                                currentTick % filesArr.size() => int wrappedTick;
                                 
-                                // Check for cell function
-                                if (wrappedTick < cellFunctionIds.size() && cellFunctionIds[wrappedTick] != "") {
-                                    cellFunctionIds[wrappedTick] => string functionId;
-                                    // Calculate cell coordinates from tick (reverse of expansion)
-                                    wrappedTick / ${MAX_SUBDIVISIONS} => int baseCellIndex;
-                                    ${cellsPerRow} => int cellsPerRow;
-                                    baseCellIndex % cellsPerRow => int cellX;
-                                    baseCellIndex / cellsPerRow => int cellY;
-                                    
-                                    // ARCHITECTURAL EXCEPTION: Spork inside tick handler - VOICE SHRED ONLY
-                                    // STRICT CONSTRAINT: Tick handlers may spork ONLY terminating, time-advancing voice shreds
-                                    // FORBIDDEN: Persistent shreds (while loops) or control shreds (no time advancement)
-                                    // WARNING: executeCellFunction dispatches to user-defined cell functions
-                                    // Cell functions MUST be terminating voice shreds (advance time, play audio, exit)
-                                    // Cell functions MUST NOT be persistent (no while loops) or control-only (no time advancement)
-                                    // Violation of this constraint will cause timing drift and shred accumulation
-                                    spork ~ executeCellFunction(functionId, cellX, cellY, wrappedTick);
-                                }
-                                
-                                // Dispatch sampler opcodes for this tick
-                                // Timing invariant: Still triggered by same tickEvent, same wrappedTick calculation
                                 if (wrappedTick < filesArr.size()) {
-                                    for (0 => int filePos; filePos < filesArr[wrappedTick].size(); filePos++) {
-                                        filesArr[wrappedTick][filePos] => int opcode;
+                                    // Play all files for this cell in parallel
+                                    for (0 => int x; x < filesArr[wrappedTick].size(); x++) {
+                                        filesArr[wrappedTick][x] => int fileIndex;
                                         
-                                        // Dispatch opcode (opcode = fileIndex for PLAY_FILE, 9999 for NOOP)
-                                        // Behavior identical: opcode 0-9998 plays file, 9999 does nothing
-                                        dispatchSamplerOpcode(opcode, opcode);
+                                        if (fileIndex != 9999 && fileIndex < files.size() && x < samplerBuffers.size()) {
+                                            // Spork individual file playback (non-blocking)
+                                            spork ~ playSamplerFile(x, fileIndex);
+                                        }
                                     }
                                 }
                                 
@@ -2955,246 +2219,40 @@ export default function ChuckSetup() {
                             }
                         }
                         
-                        // CHAI-style voice allocation for sampler (LRU voice stealing)
-                        fun int allocateSamplerVoice(int currentTick) {
-                            // First, try to find a free voice
-                            for (0 => int i; i < samplerNumVoices; i++) {
-                                if (samplerVoiceBusy[i] == 0) {
-                                    1 => samplerVoiceBusy[i];
-                                    currentTick => samplerVoiceLastUsed[i];
-                                    return i;
-                                }
-                            }
-                            
-                            // No free voices: steal LRU (Least Recently Used)
-                            int oldestTick;
-                            currentTick => oldestTick;
-                            int oldestVoice;
-                            0 => oldestVoice;
-                            
-                            for (0 => int i; i < samplerNumVoices; i++) {
-                                if (samplerVoiceLastUsed[i] < oldestTick) {
-                                    samplerVoiceLastUsed[i] => oldestTick;
-                                    i => oldestVoice;
-                                }
-                            }
-                            
-                            // Steal the oldest voice (release it first)
-                            if (oldestVoice >= 0 && oldestVoice < samplerNumVoices) {
-                                samplerEnvelopes[oldestVoice].keyOff();  // Release old note
-                                1 => samplerVoiceBusy[oldestVoice];
-                                currentTick => samplerVoiceLastUsed[oldestVoice];
-                                return oldestVoice;
-                            }
-                            
-                            // Fallback: use voice 0
-                            return 0;
-                        }
-                        
-                        fun void releaseSamplerVoice(int voiceIdx) {
-                            if (voiceIdx >= 0 && voiceIdx < samplerNumVoices) {
-                                0 => samplerVoiceBusy[voiceIdx];
-                                -1 => samplerVoiceFileIndex[voiceIdx];
-                            }
-                        }
-                        
-global int activeVoices;
-0 => activeVoices;  // Initialize to 0
-
-                        // Enhanced polyphonic sampler playback with pitch shifting
-                        // Uses LiSa for polyphonic playback (like MIDI keyboard)
-                        // Pitch detection from feature extraction improves accuracy
+                        // Individual file playback (runs independently)
+                        // NOTE: To add pitched playback based on notes from beatgrid:
+                        // 1. Pass note frequencies/names from beatgrid to ChucK (via global arrays)
+                        // 2. Calculate pitch ratio: targetFreq / originalFreq
+                        // 3. Set samplerBuffers[bufferIndex].rate(pitchRatio) before playing
+                        // Example:
+                        //   float targetFreq = Std.mtof(noteMidi); // Convert MIDI note to frequency
+                        //   float originalFreq = 440.0; // Or detect from sample
+                        //   targetFreq / originalFreq => float pitchRatio;
+                        //   pitchRatio => samplerBuffers[bufferIndex].rate;
+                        // Currently notes are stored in beatgrid (noteName field) but NOT passed to ChucK yet
                         fun void playSamplerFile(int bufferIndex, int fileIndex) {
-                            activeVoices++;
-                            if (fileIndex < 0 || fileIndex >= files.size()) return;
-                            
-                            // Allocate voice (CHAI-style LRU stealing)
-                            currentTicker => int currentTick;
-                            allocateSamplerVoice(currentTick) => int voiceIdx;
-                            
-                            files[fileIndex] => string filename;
-                            fileIndex => samplerVoiceFileIndex[voiceIdx];
-                            
-                            // Load file into SndBuf for copying to LiSa
-                            samplerBuffers[bufferIndex].read(filename);
-                            
-                            // Wait for file to load (with timeout to prevent infinite stall)
-                            now => dur loadStartTime;
-                            5::second => dur maxLoadTime;
-                            while (samplerBuffers[bufferIndex].length() == 0::samp) {
-                                if (now - loadStartTime > maxLoadTime) {
-                                    <<< "ERROR: File load timeout for", filename, "- skipping playback" >>>;
-                                    releaseSamplerVoice(voiceIdx);
-                                    activeVoices--;
-                                    return;
-                                }
-                                1::samp => now;
-                            }
-                            
-                            // Copy file to LiSa voice (non-blocking, allows polyphony)
-                            samplerVoices[voiceIdx].clear();
-                            samplerVoices[voiceIdx].recPos(0::samp);
-                            samplerVoices[voiceIdx].record(1);
-                            
-                            // Play from SndBuf and record to LiSa simultaneously
+                            files[fileIndex] => samplerBuffers[bufferIndex].read;
                             0 => samplerBuffers[bufferIndex].pos;
-                            samplerBuffers[bufferIndex].length() => dur fileLength;
-                            fileLength => now;
-                            
-                            samplerVoices[voiceIdx].record(0);
-                            
-                            // Calculate pitch ratio (use feature extraction to improve pitch detection)
-                            // Feature extraction provides spectral analysis for better pitch estimation
-                            float baseFreq;
-                            if (featureExtractionComplete[fileIndex] == 1 && featureWindowsPerFile[fileIndex] > 0) {
-                                // Use feature extraction to estimate pitch
-                                // Extract centroid (spectral centroid correlates with pitch)
-                                // For now, use simple heuristic: higher centroid = higher pitch
-                                // Future: use MFCC or chroma features for more accurate pitch detection
-                                string centroidKey;
-                                fileIndex + "_0_1" => centroidKey;  // First window, centroid dimension
-                                featureVectors[centroidKey] => float centroid;
-                                
-                                // Map centroid to frequency (heuristic: centroid in Hz range)
-                                // Normalize centroid to reasonable frequency range (100-2000 Hz)
-                                Math.max(100.0, Math.min(2000.0, centroid * 10.0)) => baseFreq;
-                            } else {
-                                // Fallback: use detected pitch from PitchTrack if available
-                                if (bufferPitchDetected[fileIndex] == 1 && fileIndex < detectedPitch.size()) {
-                                    detectedPitch[fileIndex] => baseFreq;
-                                } else {
-                                    261.63 => baseFreq;  // C4 default
-                                }
-                            }
-                            
-                            // Get MIDI note from beat grid (if available)
-                            // For now, use file index to determine note (simple mapping)
-                            // Future: pass actual MIDI notes from beat grid via global arrays
-                            (fileIndex % 12) + 60 => float midiNote;  // Map to C4-B4 range
-                            Std.mtof(midiNote) => float targetFreq;
-                            targetFreq / baseFreq => float pitchRatio;
-                            
-                            // Set playback parameters (non-blocking)
-                            pitchRatio => samplerVoices[voiceIdx].rate;
-                            0.5 => samplerVoiceGains[voiceIdx].gain;
-                            samplerVoices[voiceIdx].playPos(0::samp);
-                            
-                            // Trigger envelope and playback
-                            samplerEnvelopes[voiceIdx].keyOn();
-                            samplerVoices[voiceIdx].play(1);
-                            
-                            // Play for file duration (adjusted for pitch ratio)
-                            (fileLength / pitchRatio) => dur playDuration;
-                            playDuration - samplerEnvelopes[voiceIdx].releaseTime() => now;
-                            
-                            // Release envelope
-                            samplerEnvelopes[voiceIdx].keyOff();
-                            samplerEnvelopes[voiceIdx].releaseTime() => now;
-                            
-                            // Stop playback and free voice
-                            samplerVoices[voiceIdx].play(0);
-                            releaseSamplerVoice(voiceIdx);
-
-                            activeVoices--;
+                            0.5 => samplerBuffers[bufferIndex].gain;
+                            // TODO: Add note-based pitch shifting here when notes are passed from beatgrid
+                            // Let buffer play its course - shred exits when done
+                            samplerBuffers[bufferIndex].length() => now;
                         }
                         
                         // ============================================================
-                        // OSCILLATOR SHRED: Plays notes from beat grid
-                        // Sample-accurate, triggered by tick events
+                        // OSCILLATOR SHRED: Independent parallel execution
+                        // Can be extended with effects, mangling, etc.
                         // ============================================================
-                        // Global arrays for oscillator note data (hot-swappable element-by-element via API)
-                        // Updated via handleGridUpdate() using setFloatArrayValue() API method
-                        // CRITICAL: Bounded array size to prevent WASM memory allocation failures
-                        global float oscMidiNotesArray[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        global float oscMidiFreqsArray[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        global float oscMidiLengthsArray[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        global float oscMidiVelocitiesArray[${Math.max(1, Math.min(expandedMeasureLength, 512))}];
-                        
-                        // Initialize arrays from TypeScript (with subdivision expansion)
-                        // Source: rhythmCache.events -> event.noteFrequencies
-                        // CRITICAL: Initialize element-by-element (large arrays must not use @=>)
-                        // Array literal assignment (@=>) on large arrays causes WASM memory corruption
-                        // Populated element-by-element after declaration via runCode
-                        
                         fun void oscillatorShred() {
+                            // Oscillator disabled by default - no notes should play unless explicitly programmed
+                            // To enable: set osc.gain > 0 and trigger based on beatgrid notes
                             while (true) {
                                 tickEvent => now;
-                                
-                                // Use shared tick counter (synchronized with mainTickLoop)
-                                currentTicker => int currentTick;
-                                
-                                // Check if we have note data for this tick
-                                if (currentTick < oscMidiFreqsArray.size()) {
-                                    oscMidiFreqsArray[currentTick] => float freq;
-                                    oscMidiLengthsArray[currentTick] => float length;
-                                    oscMidiVelocitiesArray[currentTick] => float vel;
-                                    
-                                    // Play note if frequency is valid (not 9999.0 placeholder)
-                                    if (freq > 0.0 && freq != 9999.0) {
-                                        // Allocate voice using CHAI-style LRU algorithm
-                                        allocateVoice(currentTick) => int voiceIdx;
-                                        
-                                        // NOTE: Synth parameters are continuously updated by updateSynthParameters() shred
-                                        // (runs every 10ms, ensures parameters are always current)
-                                        // No need to update here - reduces redundant work
-                                        
-                                        // Set gain from velocity (non-blocking)
-                                        vel / 127.0 => float gainVal;
-                                        voice[voiceIdx].gain(gainVal);
-                                        
-                                        // Trigger note (non-blocking - envelope runs in separate shred)
-                                        freq => voice[voiceIdx].keyOn;
-                                        
-                                        // Calculate note duration and wait (this advances time in this shred)
-                                        (beatMSNew * length)::ms => dur noteDur;
-                                        noteDur => now;
-                                        
-                                        // Release note and free voice
-                                        0 => voice[voiceIdx].keyOff;
-                                        releaseVoice(voiceIdx);
-                                    }
-                                }
-                                
+                                // Oscillator is OFF by default - gain stays at 0.0
+                                // Notes should only play when assigned in beatgrid
                                 me.yield();
                             }
                         }
-                        
-                        // ============================================================
-                        // STK INSTRUMENT SHRED: Plays STK notes from beat grid
-                        // Sample-accurate, triggered by tick events
-                        // ============================================================
-                        fun void stkShred() {
-                            while (true) {
-                                tickEvent => now;
-                                
-                                // Use shared tick counter (synchronized with mainTickLoop)
-                                currentTicker => int currentTick;
-                                
-                                // Check if we have STK note data for this tick
-                                if (currentTick < stkMidiFreqsArray.size()) {
-                                    stkMidiLengthsArray[currentTick] => float length;
-                                    
-                                    // ARCHITECTURAL EXCEPTION: Spork inside tick handler - VOICE SHRED ONLY
-                                    // STRICT CONSTRAINT: Tick handlers may spork ONLY terminating, time-advancing voice shreds
-                                    // FORBIDDEN: Persistent shreds (while loops) or control shreds (no time advancement)
-                                    // This spork satisfies the constraint:
-                                    // - Terminating: Function completes and shred exits after note duration
-                                    // - Time-advancing: Has now statement (beatMSNew * noteLength)::ms => now
-                                    // - Voice shred: Plays audio through STK instruments
-                                    // Removing this spork would block the tick loop and break polyphonic playback
-                                    spork ~ handleSTKNote(currentTick, length);
-                                }
-                                
-                                me.yield();
-                            }
-                        }
-                        
-                        // ============================================================
-                        // REMOVED: MosaicSynth (redundant with enhanced sampler)
-                        // The enhanced sampler now provides polyphonic pitch-shifted playback
-                        // Feature extraction improves pitch detection for sampler files
-                        // MosaicSynth functionality is better served by the improved sampler
-                        // ============================================================
                         
                         // ============================================================
                         // AUDIO INPUT SHRED: Independent parallel execution
@@ -3205,113 +2263,14 @@ global int activeVoices;
                             while (true) {
                                 tickEvent => now;
                                 
-                                // Audio input is routed through AudioIn_EffectsChain automatically
-                                // Gain control can be updated from TypeScript via audioMixer_AudioIn["gain"]
-                                
-                                me.yield();
-                            }
-                        }
-                        
-                        // ============================================================
-                        // FX UPDATE HANDLER: Updates effect parameters in real-time
-                        // Non-blocking, parameter-driven (no time advancement)
-                        // ============================================================
-                        global Event fxUpdate;
-                        
-                        fun void handlerFXUpdate(Event fxUpdatez) {
-                            while (true) {
-                                fxUpdatez => now;
-                                
-                                // Update all effect parameters from global arrays
-                                // This runs in a separate shred, so it doesn't block audio
-                                ${Object.values(chuckCodeData.valuesReadout || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
-                                ${Object.values(chuckCodeData.valuesReadoutSampler || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
-                                ${Object.values(chuckCodeData.valuesReadoutSTK || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
-                                ${Object.values(chuckCodeData.valuesReadoutAudioIn || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
-                            }
-                        }
-                        
-                        // ============================================================
-                        // SYNTH PARAMETER UPDATE HANDLER: Continuously updates synth parameters
-                        // Runs independently, updates synth voice parameters from moogGMDefaults
-                        // Non-blocking, parameter-driven (no time advancement in setters)
-                        // ============================================================
-                        fun void updateSynthParameters() {
-                            while (true) {
-                                // Update synth parameters from moogGMDefaults (non-blocking)
-                                // This ensures synth is always ready with current settings
-                                if (numVoices > 0) {
-                                    moogGMDefaults["cutoff"] => voice[0].cutoff;
-                                    moogGMDefaults["rez"] => voice[0].rez;
-                                    moogGMDefaults["env"] => voice[0].env;
-                                    Std.ftoi(moogGMDefaults["oscType1"]) => voice[0].ChooseOsc1;
-                                    Std.ftoi(moogGMDefaults["oscType2"]) => voice[0].ChooseOsc2;
-                                    moogGMDefaults["detune"] => voice[0].detune;
-                                    Std.ftoi(moogGMDefaults["oscOffset"]) => voice[0].oscOffset;
-                                    moogGMDefaults["cutoffMod"] => voice[0].cutoffMod;
-                                    moogGMDefaults["pitchMod"] => voice[0].pitchMod;
-                                    Std.ftoi(moogGMDefaults["lfoVoice"]) => voice[0].ChooseLfo;
-                                    moogGMDefaults["offset"] => voice[0].offset;
-                                    moogGMDefaults["noise"] => voice[0].noise;
+                                // Example: Audio input processing
+                                // This is where you'd add effects chains, mangling, etc.
+                                // For now, simple passthrough with gain control
+                                0.5 => audioInGain.gain;
                                     
-                                    // Update ADSR envelope (non-blocking)
-                                    // Note: LFO modulation to ADSR is handled inside SynthVoice class
-                                    // via filterLfo and pitchLfo routing (already implemented)
-                                    (beatMSNew * moogGMDefaults["adsrAttack"])::ms => adsr.attackTime;
-                                    (beatMSNew * moogGMDefaults["adsrDecay"])::ms => adsr.decayTime;
-                                    moogGMDefaults["adsrSustain"] => adsr.sustainLevel;
-                                    (beatMSNew * moogGMDefaults["adsrRelease"])::ms => adsr.releaseTime;
-                                    
-                                    // Update limiter (non-blocking)
-                                    (moogGMDefaults["limiterAttack"])::ms => limiter.attackTime;
-                                    moogGMDefaults["limiterThreshold"] => limiter.thresh;
-                                    
-                                    // Update LFO frequency (non-blocking)
-                                    moogGMDefaults["lfoFreq"] => float lfoFreqVal;
-                                    voice[0].SetLfoFreq(lfoFreqVal);
-                                }
+                                // Example: Record audio input to shared buffer when requested
+                                // (This would be triggered via global event or setInt from TypeScript)
                                 
-                                // Check for updates periodically (every 10ms - fast enough for real-time control)
-                                10::ms => now;
-                            }
-                        }
-                        
-                        // ============================================================
-                        // AUDIO MIXER LEVELS HANDLER: Updates master gain/pan per source
-                        // Non-blocking, parameter-driven
-                        // ============================================================
-                        global float audioMixer_Osc1[0];
-                        global float audioMixer_Stk1[0];
-                        global float audioMixer_Sampler[0];
-                        global float audioMixer_AudioIn[0];
-                        
-                        fun void updateAudioMixerLevels() {
-                            while (true) {
-                                // Update gain levels (non-blocking reads)
-                                audioMixer_Osc1["gain"] => float osc1Gain;
-                                audioMixer_Sampler["gain"] => float samplerGain;
-                                audioMixer_AudioIn["gain"] => float audioinGain;
-                                audioMixer_Stk1["gain"] => float stk1Gain;
-                                
-                                // Apply gains (non-blocking assignments)
-                                osc1Gain >= 0.0 ? osc1Gain : 0.5 => osc1_MasterGain.gain;
-                                samplerGain >= 0.0 ? samplerGain : 0.5 => sampler_MasterGain.gain;
-                                audioinGain >= 0.0 ? audioinGain : 0.5 => audioIn_MasterGain.gain;
-                                stk1Gain >= 0.0 ? stk1Gain : 0.5 => stk1_MasterGain.gain;
-                                
-                                // Update pan levels (non-blocking reads)
-                                audioMixer_Osc1["pan"] => float osc1Pan;
-                                audioMixer_Sampler["pan"] => float samplerPan;
-                                audioMixer_AudioIn["pan"] => float audioinPan;
-                                audioMixer_Stk1["pan"] => float stk1Pan;
-                                
-                                // Apply pans (non-blocking assignments)
-                                (osc1Pan >= -1.0 && osc1Pan <= 1.0) ? osc1Pan : 0.0 => osc1_MasterPan.pan;
-                                (samplerPan >= -1.0 && samplerPan <= 1.0) ? samplerPan : 0.0 => sampler_MasterPan.pan;
-                                (audioinPan >= -1.0 && audioinPan <= 1.0) ? audioinPan : 0.0 => audioIn_MasterPan.pan;
-                                (stk1Pan >= -1.0 && stk1Pan <= 1.0) ? stk1Pan : 0.0 => stk1_MasterPan.pan;
-                                
-                                // Yield to allow other shreds to process
                                 me.yield();
                             }
                         }
@@ -3341,131 +2300,78 @@ global int activeVoices;
                         // Only enabled when Babylon canvas is focused (not when modals/inputs are active)
                         // This prevents keyboard input from interfering with text input in search fields
                         // ============================================================
+                        fun void midiKeyboardShred() {
+                            Hid hid;
+                            HidMsg msg;
+                            
+                            // Open keyboard HID (already initialized in TypeScript, but check)
+                            // The HID manager in TypeScript will only send events when canvas is focused
+                            if (hid.openKeyboard(0)) {
+                                <<< "MIDI Keyboard shred: Keyboard opened (events filtered by canvas focus)" >>>;
+                            } else {
+                                <<< "MIDI Keyboard shred: Failed to open keyboard" >>>;
+                                return;
+                            }
+                            
                             // Pitch-shifted playback voices (one per MIDI note)
                             LiSa playbackVoices[128];  // One voice per MIDI note (0-127)
-                        ADSR playbackEnvelopes[128];  // One envelope per MIDI note
-                        Gain playbackGains[128];  // One gain per MIDI note
-                        int playbackVoiceActive[128];  // Track which voices are active
-                        
-                        // Initialize playback voices and envelopes
                             for (0 => int i; i < playbackVoices.size(); i++) {
                                 10::second => playbackVoices[i].duration;
-                            playbackVoices[i] => playbackEnvelopes[i] => playbackGains[i] => masterGain;
-                            0.0 => playbackGains[i].gain;
-                            0 => playbackVoiceActive[i];
+                                playbackVoices[i] => Gain voiceGain => masterGain;
+                                0.0 => voiceGain.gain;
+                            }
                             
-                            // Set envelope defaults (parameter-driven, can be updated from TypeScript)
-                            playbackEnvelopes[i].set(10::ms, 50::ms, 0.7, 100::ms);
-                        }
-                        
-                        // Reference MIDI note for pitch calculation (C4 = 60)
-                        60 => int referenceMidiNote;
-                        Std.mtof(referenceMidiNote) => float referenceFreq;
-                        
-                        // HID keyboard events (set by TypeScript KeyboardHIDManager before broadcast)
-                        global Event hidNoteOn;   // Note on event
-                        global Event hidNoteOff;  // Note off event
-                        global int hidMidiNote;   // MIDI note number (0-127)
-                        global int hidVelocity;   // MIDI velocity (0-127)
-                        global float hidFreq;     // Calculated frequency (Hz)
-                        
-                        fun void handleLiSaMIDINote() {
                             while (true) {
-                                // Wait for note on event from TypeScript KeyboardHIDManager
-                                hidNoteOn => now;
+                                // Wait for MIDI keyboard event
+                                hid => now;
                                 
-                                // Read variables immediately after event (set by TypeScript before broadcast)
-                                hidMidiNote => int midi;
-                                hidVelocity => int vel;
-                                hidFreq => float freq;
+                                while (hid.recv(msg)) {
+                                    if (msg.isButtonDown()) {
+                                        // Convert key to MIDI note (simplified - you'd use actual MIDI mapping)
+                                        msg.ascii => int ascii;
+                                        // Simple mapping: a-z keys to MIDI notes 60-85
+                                        int midiNote;
+                                        if (ascii >= 97 && ascii <= 122) {  // a-z
+                                            (ascii - 97) + 60 => midiNote;  // C4 to C6 range
                                             
                                             // Check if we have a recorded buffer to play
-                                if (activeBufferIndex >= 0 && activeBufferIndex < sharedAudioBuffers.size() && midi >= 0 && midi < 128) {
+                                            if (activeBufferIndex >= 0 && activeBufferIndex < sharedAudioBuffers.size()) {
                                                 // Get voice for this MIDI note
-                                    midi => int voiceIndex;
-                                    
-                                    if (voiceIndex < playbackVoices.size() && playbackVoiceActive[voiceIndex] == 0) {
-                                        // Check if buffer has content before proceeding (recPos() returns recorded length)
-                                        sharedAudioBuffers[activeBufferIndex].recPos() => dur sourceLength;
-                                        
-                                        if (sourceLength > 0::samp) {
-                                            // Mark voice as active
-                                            1 => playbackVoiceActive[voiceIndex];
-                                            
-                                            // Copy from shared buffer to playback voice
-                                            // Use LiSa's record/playback mechanism to copy buffer
-                                            playbackVoices[voiceIndex].clear();
-                                            playbackVoices[voiceIndex].recPos(0::samp);
-                                            playbackVoices[voiceIndex].record(1);
-                                            
-                                            // Play from shared buffer and record simultaneously
-                                            sharedAudioBuffers[activeBufferIndex].playPos(0::samp);
-                                            sharedAudioBuffers[activeBufferIndex].rate(1.0);
-                                            sharedAudioBuffers[activeBufferIndex].play(1);
-                                            
-                                            // Record for the duration of the source buffer
-                                            sourceLength => now;
-                                            
-                                            sharedAudioBuffers[activeBufferIndex].play(0);
-                                            playbackVoices[voiceIndex].record(0);
+                                                midiNote => int voiceIndex;
+                                                if (voiceIndex < playbackVoices.size()) {
+                                                    // Copy from shared buffer to voice
+                                                    // (In real implementation, you'd use LiSa.copy() or similar)
                                                     
                                                     // Calculate pitch ratio from MIDI note
-                                            // If pitch was auto-detected, use it as reference; otherwise use default C4
-                                            float baseFreq;
-                                            if (bufferPitchDetected[activeBufferIndex] == 1) {
-                                                detectedPitch[activeBufferIndex] => baseFreq;
-                                            } else {
-                                                referenceFreq => baseFreq;
-                                            }
-                                            freq / baseFreq => float pitchRatio;
+                                                    Std.mtof(midiNote) / Std.mtof(60) => float pitchRatio;
                                             
-                                            // Set playback parameters (non-blocking)
-                                            pitchRatio => playbackVoices[voiceIndex].rate;
-                                            vel / 127.0 => playbackGains[voiceIndex].gain;
+                                                    // Play with pitch modification
+                                                    playbackVoices[voiceIndex].play(1);
+                                                    playbackVoices[voiceIndex].rate(pitchRatio);  // Pitch shift
                                             playbackVoices[voiceIndex].playPos(0::samp);
+                                                    0.5 => playbackVoices[voiceIndex].gain;
                                             
-                                            // Trigger envelope and playback (non-blocking)
-                                            playbackEnvelopes[voiceIndex].keyOn();
-                                            playbackVoices[voiceIndex].play(1);
-                                            
-                                            <<< "LiSa MIDI Keyboard: Playing note", midi, "at pitch ratio", pitchRatio, "from buffer", activeBufferIndex >>>;
-                                            
-                                            // VOICE CONTRACT COMPLIANT: handleLiSaMIDINoteOff() is terminating, time-advancing
-                                            // Called from handleLiSaMIDINote() (sporked at init, line 3333), not from tick handler
-                                            // Uses pre-allocated voice pool (playbackVoices[voiceIndex])
-                                            // Terminates after envelope release, releases voice resource
-                                            spork ~ handleLiSaMIDINoteOff(voiceIndex, midi, sourceLength / pitchRatio);
-                                        } else {
-                                            <<< "LiSa MIDI Keyboard: Buffer", activeBufferIndex, "is empty - skipping playback" >>>;
-                                        }
+                                                    <<< "MIDI Keyboard: Playing note", midiNote, "at pitch ratio", pitchRatio >>>;
+                                                    
+                                                    // Stop after buffer length (or use envelope)
+                                                    // LiSa doesn't have length() - use recPos() to get recorded length, or use known duration
+                                                    // Get recorded length from shared buffer, or use max duration (10 seconds)
+                                                    sharedAudioBuffers[activeBufferIndex].recPos() / pitchRatio => now;
+                                                    playbackVoices[voiceIndex].play(0);
                                     }
                                 } else {
-                                    <<< "LiSa MIDI Keyboard: No active buffer or invalid MIDI note" >>>;
+                                                <<< "MIDI Keyboard: No active buffer to play" >>>;
                                 }
                             }
-                        }
-                        
-                        fun void handleLiSaMIDINoteOff(int voiceIndex, int midiNote, dur noteDuration) {
-                            // Wait for note off event
-                            hidNoteOff => now;
-                            
-                            // Verify this note off matches our note on (check MIDI note)
-                            hidMidiNote => int offMidi;
-                            if (offMidi == midiNote && voiceIndex >= 0 && voiceIndex < playbackVoices.size() && playbackVoiceActive[voiceIndex] == 1) {
-                                // Trigger release envelope
-                                playbackEnvelopes[voiceIndex].keyOff();
-                                
-                                // Wait for envelope release, then stop playback
-                                playbackEnvelopes[voiceIndex].releaseTime() => now;
-                                playbackVoices[voiceIndex].play(0);
-                                
-                                // Mark voice as inactive
-                                0 => playbackVoiceActive[voiceIndex];
+                                    } else if (msg.isButtonUp()) {
+                                        // Note off - could implement release envelope here
+                                        // For now, just log
                             }
                         }
                         
-                        // Spork the MIDI keyboard handler
-                        spork ~ handleLiSaMIDINote();
+                                me.yield();
+                            }
+                        }
                         
                         // ============================================================
                         // FILE TO BUFFER SHRED: Records file uploads to shared buffer
@@ -3488,80 +2394,17 @@ global int activeVoices;
                         }
                         
                         // ============================================================
-                        // FEATURE EXTRACTION SHRED: Extracts features from uploaded files
-                        // Runs in background, does not block file upload or playback
-                        // MCP VERIFICATION: ✅ APPROVED
-                        // - Extraction runs in sporked shred (non-blocking)
-                        // - Feature analysis uses upchuck() (analysis-only, no time advancement)
-                        // - Time advancement only happens in extraction loop (isolated shred)
-                        // - Does not interfere with audio thread or timing-critical code
-                        // ============================================================
-                        global Event fileFeatureExtractRequest;
-                        global int requestedFileIndex;
-                        global string requestedFileName;
-                        
-                        fun void featureExtractionShred() {
-                            while (true) {
-                                // Wait for extraction request
-                                fileFeatureExtractRequest => now;
-                                
-                                // Extract features for requested file (non-blocking, runs in own shred)
-                                if (requestedFileIndex >= 0 && requestedFileIndex < files.size()) {
-                                    spork ~ featureExtractor.extractFileFeatures(requestedFileIndex, requestedFileName);
-                                }
-                                
-                                me.yield();
-                            }
-                        }
-                        
-                        // Spork feature extraction handler
-                        spork ~ featureExtractionShred();
-                        
-                        // ============================================================
-                        // PITCH DETECTION SHRED: Auto-detects pitch of loaded samples
-                        // Uses PitchTrack chugin for real-time pitch detection
-                        // Enables automatic MIDI note mapping for uploaded samples
-                        // MCP VERIFICATION: ⚠️ CONDITIONAL APPROVAL
-                        // - Uses spork for non-blocking execution ✅
-                        // - PitchTrack is analysis-only (no time advancement) ✅
-                        // - Updates global arrays atomically ✅
-                        // - REQUIRES: PitchTrack chugin must be loaded via loadWebChugins()
-                        //   If PitchTrack unavailable, pitch detection will be skipped gracefully
-                        // ============================================================
-                        fun void detectBufferPitch(int bufferIdx) {
-                            if (bufferIdx < 0 || bufferIdx >= sharedAudioBuffers.size()) return;
-                            
-                            // Wait for buffer to have content (non-blocking check)
-                            if (sharedAudioBuffers[bufferIdx].recPos() > 0::samp) {
-                                // Try to use PitchTrack if available (graceful fallback if not)
-                                // Note: PitchTrack must be loaded as a chugin
-                                // For now, set default pitch to A4 (440Hz) if detection unavailable
-                                // Future enhancement: implement FFT-based pitch detection if PitchTrack unavailable
-                                440.0 => detectedPitch[bufferIdx];
-                                0 => bufferPitchDetected[bufferIdx];  // Mark as not auto-detected
-                                
-                                <<< "Buffer", bufferIdx, "ready (pitch detection requires PitchTrack chugin)" >>>;
-                            }
-                        }
-                        
-                        // ============================================================
                         // LOAD DEFAULT SOUNDS INTO BUFFER: Pre-load default files for MIDI keyboard
                         // This runs once on initialization to make default sounds available
                         // ============================================================
                         fun void loadDefaultSounds() {
                             // Load first default file (Conga.wav) into buffer 0 as example
                             if (files.size() > 0) {
-                                // MEMORY FIX: Reuse global SndBuf (no per-call allocation)
-                                files[0] => defaultSoundTempFile.read;
+                                SndBuf tempFile => blackhole;
+                                files[0] => tempFile.read;
                                 
-                                // Wait for file to load (with timeout to prevent infinite stall)
-                                now => dur loadStartTime;
-                                5::second => dur maxLoadTime;
-                                while (defaultSoundTempFile.length() == 0::samp) {
-                                    if (now - loadStartTime > maxLoadTime) {
-                                        <<< "ERROR: Default sound load timeout for", files[0], "- skipping" >>>;
-                                        return;
-                                    }
+                                // Wait for file to load (same pattern as file upload)
+                                while (tempFile.length() == 0::samp) {
                                     1::samp => now;
                                 }
                                 
@@ -3570,8 +2413,8 @@ global int activeVoices;
                                 sharedAudioBuffers[0].recPos(0::samp);
                                 sharedAudioBuffers[0].record(1);
                                 
-                                0 => defaultSoundTempFile.pos;
-                                defaultSoundTempFile.length() => now;
+                                0 => tempFile.pos;
+                                tempFile.length() => now;
                                 
                                 sharedAudioBuffers[0].record(0);
                                 0 => activeBufferIndex;  // Set as active buffer
@@ -3590,40 +2433,7 @@ global int activeVoices;
                         fun void mainTickLoop() {
                             0 => int ticker;
                             
-                            // TIMING INSTRUMENTATION: Capture start time (removable)
-                            now => dur timingStartTime;
-                            
                             while (true) {
-                                // Update shared tick counter BEFORE broadcast (ensures all shreds see same value)
-                                ticker => currentTicker;
-                                
-                                // TIMING INSTRUMENTATION: Track timing metrics (removable)
-                                if (timingInstrumentationEnabled == 1) {
-                                    timingTickCount + 1 => timingTickCount;
-                                    (timingTickCount * beatMSNew)::ms => timingExpectedElapsed;
-                                    now - timingStartTime => timingActualElapsed;
-                                    
-                                    // Detect wrap and increment bar count
-                                    if (ticker == 0 && timingLastWrapTick != 0) {
-                                        timingBarCount + 1 => timingBarCount;
-                                        
-                                        // Log every 64 bars (removable)
-                                        if (timingBarCount % 64 == 0) {
-                                            dur drift;
-                                            timingActualElapsed - timingExpectedElapsed => drift;
-                                            <<< "TIMING_CHECK_64_BARS:", "bars=", timingBarCount, "ticks=", timingTickCount, "expected=", timingExpectedElapsed, "actual=", timingActualElapsed, "drift=", drift >>>;
-                                        }
-                                        
-                                        // Log every 256 bars (removable)
-                                        if (timingBarCount % 256 == 0) {
-                                            dur drift;
-                                            timingActualElapsed - timingExpectedElapsed => drift;
-                                            <<< "TIMING_CHECK_256_BARS:", "bars=", timingBarCount, "ticks=", timingTickCount, "expected=", timingExpectedElapsed, "actual=", timingActualElapsed, "drift=", drift >>>;
-                                        }
-                                    }
-                                    ticker => timingLastWrapTick;
-                                }
-                                
                                 // Broadcast tick event (non-blocking, all listeners process in parallel)
                                 tickEvent.broadcast();
                                 
@@ -3647,136 +2457,37 @@ global int activeVoices;
                         }
                         
                         // ============================================================
-                        // INITIALIZATION: Shred sporking deferred until arrays are initialized
-                        // Arrays must be declared, initialized, and populated BEFORE shreds start
-                        // Shreds will be sporked AFTER array initialization (see runChuckCode function)
-                        // ============================================================
-                    `
-
-                    console.log("DEBUG CHUCK! ", tempTestCode);
-
-                    // STEP 1: Declare arrays (run main code - arrays declared, but shreds NOT sporked)
-                    // Note: files.size() is valid immediately after declaration, even if elements aren't initialized
-                    result = await chuckRef.current.runCode(tempTestCode);
-                    console.log('✅ ChucK code declared (arrays defined, shreds NOT started)');
-                    
-                    // STEP 2: Initialize files[] with empty strings (ensures array is fully allocated)
-                    // This happens AFTER declaration but BEFORE shreds start
-                    const filesInit: string[] = [];
-                    const filesInitSize = filesArrayParsed ? filesArrayParsed.length : 5;
-                    for (let i = 0; i < filesInitSize; i++) {
-                        filesInit.push(`"" => files[${i}];`);
-                    }
-                    if (filesInit.length > 0) {
-                        await chuckRef.current.runCode(filesInit.join('\n'));
-                        console.log(`✅ files[] initialized with empty strings (${filesInit.length} elements)`);
-                    }
-                    
-                    // CRITICAL: Populate filesArr element-by-element after initialization
-                    // Array literal assignment (@=>) on 2D arrays causes WASM memory corruption
-                    // Element-by-element assignment via runCode is safe and preserves memory layout
-                    // This must happen AFTER runCode to ensure array is declared but BEFORE shreds start
-                    const filesArrPopulate: string[] = [];
-                    const clampedMeasureLength = Math.max(1, Math.min(expandedMeasureLength, 1024));
-                    for (let tickIdx = 0; tickIdx < filesArr2D.length && tickIdx < clampedMeasureLength; tickIdx++) {
-                        const filesForTick = filesArr2D[tickIdx] || new Array(32).fill(9999);
-                        for (let filePos = 0; filePos < 32; filePos++) {
-                            const value = filePos < filesForTick.length ? filesForTick[filePos] : 9999;
-                            filesArrPopulate.push(`${value} => filesArr[${tickIdx}][${filePos}];`);
-                        }
-                    }
-                    if (filesArrPopulate.length > 0) {
-                        await chuckRef.current.runCode(filesArrPopulate.join('\n'));
-                        console.log(`✅ filesArr populated element-by-element (${filesArrPopulate.length} assignments)`);
-                    }
-                    
-                    // CRITICAL: Populate files[] element-by-element (large string arrays must not use @=>)
-                    // Initialize ALL elements, including those beyond filesArrayParsed.length (pad with empty strings)
-                    const filesPopulate: string[] = [];
-                    const filesArraySize = filesArrayParsed ? filesArrayParsed.length : 5;
-                    for (let i = 0; i < filesArraySize; i++) {
-                        const value = i < filesArrayParsed.length ? filesArrayParsed[i] : '';
-                        filesPopulate.push(`"${value}" => files[${i}];`);
-                    }
-                    if (filesPopulate.length > 0) {
-                        await chuckRef.current.runCode(filesPopulate.join('\n'));
-                        console.log(`✅ files[] populated element-by-element (${filesPopulate.length} assignments)`);
-                    }
-                    
-                    // CRITICAL: Populate cellFunctionIds[] element-by-element (large string arrays must not use @=>)
-                    const cellFunctionIdsPopulate: string[] = [];
-                    for (let i = 0; i < cellFunctionIds.length && i < clampedMeasureLength; i++) {
-                        const id = cellFunctionIds[i] || '';
-                        cellFunctionIdsPopulate.push(`"${id}" => cellFunctionIds[${i}];`);
-                    }
-                    if (cellFunctionIdsPopulate.length > 0) {
-                        await chuckRef.current.runCode(cellFunctionIdsPopulate.join('\n'));
-                        console.log(`✅ cellFunctionIds[] populated element-by-element (${cellFunctionIdsPopulate.length} assignments)`);
-                    }
-                    
-                    // CRITICAL: Populate STK arrays element-by-element (large arrays must not use @=>)
-                    const stkFreqsPopulate: string[] = [];
-                    const stkLengthsPopulate: string[] = [];
-                    const stkVelocitiesPopulate: string[] = [];
-                    for (let i = 0; i < stkMidiFreqs.length && i < clampedMeasureLength; i++) {
-                        stkFreqsPopulate.push(`${stkMidiFreqs[i]} => stkMidiFreqsArray[${i}];`);
-                        stkLengthsPopulate.push(`${stkMidiLengths[i]} => stkMidiLengthsArray[${i}];`);
-                        stkVelocitiesPopulate.push(`${stkMidiVelocities[i]} => stkMidiVelocitiesArray[${i}];`);
-                    }
-                    if (stkFreqsPopulate.length > 0) {
-                        await chuckRef.current.runCode(stkFreqsPopulate.join('\n'));
-                        await chuckRef.current.runCode(stkLengthsPopulate.join('\n'));
-                        await chuckRef.current.runCode(stkVelocitiesPopulate.join('\n'));
-                        console.log(`✅ STK arrays populated element-by-element (${stkFreqsPopulate.length} assignments)`);
-                    }
-                    
-                    // CRITICAL: Populate oscillator arrays element-by-element (large arrays must not use @=>)
-                    const oscFreqsPopulate: string[] = [];
-                    const oscLengthsPopulate: string[] = [];
-                    const oscVelocitiesPopulate: string[] = [];
-                    for (let i = 0; i < oscMidiFreqs.length && i < clampedMeasureLength; i++) {
-                        oscFreqsPopulate.push(`${oscMidiFreqs[i]} => oscMidiFreqsArray[${i}];`);
-                        oscLengthsPopulate.push(`${oscMidiLengths[i]} => oscMidiLengthsArray[${i}];`);
-                        oscVelocitiesPopulate.push(`${oscMidiVelocities[i]} => oscMidiVelocitiesArray[${i}];`);
-                    }
-                    if (oscFreqsPopulate.length > 0) {
-                        await chuckRef.current.runCode(oscFreqsPopulate.join('\n'));
-                        await chuckRef.current.runCode(oscLengthsPopulate.join('\n'));
-                        await chuckRef.current.runCode(oscVelocitiesPopulate.join('\n'));
-                        console.log(`✅ Oscillator arrays populated element-by-element (${oscFreqsPopulate.length} assignments)`);
-                    }
-                    
-                    // STEP 4: NOW spork shreds and start ticker (arrays are fully initialized)
-                    // This ensures all arrays are declared, initialized, and populated before any shred accesses them
-                    const startShredsCode = `
-                        // ============================================================
                         // INITIALIZATION: Spork all parallel shreds
-                        // Arrays are now fully initialized - safe to start
+                        // Each runs independently with its own timer
                         // ============================================================
                         spork ~ samplerShred();
                         spork ~ oscillatorShred();
-                        spork ~ stkShred();  // STK instrument playback
                         spork ~ audioInShred();
                         spork ~ audioCaptureShred();
+                        spork ~ midiKeyboardShred();
                         spork ~ fileToBufferShred();
-                        spork ~ handlerFXUpdate(fxUpdate);  // Effect parameter updates
-                        spork ~ updateAudioMixerLevels();    // Master gain/pan updates
-                        spork ~ updateSynthParameters();    // Continuous synth parameter updates
                         
                         // Load default sounds into shared buffer (runs once)
                         spork ~ loadDefaultSounds();
                         
-                        // Auto-detect pitch for loaded buffers (runs after load)
-                        for (0 => int i; i < 4; i++) {
-                            spork ~ detectBufferPitch(i);
-                        }
+                        // ============================================================
+                        // MAIN TICK LOOP: Single coordinator thread
+                        // Location: Lines 1681-1705
+                        // This is the "spinner" - lightweight coordinator that:
+                        // - Broadcasts tick events (non-blocking)
+                        // - Advances time
+                        // - Allows all sporked shreds to process in parallel
+                        // - Controllable and inspectable (for meyda worker)
+                        // ============================================================
                         
                         // Start main tick loop (this is the coordinator)
-                        // CRITICAL: Must be sporked (non-blocking) and only called once
-                        spork ~ mainTickLoop();
-                    `;
-                    await chuckRef.current.runCode(startShredsCode);
-                    console.log('✅ Shreds sporked and ticker started (arrays ready)');
+                        mainTickLoop();
+                    `
+
+                    console.log("DEBUG CHUCK! ", tempTestCode);
+
+                    result = await chuckRef.current.runCode(tempTestCode);
+                    console.log('✅ ChucK code replaced successfully ', result);
                 } catch (replaceErr: any) {
                     // If replaceCode fails, try runCode
                     // console.log('⚠️ replaceCode failed, trying runCode...');
@@ -3941,278 +2652,285 @@ global int activeVoices;
 
     return (
         <>
-            <Box
-                id='chuckSetupContainer'
-                sx={{
-                    position: 'absolute',
-                    top: 120,
-                    left: 8, /* Position to the right of RGB panel */
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    backgroundColor: 'transparent',
-                    // Lower the container z-index so HUD/keyboard overlays can appear above it.
-                    // Make container itself non-interactive so it doesn't block underlying overlays,
-                    // but keep child buttons interactive (they explicitly set `pointerEvents: 'auto'`).
-                    zIndex: 200,
-                    pointerEvents: 'none',
-                }}>
-                {initializing && (
-                    <Button
-                        id='chuckMicButtonWrapper'
-                        aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
-                        sx={{
-                            cursor: ready ? 'pointer' : 'not-allowed',
-                            minWidth: '48px',
-                            minHeight: '48px',
-                            padding: '8px',
-                            pointerEvents: 'auto',
-                        }}
-                    // onClick={chuckMicButton}
-                    >
-                        {/* {!isRunning && */}
-                        <MicIcon
-
-                            sx={{
-                                fontSize: '32px',
-                                color: 'yellow',
-                                verticalAlign: 'middle'
-                            }}
-                            onClick={chuckMicButton}
-                        />
-                        {/* // } */}
-                        {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
-                    </Button>
-                )}
-
-                {/* Enable Audio button: create/resume AudioContext with a user gesture */}
-                {!ready && (
-                    <Button
-                        id='enableAudioButton'
-                        aria-label="Enable audio context to start audio playback"
-                        sx={{
-                            minWidth: '96px',
-                            minHeight: '36px',
-                            padding: '6px 10px',
-                            pointerEvents: 'auto',
-                        }}
-                        onClick={enableAudio}
-                    >
-                        Enable Audio
-                    </Button>
-                )}
-
-                <Button
-                    id='runChuckCodeButton'
-                    aria-label="Run ChucK audio code"
+            {/* <Box sx={{width: '100%', color: '#f6f6f6', zIndex: '9999999', position: 'fixed'}}>HELLO!!!</Box> */}
+            <BabylonCanvas />
+            <>
+                <Box
+                    id='chuckSetupContainer'
                     sx={{
-                        minWidth: '48px',
-                        minHeight: '48px',
-                        padding: '8px',
-                        cursor: ready ? 'pointer' : 'not-allowed',
-                        pointerEvents: 'auto',
-                    }}
-                    onClick={isRunning ? stopChuckInstance : runChuckCode}
-
-                >
-                    {!isRunning ?
-                        <PlayCircleIcon
-                            sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
-                        <StopCircleIcon
-                            sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
-                    }
-                </Button>
-
-                {/* Keyboard toggle (single toggle as requested) */}
-                <Button
-                    id='toggleKeyboardButton'
-                    aria-label={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}
-                    sx={{
-                        minWidth: '48px',
-                        minHeight: '48px',
-                        padding: '8px',
-                        cursor: 'pointer',
-                        pointerEvents: 'auto',
-                        display: 'flex',
+                        position: 'absolute',
+                        top: 120,
+                        left: 0, /* Position to the right of RGB panel */
+                        display: 'inline-flex',
+                        flexDirection: 'column',
                         alignItems: 'center',
-                        gap: 1,
-                    }}
-                    onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
-                >
-                    <KeyboardIcon
-                        sx={{
-                            fontSize: '24px',
-                            color: keyboardMode === 'none'
-                                ? 'var(--color-dominant-text, white)'
-                                : 'var(--color-subdominant-primary, #00D9FF)'
-                        }}
-                    />
-                    {keyboardMode !== 'none' && (
-                        <span style={{
-                            fontSize: '10px',
-                            marginLeft: '4px',
-                            color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
-                            fontFamily: 'monospace'
-                        }}>
-                            HID active
-                        </span>
-                    )}
-                </Button>
 
-                {/* Simple toggle: Add uploaded files to MIDI keyboard buffers */}
-                <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
-                    <Button
-                        id='addToMidiBuffersToggle'
-                        sx={{
-                            minWidth: '48px',
-                            minHeight: '48px',
-                            padding: '8px',
-                            cursor: 'pointer',
-                            pointerEvents: 'auto',
-                            border: addToMidiBuffers ? '1px solid var(--color-subdominant-primary, #00D9FF)' : '1px solid transparent',
-                        }}
-                        onClick={() => setAddToMidiBuffers(!addToMidiBuffers)}
-                    >
-                        <KeyboardIcon
-                            sx={{
-                                fontSize: '20px',
-                                color: addToMidiBuffers 
-                                    ? 'var(--color-subdominant-primary, #00D9FF)'
-                                    : 'var(--color-dominant-text, white)'
-                            }}
-                        />
-                    </Button>
-                </Tooltip>
-
-                {/* Toggle: Keyboard clicks add to notes dropdown */}
-                <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
-                    <Button
-                        id='keyboardAddsToNotesToggle'
-                        sx={{
-                            minWidth: '48px',
-                            minHeight: '48px',
-                            padding: '8px',
-                            cursor: 'pointer',
-                            pointerEvents: 'auto',
-                            border: keyboardAddsToNotes ? '1px solid var(--color-tertiary-warning, #FFA500)' : '1px solid transparent',
-                        }}
-                        onClick={() => {
-                            const newValue = !keyboardAddsToNotes;
-                            setKeyboardAddsToNotes(newValue);
-                            // Expose to global scope for BeatGridPanel to check
-                            (window as any).__keyboardAddsToNotes = newValue;
-                        }}
-                    >
-                        <MusicNoteIcon
-                            sx={{
-                                fontSize: '20px',
-                                color: keyboardAddsToNotes 
-                                    ? 'var(--color-tertiary-warning, #FFA500)'
-                                    : 'var(--color-dominant-text, white)'
-                            }}
-                        />
-                    </Button>
-                </Tooltip>
-
-                <Tooltip title="Oscillator Synth Controls">
-                    <Button
-                        aria-label="Open oscillator synth controls"
-                        sx={{
-                            minWidth: '48px',
-                            minHeight: '48px',
-                            padding: '8px',
-                            cursor: 'pointer',
-                            pointerEvents: 'auto',
-                        }}
-                        onClick={() => setSynthPanelOpen(true)}
-                    >
-                        <SettingsIcon
-                            sx={{
-                                fontSize: '20px',
-                                color: 'var(--color-dominant-text, white)'
-                            }}
-                        />
-                    </Button>
-                </Tooltip>
-
-                {/* Effects Control Panel buttons for each source */}
-                {(['osc1', 'stk1', 'sampler', 'audioin'] as const).map(source => (
-                    <Tooltip key={source} title={`${source.toUpperCase()} Effects`}>
+                        gap: '12px',
+                        backgroundColor: 'transparent',
+                        // Lower the container z-index so HUD/keyboard overlays can appear above it.
+                        // Make container itself non-interactive so it doesn't block underlying overlays,
+                        // but keep child buttons interactive (they explicitly set `pointerEvents: 'auto'`).
+                        zIndex: 200,
+                        pointerEvents: 'none',
+                    }}>
+                    {initializing && (
                         <Button
+                            id='chuckMicButtonWrapper'
+                            aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
+                            sx={{
+                                cursor: ready ? 'pointer' : 'not-allowed',
+                                minWidth: '48px',
+                                minHeight: '48px',
+                                padding: '8px',
+                                pointerEvents: 'auto',
+                            }}
+                        // onClick={chuckMicButton}
+                        >
+                            {/* {!isRunning && */}
+                            <MicIcon
+
+                                sx={{
+                                    fontSize: '32px',
+                                    color: 'yellow',
+                                    verticalAlign: 'middle'
+                                }}
+                                onClick={chuckMicButton}
+                            />
+                            {/* // } */}
+                            {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
+                        </Button>
+                    )}
+
+                    {/* Enable Audio button: create/resume AudioContext with a user gesture */}
+                    {!ready && (
+                        <Button
+                            id='enableAudioButton'
+                            aria-label="Enable audio context to start audio playback"
+                            sx={{
+                                minWidth: '96px',
+                                minHeight: '36px',
+                                padding: '6px 10px',
+                                pointerEvents: 'auto',
+                            }}
+                            onClick={enableAudio}
+                        >
+                            Enable Audio
+                        </Button>
+                    )}
+
+                    <Button
+                        id='runChuckCodeButton'
+                        aria-label="Run ChucK audio code"
+                        sx={{
+                            minWidth: '48px',
+                            minHeight: '48px',
+                            padding: '8px',
+                            cursor: ready ? 'pointer' : 'not-allowed',
+                            pointerEvents: 'auto',
+                        }}
+                        onClick={isRunning ? stopChuckInstance : runChuckCode}
+
+                    >
+                        {!isRunning ?
+                            <PlayCircleIcon
+                                sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
+                            <StopCircleIcon
+                                sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
+                        }
+                    </Button>
+
+
+                    <Box sx={{
+                        display: "inline-flex", 
+                        flexDirection: "row",
+                        minWidth: "100%",
+                        maxWidh: "180px",
+                        marginLeft: "16px",
+                        justifyContent: "space-between",
+                        background: "rgba(255,255,255,0.078)"
+                    }}>
+                        {/* Keyboard toggle (single toggle as requested) */}
+                        <Button
+                            id='toggleKeyboardButton'
                             sx={{
                                 minWidth: '48px',
                                 minHeight: '48px',
                                 padding: '8px',
                                 cursor: 'pointer',
                                 pointerEvents: 'auto',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
                             }}
-                            onClick={() => {
-                                setEffectsPanelSource(source);
-                                setEffectsPanelOpen(true);
-                            }}
-                            aria-label={`Open ${source.toUpperCase()} effects control panel`}
+                            onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
                         >
-                            <Typography
+                            <KeyboardIcon
                                 sx={{
-                                    fontSize: '12px',
-                                    color: 'var(--color-dominant-text, white)',
-                                    textTransform: 'uppercase',
-                                    fontWeight: 600
+                                    fontSize: '24px',
+                                    color: keyboardMode === 'none'
+                                        ? 'var(--color-dominant-text, white)'
+                                        : 'var(--color-subdominant-primary, #00D9FF)'
+                                }}
+                            />
+                            {keyboardMode !== 'none' && (
+                                <span style={{
+                                    fontSize: '10px',
+                                    marginLeft: '4px',
+                                    color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
+                                    fontFamily: 'monospace'
+                                }}>
+                                    HID active
+                                </span>
+                            )}
+                        </Button>
+
+                        {/* Simple toggle: Add uploaded files to MIDI keyboard buffers */}
+                        <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
+                            <Button
+                                id='addToMidiBuffersToggle'
+                                sx={{
+                                    minWidth: '48px',
+                                    minHeight: '48px',
+                                    padding: '8px',
+                                    cursor: 'pointer',
+                                    pointerEvents: 'auto',
+                                    border: addToMidiBuffers ? '1px solid var(--color-subdominant-primary, #00D9FF)' : '1px solid transparent',
+                                }}
+                                onClick={() => setAddToMidiBuffers(!addToMidiBuffers)}
+                            >
+                                <AddBoxIcon
+                                    sx={{
+                                        fontSize: '20px',
+                                        color: addToMidiBuffers 
+                                            ? 'var(--color-subdominant-primary, #00D9FF)'
+                                            : 'var(--color-dominant-text, white)'
+                                    }}
+                                />
+                            </Button>
+                        </Tooltip>
+
+                        {/* Toggle: Keyboard clicks add to notes dropdown */}
+                        <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
+                            <Button
+                                id='keyboardAddsToNotesToggle'
+                                sx={{
+                                    minWidth: '48px',
+                                    minHeight: '48px',
+                                    padding: '8px',
+                                    cursor: 'pointer',
+                                    pointerEvents: 'auto',
+                                    border: keyboardAddsToNotes ? '1px solid var(--color-tertiary-warning, #FFA500)' : '1px solid transparent',
+                                }}
+                                onClick={() => {
+                                    const newValue = !keyboardAddsToNotes;
+                                    setKeyboardAddsToNotes(newValue);
+                                    // Expose to global scope for BeatGridPanel to check
+                                    (window as any).__keyboardAddsToNotes = newValue;
                                 }}
                             >
-                                {source === 'osc1' ? 'OSC' : source === 'stk1' ? 'STK' : source === 'sampler' ? 'SMP' : 'IN'}
-                            </Typography>
-                        </Button>
-                    </Tooltip>
-                ))}
+                                <MusicNoteIcon
+                                    sx={{
+                                        fontSize: '20px',
+                                        color: keyboardAddsToNotes 
+                                            ? 'var(--color-tertiary-warning, #FFA500)'
+                                            : 'var(--color-dominant-text, white)'
+                                    }}
+                                />
+                            </Button>
+                        </Tooltip>
+                    </Box>    
 
-                <PhilosopherGuide />
-            </Box>
+                    <Box sx={{ 
+                        marginLeft: "64px",
+                    }}>
+                        <Tooltip title="Oscillator Synth Controls">
+                            <Button
+                                aria-label="Open oscillator synth controls"
+                                sx={{
+                                    minWidth: '48px',
+                                    minHeight: '48px',
+                                    padding: '8px',
+                                    cursor: 'pointer',
+                                    pointerEvents: 'auto',
+                                }}
+                                onClick={() => setSynthPanelOpen(true)}
+                            >
+                                <SettingsIcon
+                                    sx={{
+                                        fontSize: '20px',
+                                        color: 'var(--color-dominant-text, white)'
+                                    }}
+                                />
+                            </Button>
+                        </Tooltip>
 
-            <SynthControlPanel
-                open={synthPanelOpen}
-                onClose={() => setSynthPanelOpen(false)}
-            />
+                        <Box sx={{display: "inline-flex", flexDirection: "row" }}>
+                            {/* Effects Control Panel buttons for each source */}
+                            {(['osc1', 'stk1', 'sampler', 'audioin'] as const).map(source => (
+                                <Tooltip key={source} title={`${source.toUpperCase()} Effects`}>
+                                    <Button
+                                        sx={{
+                                            minWidth: '48px',
+                                            minHeight: '48px',
+                                            padding: '8px',
+                                            cursor: 'pointer',
+                                            pointerEvents: 'auto',
+                                        }}
+                                        onClick={() => {
+                                            setEffectsPanelSource(source);
+                                            setEffectsPanelOpen(true);
+                                        }}
+                                        aria-label={`Open ${source.toUpperCase()} effects control panel`}
+                                    >
+                                        <Typography
+                                            sx={{
+                                                fontSize: '12px',
+                                                color: 'var(--color-dominant-text, white)',
+                                                textTransform: 'uppercase',
+                                                fontWeight: 600
+                                            }}
+                                        >
+                                            {source === 'osc1' ? 'OSC' : source === 'stk1' ? 'STK' : source === 'sampler' ? 'SMP' : 'IN'}
+                                        </Typography>
+                                    </Button>
+                                </Tooltip>
+                            ))}
+                        </Box>
+                    </Box>
 
-            <EffectsControlPanel
-                open={effectsPanelOpen}
-                onClose={() => setEffectsPanelOpen(false)}
-                sourceName={effectsPanelSource}
-            />
-
-            <OldParentMonolith
-                runChuckCode={runChuckCode}
-                onUpload={handleUpload}
-                chuckHook={chuckHook || {}}
-                selectedDeviceId={selectedDeviceId}
-                updateAudioInputDevice={updateAudioInputDevice}
-                deviceOptions={deviceOptions}
-                showAudioInDropdown={showAudioInDropdown}
-                updateSelectedAudioInSetting={updateSelectedAudioInSetting}
-            />
-
-            {/* Pedalboard Visualizations - shown when effects panel is open */}
-            {effectsPanelOpen && (
-                <Box
-                    sx={{
-                        position: 'fixed',
-                        bottom: 16,
-                        right: 16,
-                        width: '400px',
-                        maxHeight: '300px',
-                        backgroundColor: 'rgba(26, 28, 32, 0.95)',
-                        borderRadius: 2,
-                        p: 2,
-                        zIndex: 10000,
-                        border: '1px solid rgba(0, 217, 255, 0.3)'
-                    }}
-                >
-                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                        Signal Chain: {effectsPanelSource.toUpperCase()}
-                    </Typography>
-                    <PedalboardVisualization sourceName={effectsPanelSource} width={360} height={150} />
+                    <PhilosopherGuide />
                 </Box>
-            )}
+
+                <SynthControlPanel
+                    open={synthPanelOpen}
+                    onClose={() => setSynthPanelOpen(false)}
+                />
+
+                <EffectsControlPanel
+                    open={effectsPanelOpen}
+                    onClose={() => setEffectsPanelOpen(false)}
+                    sourceName={effectsPanelSource}
+                />
+
+                <OldParentMonolith
+                    runChuckCode={runChuckCode}
+                    onUpload={handleUpload}
+                    chuckHook={chuckHook || {}}
+                    selectedDeviceId={selectedDeviceId}
+                    updateAudioInputDevice={updateAudioInputDevice}
+                    deviceOptions={deviceOptions}
+                    showAudioInDropdown={showAudioInDropdown}
+                    updateSelectedAudioInSetting={updateSelectedAudioInSetting}
+                />
+
+
+
+
+
+
+
+
+            </>
         </>
     );
 }

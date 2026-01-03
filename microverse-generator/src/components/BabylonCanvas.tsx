@@ -1,6 +1,8 @@
 declare global {
     interface Window {
         __hydraDebugLastLog?: number;
+        __userGestureSeen?: boolean;
+        __babylonEngine?: any;
     }
 }
 
@@ -28,6 +30,9 @@ import { useOldMonolithStore } from '../store/useOldMonolithStore';
 import { Box } from '@mui/material';
 import { useBeatGridStore } from '../store/useBeatGridStore';
 import { useHydraControlsStore } from '../store/useHydraControlsStore';
+
+// Guard to ensure we don't bind multiple run loops for the same engine (helps with StrictMode remounts)
+const RUN_LOOP_BOUND: WeakSet<any> = new WeakSet();
 
 export default function BabylonHydraCanvas() {
             // const metrics = useGuideMetricsStore(state => state.metrics);
@@ -122,14 +127,24 @@ export default function BabylonHydraCanvas() {
     };
 
     class CubeManager {
-        private static _instance: CubeManager | null = null;
+        // Use a WeakMap to scope instances to a particular scene to avoid cross-scene singletons
+        private static _instances: WeakMap<BABYLON.Scene, CubeManager> = new WeakMap();
         cubes: CubeMeta[] = [];
         maxCubes = 8;
         lastPatternSwitch = 0;
         private constructor(private scene: BABYLON.Scene) {}
         static get(scene: BABYLON.Scene) {
-            if (!CubeManager._instance) CubeManager._instance = new CubeManager(scene);
-            return CubeManager._instance;
+            let inst = CubeManager._instances.get(scene);
+            if (!inst) {
+                inst = new CubeManager(scene);
+                CubeManager._instances.set(scene, inst);
+            }
+            return inst;
+        }
+
+        // Remove any instance for a scene (call during scene/engine cleanup)
+        static clear(scene: BABYLON.Scene) {
+            try { CubeManager._instances.delete(scene); } catch (e) { /* ignore */ }
         }
         spawn(position: BABYLON.Vector3) {
             if (this.cubes.length >= this.maxCubes) return null;
@@ -144,146 +159,110 @@ export default function BabylonHydraCanvas() {
         }
         private applyFaceMaterials(c: BABYLON.Mesh) {
             const mats: BABYLON.StandardMaterial[] = [];
-            const faceDefs: Array<[string,string]> = [
+            const faceDefs: Array<[string, string]> = [
                 ['...', RED_CHANNEL], ['...', RED_CHANNEL],
                 ['...', GREEN_CHANNEL], ['...', GREEN_CHANNEL],
                 ['...', BLUE_CHANNEL], ['...', BLUE_CHANNEL]
             ];
-            faceDefs.forEach(([letter, col], idx) => {
+
+            for (let idx = 0; idx < 6; idx++) {
+                const [letter, col] = faceDefs[idx];
                 const m = new BABYLON.StandardMaterial(`mat-${c.name}-${idx}`, this.scene);
-                m.backFaceCulling = true;
-                // Ensure material is fully opaque and visible
+                m.backFaceCulling = false;
                 m.alpha = 1;
-                m.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+                // Allow emissive textures with transparency to composite correctly
+                m.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+                // Depth pre-pass helps prevent z-fighting when multiple transparent materials overlap
+                try { (m as any).needDepthPrePass = true; } catch {}
                 m.emissiveColor = new BABYLON.Color3(1, 1, 1);
-                m.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Add some diffuse so faces are visible
-                
-                if (idx === 2 && hydraCanvasRef.current) {
-                    // Show the Hydra/video canvas on one face (e.g., face 2)
-                    m.emissiveTexture = new BABYLON.DynamicTexture(
-                        `hydra-face-${c.name}`,
-                        hydraCanvasRef.current,
-                        this.scene,
-                        false
-                    );
-                } else {
-                    const letterDT = makeLetterOverlay(this.scene, letter, col);
-                    m.emissiveTexture = letterDT;
+                m.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+
+                // Always use the deterministic letter overlay as the emissive layer
+                // The shared Hydra dynamic texture will be applied as the diffuse layer later
+                try {
+                    m.emissiveTexture = makeLetterOverlay(this.scene, letter, col);
+                    try { (m.emissiveTexture as any).wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE; } catch {}
+                    try { (m.emissiveTexture as any).wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE; } catch {}
+                } catch (e) {
+                    console.warn(`[CubeManager] Failed to create letter overlay for ${c.name} face ${idx}`, e);
                 }
-                
-                // Ensure texture is set and material is ready
-                if (!m.emissiveTexture) {
-                    console.warn(`[CubeManager] Face ${idx} material missing emissiveTexture for ${c.name}`);
-                }
-                
+
+                if (!m.emissiveTexture) console.warn(`[CubeManager] Face ${idx} material missing emissiveTexture for ${c.name}`);
                 mats.push(m);
-            });
+            }
+
             const mm = new BABYLON.MultiMaterial(`${c.name}-mm`, this.scene);
             mm.subMaterials.push(...mats);
             c.material = mm;
-            
-            // Babylon.js CreateBox auto-creates 12 subMeshes when MultiMaterial is set
-            // We need to work with these 12 subMeshes and map pairs to our 6 materials
-            // After setting material, Babylon.js will have created 12 subMeshes
-            // Map them: subMeshes 0,1 -> material 0; 2,3 -> 1; 4,5 -> 2; 6,7 -> 3; 8,9 -> 4; 10,11 -> 5
-            
-            // Wait a frame for Babylon.js to finish creating subMeshes, then map them
-            // Actually, let's just map whatever subMeshes exist
-            if (c.subMeshes.length === 12) {
-                // Perfect - map pairs to materials
-                for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-                    const subMesh1 = c.subMeshes[faceIndex * 2];
-                    const subMesh2 = c.subMeshes[faceIndex * 2 + 1];
-                    if (subMesh1) subMesh1.materialIndex = faceIndex;
-                    if (subMesh2) subMesh2.materialIndex = faceIndex;
-                }
-            } else if (c.subMeshes.length > 0) {
-                // Unexpected count - try to map what we have
-                console.warn(`[CubeManager] ${c.name}: Unexpected subMesh count ${c.subMeshes.length}, attempting to map`);
-                // Clear and create 6 manually
-                c.subMeshes = [];
-                const indices = c.getIndices();
-                const verticesCount = c.getTotalVertices();
-                for (let i = 0; i < 6; i++) {
-                    const indexStart = i * 6;
-                    const subMesh = new BABYLON.SubMesh(i, 0, verticesCount || 24, indexStart, 6, c);
-                    c.subMeshes.push(subMesh);
+
+            // Map subMeshes to the 6 face materials where possible
+            const smCount = c.subMeshes ? c.subMeshes.length : 0;
+            if (smCount >= 6) {
+                if (smCount === 12) {
+                    for (let i = 0; i < 6; i++) {
+                        if (c.subMeshes[i * 2]) c.subMeshes[i * 2].materialIndex = i;
+                        if (c.subMeshes[i * 2 + 1]) c.subMeshes[i * 2 + 1].materialIndex = i;
+                    }
+                } else {
+                    // Distribute subMeshes across 6 materials (best-effort)
+                    for (let i = 0; i < smCount; i++) {
+                        const materialIndex = Math.min(5, Math.floor(i * 6 / smCount));
+                        if (c.subMeshes[i]) c.subMeshes[i].materialIndex = materialIndex;
+                    }
                 }
             } else {
-                // No subMeshes - create 6
-                const indices = c.getIndices();
-                const verticesCount = c.getTotalVertices();
-                for (let i = 0; i < 6; i++) {
-                    const indexStart = i * 6;
-                    const subMesh = new BABYLON.SubMesh(i, 0, verticesCount || 24, indexStart, 6, c);
-                    c.subMeshes.push(subMesh);
+                // Deterministic fallback: create 6 child planes parented to the box
+                try {
+                    const half = 0.5;
+                    const planeDefs: Array<{ pos: BABYLON.Vector3; rot: BABYLON.Vector3 }> = [
+                        { pos: new BABYLON.Vector3(half, 0, 0), rot: new BABYLON.Vector3(0, Math.PI / 2, 0) }, // +X
+                        { pos: new BABYLON.Vector3(-half, 0, 0), rot: new BABYLON.Vector3(0, -Math.PI / 2, 0) }, // -X
+                        { pos: new BABYLON.Vector3(0, half, 0), rot: new BABYLON.Vector3(-Math.PI / 2, 0, 0) }, // +Y
+                        { pos: new BABYLON.Vector3(0, -half, 0), rot: new BABYLON.Vector3(Math.PI / 2, 0, 0) }, // -Y
+                        { pos: new BABYLON.Vector3(0, 0, half), rot: new BABYLON.Vector3(0, 0, 0) }, // +Z
+                        { pos: new BABYLON.Vector3(0, 0, -half), rot: new BABYLON.Vector3(0, Math.PI, 0) } // -Z
+                    ];
+
+                    // tiny outset to avoid z-fighting with the underlying box face
+                    const OUTSET = 0.006; // small but measurable in world units
+                    for (let i = 0; i < 6; i++) {
+                        const pd = planeDefs[i];
+                        const plane = BABYLON.MeshBuilder.CreatePlane(`${c.name}-faceplane-${i}`, { width: 1, height: 1, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
+                        plane.parent = c;
+                        // move the plane slightly outward along its normal to avoid overlapping exactly with the box face
+                        try { plane.position.copyFrom(pd.pos.scale(1 + OUTSET)); } catch { plane.position.copyFrom(pd.pos); }
+                        plane.rotation.copyFrom(pd.rot);
+                        plane.isPickable = true;
+                        plane.receiveShadows = false;
+                        plane.material = mats[i];
+                        // ensure planes render after default geometry to reduce transparency sorting issues
+                        try { plane.renderingGroupId = 1; } catch {}
+                    }
+                    try { c.isPickable = false; } catch {}
+                    (c as any).__facePlaneFallback = true;
+                } catch (e) {
+                    console.warn(`[CubeManager] ${c.name}: fallback face-plane creation failed`, e);
                 }
             }
-            
-            c.refreshBoundingInfo();
-            
-            // Ensure all materials are opaque and visible
-            mats.forEach((mat, idx) => {
-                mat.alpha = 1;
-                mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
-                mat.backFaceCulling = true;
-                // Ensure emissive color is set so faces are visible
-                if (!mat.emissiveColor) {
-                    mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-                }
-                // Ensure diffuse color is set
-                if (!mat.diffuseColor) {
-                    mat.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-                }
-                // Debug: log if any material is missing texture
-                if (!mat.emissiveTexture) {
-                    console.warn(`[CubeManager] Material ${idx} for ${c.name} is missing emissiveTexture`);
-                }
+
+            // Common finalization
+            try { c.refreshBoundingInfo(); } catch {}
+            mats.forEach((mat) => {
+                try {
+                    mat.alpha = 1;
+                    // Preserve per-material transparency mode (we prefer ALPHABLEND when textures have alpha)
+                    // Keep backFaceCulling disabled so faces are visible when camera is inside the sphere
+                    mat.backFaceCulling = false;
+                    try { (mat as any).needDepthPrePass = true; } catch {}
+                } catch (e) { /* ignore per-material errors */ }
             });
-            
-            // Force refresh to ensure subMeshes are properly applied
-            c.refreshBoundingInfo();
-            
-            // Final verification and fix: ensure we have exactly 6 subMeshes
-            // Babylon.js may auto-create 12 subMeshes, so we force it to 6
-            if (c.subMeshes.length !== 6) {
-                console.warn(`[CubeManager] ${c.name}: ${c.subMeshes.length} subMeshes but expected 6 - force fixing`);
-                // Force clear and recreate exactly 6
-                c.subMeshes = [];
-                const vCount = c.getTotalVertices();
-                const idx = c.getIndices();
-                for (let i = 0; i < 6; i++) {
-                    const indexStart = i * 6;
-                    const subMesh = new BABYLON.SubMesh(i, 0, vCount || 24, indexStart, 6, c);
-                    c.subMeshes.push(subMesh);
+
+            // Validate final mapping
+            if (!(c as any).__facePlaneFallback) {
+                const finalSm = c.subMeshes ? c.subMeshes.length : 0;
+                if (!((finalSm === 12 && mm.subMaterials.length === 6) || (finalSm === 6 && mm.subMaterials.length === 6))) {
+                    console.error(`[CubeManager] ${c.name}: Final state mismatch - ${finalSm} subMeshes, ${mm.subMaterials.length} materials`);
                 }
-                c.refreshBoundingInfo();
-            }
-            
-            // Verify final state
-            // Note: Having 12 subMeshes with 6 materials is actually OK - pairs share materials
-            // But we prefer 6 subMeshes for simplicity
-            if (c.subMeshes.length === 12 && mm.subMaterials.length === 6) {
-                // This is fine - 12 subMeshes mapped to 6 materials (2 per face)
-                // Verify mapping is correct
-                let mappingOk = true;
-                for (let i = 0; i < 6; i++) {
-                    const sm1 = c.subMeshes[i * 2];
-                    const sm2 = c.subMeshes[i * 2 + 1];
-                    if (!sm1 || !sm2 || sm1.materialIndex !== i || sm2.materialIndex !== i) {
-                        mappingOk = false;
-                        break;
-                    }
-                }
-                if (!mappingOk) {
-                    console.warn(`[CubeManager] ${c.name}: 12 subMeshes but mapping incorrect - fixing`);
-                    for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-                        if (c.subMeshes[faceIndex * 2]) c.subMeshes[faceIndex * 2].materialIndex = faceIndex;
-                        if (c.subMeshes[faceIndex * 2 + 1]) c.subMeshes[faceIndex * 2 + 1].materialIndex = faceIndex;
-                    }
-                }
-            } else if (c.subMeshes.length !== 6 || mm.subMaterials.length !== 6) {
-                console.error(`[CubeManager] ${c.name}: Final state mismatch - ${c.subMeshes.length} subMeshes, ${mm.subMaterials.length} materials`);
             }
         }
         getAverageChannels() {
@@ -1470,11 +1449,25 @@ export default function BabylonHydraCanvas() {
                     console.error('Canvas ref is not available for Babylon.js');
                     return;
                 }
-                
+                // If a previous engine exists on window, dispose it first to avoid multiple active engines
+                try {
+                    const prev = (window as any).__babylonEngine;
+                    if (prev && typeof prev.dispose === 'function') {
+                        console.log('[BabylonCanvas] Disposing previous global engine to avoid duplicates');
+                        try { prev.stopRenderLoop(); } catch {}
+                        try { prev.dispose(); } catch {}
+                        (window as any).__babylonEngine = undefined;
+                    }
+                } catch (e) {
+                    console.warn('[BabylonCanvas] Could not dispose previous engine', e);
+                }
+
                 engine = new BABYLON.Engine(canvasRef.current, true, {
                     preserveDrawingBuffer: true,
                     stencil: true,
                 });
+                // store globally so future mounts can avoid duplicates
+                try { (window as any).__babylonEngine = engine; } catch {}
                 
                 // Ensure engine is ready before creating scene
                 if (!engine || !engine.getCaps) {
@@ -1584,9 +1577,16 @@ export default function BabylonHydraCanvas() {
             // ------------------------------
             // CubeManager-based multi cube layout
             function incrementChannel(meta: CubeMeta, faceIndex: number) {
-                // Map faces: 0/1 -> R, 2/3 -> G, 4/5 -> B
-                const primary = (faceIndex === (0 * cubeCount) || faceIndex === (1 * cubeCount)) ? 'r' : (faceIndex === (2 * cubeCount) || faceIndex === (3 * cubeCount)) ? 'g' : 'b';
+                // Map faces deterministically: 0/1 -> R, 2/3 -> G, 4/5 -> B
+                // (Avoid multiplying by cubeCount which produced incorrect indices)
+                let primary: 'r'|'g'|'b' = 'b';
+                if (faceIndex === 0 || faceIndex === 1) primary = 'r';
+                else if (faceIndex === 2 || faceIndex === 3) primary = 'g';
+                else primary = 'b';
+                // Debug: log mapping and channel values before change
+                try { console.log('[incrementChannel] faceIndex=', faceIndex, '->', primary, 'channelsBefore=', { ...meta.channels }); } catch {}
                 meta.channels[primary] += INCREMENT;
+                try { console.log('[incrementChannel] channelsAfter=', { ...meta.channels }); } catch {}
                 meta.pulse = Math.min(1, meta.pulse + 0.5); // slightly reduced pulse on click
                 hydraState.impact = Math.min(1.1, hydraState.impact + INCREMENT * 0.9); // reduced uniform impact increment
                 backgroundState.pulse = Math.min(1, backgroundState.pulse + 0.35);
@@ -1612,14 +1612,31 @@ export default function BabylonHydraCanvas() {
             // Reposition cubes in front of the sphere so they are visible even when the sphere is small
             manager.spawn(new BABYLON.Vector3(-1.5, 0, 3));
             manager.spawn(new BABYLON.Vector3(1.5, 0, 3));
-            // After spawn, assign hydra dynamic texture as diffuse for every face material
+            // After spawn, assign the shared hydra dynamic texture as the diffuse layer for every face material
+            // Use WRAP addressing and flip V to match the environment sphere so visuals are stable
+            
             manager.cubes.forEach(meta => {
                 const c = meta.mesh;
                 const mm = c.material as BABYLON.MultiMaterial;
-                mm.subMaterials?.forEach(sm => {
+                mm.subMaterials?.forEach((sm, idx) => {
                     if (sm instanceof BABYLON.StandardMaterial) {
-                        sm.diffuseTexture = dynamicTexture; // shared hydra layer under letters
-                        sm.disableLighting = true; // hydra vivid
+                        try {
+                            sm.diffuseTexture = dynamicTexture; // shared hydra layer under letters
+                            // Prefer wrap addressing so the texture tiles naturally across faces
+                            try { (sm.diffuseTexture as any).wrapU = BABYLON.Texture.WRAP_ADDRESSMODE; } catch {}
+                            try { (sm.diffuseTexture as any).wrapV = BABYLON.Texture.WRAP_ADDRESSMODE; } catch {}
+                            try { (sm.diffuseTexture as any).uScale = 1; } catch {}
+                            try { (sm.diffuseTexture as any).vScale = -1; } catch {}
+                            // Reduce diffuse level slightly so emissive overlays dominate and reduce color-bleed/flicker
+                            try { (sm.diffuseTexture as any).level = 0.82; } catch {}
+                            // Preserve original diffuse color and avoid per-face tinting
+                            // Keep lighting disabled for vivid hydra visuals but preserve emissive overlays
+                            sm.disableLighting = true;
+                            // Ensure emissive textures with alpha are respected
+                            try { if ((sm.emissiveTexture as any)?.hasAlpha) { sm.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND; (sm as any).needDepthPrePass = true; } } catch {}
+                        } catch (e) {
+                            console.warn('[CubeManager] failed to assign hydra dynamicTexture to cube material', e);
+                        }
                     }
                 });
             });
@@ -1646,15 +1663,50 @@ export default function BabylonHydraCanvas() {
                     sphereClickCount += 1;
                     return;
                 }
-                const meta = manager.cubes.find(m=>m.mesh === mesh);
+                // Resolve meta: picked mesh may be the cube itself or a child face-plane.
+                let meta = manager.cubes.find(m=>m.mesh === mesh || m.mesh === mesh.parent);
                 if (!meta) return;
-                // Prefer subMeshId; if missing, derive face index from triangle faceId (2 triangles per cube face)
-                let faceIndex = pick.subMeshId as number | undefined;
-                if (faceIndex == null) {
-                    const tri = typeof pick.faceId === 'number' ? pick.faceId : -1;
-                    if (tri >= 0) {
-                        faceIndex = Math.min(5, Math.floor(tri / 2));
+
+                // Diagnostic info
+                const pickedName = pick.pickedMesh?.name;
+                const parentName = mesh.parent?.name;
+
+                // Resolve faceIndex robustly:
+                // 1) If user clicked a fallback face-plane, its name encodes the face index (e.g., 'rgbCube0-faceplane-3').
+                // 2) Else, if the mesh has >=6 subMeshes, use subMeshId (and map pairs of submeshes to faces if needed).
+                // 3) Else, if faceId is available, derive face = floor(faceId/2).
+                // 4) Fallback to subMeshId if present.
+                let faceIndex: number | undefined = undefined;
+                try {
+                    // 1) face-plane name
+                    if (typeof pickedName === 'string') {
+                        const m = pickedName.match(/-faceplane-(\d+)$/);
+                        if (m && m[1]) {
+                            faceIndex = Number(m[1]);
+                        }
                     }
+                    // 2) use subMeshes when they represent face groups
+                    if (faceIndex == null) {
+                        const smCount = meta.mesh.subMeshes ? meta.mesh.subMeshes.length : 0;
+                        if (smCount >= 6 && typeof pick.subMeshId === 'number') {
+                            // if there are 12 subMeshes (2 triangles per face), map pairs to 0..5
+                            if (smCount === 12) faceIndex = Math.min(5, Math.floor((pick.subMeshId as number) / 2));
+                            else faceIndex = Math.min(5, pick.subMeshId as number);
+                        }
+                    }
+                    // 3) use faceId fallback
+                    if (faceIndex == null && typeof pick.faceId === 'number' && pick.faceId >= 0) {
+                        faceIndex = Math.min(5, Math.floor(pick.faceId / 2));
+                    }
+                    // 4) last-resort: use subMeshId
+                    if (faceIndex == null && typeof pick.subMeshId === 'number') faceIndex = pick.subMeshId as number;
+
+                    const mm = (meta && meta.mesh && (meta.mesh.material as BABYLON.MultiMaterial)) || null;
+                    const subCount = (meta && meta.mesh && meta.mesh.subMeshes) ? meta.mesh.subMeshes.length : 0;
+                    console.log('[pointer] pickedMesh=', pickedName, 'parent=', parentName, 'pick.subMeshId=', pick.subMeshId, 'pick.faceId=', pick.faceId, 'subMeshCount=', subCount, 'materials=', mm ? mm.subMaterials?.length : null);
+                    console.log('[pointer] resolved faceIndex=', faceIndex);
+                } catch (e) {
+                    console.log('[pointer] resolving faceIndex failed', e);
                 }
                 if (faceIndex == null || faceIndex < 0) return;
                 registerUserClick();
@@ -1705,7 +1757,8 @@ export default function BabylonHydraCanvas() {
                         
                         if (sm instanceof BABYLON.StandardMaterial) {
                             // Baseline emissive hint so cube faces invite clicks
-                            const baseGlow = 0.08;
+                            // Slightly stronger base glow so emissive letters are more visually dominant
+                            const baseGlow = 0.12;
                             let er = baseGlow, eg = baseGlow, eb = baseGlow;
                             if (faceIdx === 0 || faceIdx === 1) { er = Math.min(1, baseGlow + r * 1.2); }
                             else if (faceIdx === 2 || faceIdx === 3 ) { eg = Math.min(1, baseGlow + g * 1.2); }
@@ -1939,7 +1992,35 @@ export default function BabylonHydraCanvas() {
                 }
             };
             
-            engine.runRenderLoop(renderLoop);
+            // Setup one-time user-gesture resume to satisfy autoplay policies (video/audio)
+            try {
+                if (typeof window !== 'undefined') {
+                    const resumeOnGesture = () => {
+                        try { (window as any).__userGestureSeen = true; } catch {}
+                        try { if (hydraVideoEl && hydraVideoEl.paused) hydraVideoEl.play().catch(()=>{}); } catch {}
+                        try { (window as any).__resumeChuck?.(); } catch {}
+                        try { if (previewCtxRef.current && previewCtxRef.current.state === 'suspended' && (window as any).__userGestureSeen) previewCtxRef.current.resume().catch(()=>{}); } catch {}
+                        try { const ac = (window as any).__audioCtx; if (ac && typeof ac.resume === 'function' && ac.state === 'suspended' && (window as any).__userGestureSeen) ac.resume().catch(()=>{}); } catch {}
+                        try { window.removeEventListener('pointerdown', resumeOnGesture); } catch {}
+                    };
+                    window.addEventListener('pointerdown', resumeOnGesture, { once: true });
+                }
+            } catch (e) {
+                console.warn('[BabylonCanvas] Failed to attach resume-on-gesture handler', e);
+            }
+
+            // Bind the render loop only once per-engine. This prevents duplicate render-loops
+            // when React Strict Mode mounts/unmounts components during development
+            try {
+                if (!RUN_LOOP_BOUND.has(engine)) {
+                    RUN_LOOP_BOUND.add(engine);
+                    engine.runRenderLoop(renderLoop);
+                } else {
+                    console.log('[BabylonCanvas] render loop already bound for this engine — skipping bind');
+                }
+            } catch (e) {
+                console.warn('[BabylonCanvas] Failed to bind render loop', e);
+            }
 
             const handleResize = () => {
                 hydraCanvas.width = window.innerWidth;
@@ -1970,11 +2051,16 @@ export default function BabylonHydraCanvas() {
                     } catch {}
                 }
                 if (engine) {
-                    try { 
-                        engine.stopRenderLoop();
-                        engine.dispose(); 
+                    try {
+                        // Only stop the render loop if we previously bound it here
+                        if (RUN_LOOP_BOUND.has(engine)) {
+                            try { engine.stopRenderLoop(); } catch {}
+                            try { RUN_LOOP_BOUND.delete(engine); } catch {}
+                        }
+                        engine.dispose();
                     } catch {}
                 }
+                try { CubeManager.clear(scene); } catch {}
             };
         })();
         return () => { if (typeof disposer === 'function') disposer(); };
@@ -2213,7 +2299,7 @@ export default function BabylonHydraCanvas() {
                     if (typeof window !== 'undefined') {
                         if (!previewCtxRef.current) previewCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
                         const ctx = previewCtxRef.current!;
-                        if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
+                        if (ctx.state === 'suspended' && (window as any).__userGestureSeen) ctx.resume().catch(()=>{});
                         const osc = ctx.createOscillator();
                         const gain = ctx.createGain();
                         osc.type = 'sine';
@@ -2230,7 +2316,7 @@ export default function BabylonHydraCanvas() {
                 // Fallback to WebAudio preview if ChucK not available
                 if (!previewCtxRef.current) previewCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
                 const ctx = previewCtxRef.current!;
-                if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
+                if (ctx.state === 'suspended' && (window as any).__userGestureSeen) ctx.resume().catch(()=>{});
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();
                 osc.type = 'sine';
@@ -2309,7 +2395,12 @@ export default function BabylonHydraCanvas() {
             const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
             ctx = (window as any).__audioCtx ?? new AC();
             (window as any).__audioCtx = ctx;
-            try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
+            // Do NOT call resume() here — defer resume to a user gesture to satisfy
+            // autoplay policies. We attach a one-time pointer handler elsewhere to resume.
+            // Keep the audio context available on window for manual resume by gesture.
+            try {
+                // avoid calling resume() here to prevent autoplay warnings
+            } catch {}
 
             const { default: MeydaNode } = await import('../audio/AudioAnalysisNode.js');
             await MeydaNode.ensureModule(ctx, '/audio/meyda-audio-processor.js');
@@ -2350,7 +2441,10 @@ export default function BabylonHydraCanvas() {
             const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
             ctx = (window as any).__audioCtx ?? new AC();
             (window as any).__audioCtx = ctx;
-            try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
+            try {
+                // Only resume on user gesture. The one-time pointer handler sets window.__userGestureSeen.
+                if (ctx && ctx.state === 'suspended' && (window as any).__userGestureSeen) await ctx.resume();
+            } catch {}
 
             const { default: MidiAudioNode } = await import('../audio/MidiAudioNode.js');
             await MidiAudioNode.ensureModule(ctx, '/audio/midi-audio-processor.js'); // public/audio/...

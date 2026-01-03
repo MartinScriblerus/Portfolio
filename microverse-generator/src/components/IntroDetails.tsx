@@ -55,7 +55,7 @@ const IntroDetails = () => {
                             fontFamily: "monospace !important",
                         }}
                     >
-                        <h2>About This Site</h2>
+                        {/* <h2>About This Site</h2> */}
                         <p>This is a small demo app that extracts tools and techniques from a larger project in progress.</p>
                         <p>It combines WebChucK, Hydra, Babylon, and a Supabase vector store (no LLM yet) to create a cross-modular feedback loop.</p>
                         <p>

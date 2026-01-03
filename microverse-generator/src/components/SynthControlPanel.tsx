@@ -97,9 +97,12 @@ export default function SynthControlPanel({ open, onClose }: SynthControlPanelPr
 
             return (
                 <Box key={key} sx={{ mb: 2 }}>
-                    <Typography variant="body2" sx={{ mb: 1, fontSize: '0.875rem', color: 'text.secondary' }}>
-                        {label}
-                    </Typography>
+                    <Box sx={{ mb: 1, display: 'inline-flex', flexDirection: 'row', fontSize: '0.875rem', color: 'rgba(255, 255, 255, 1.0)' }}>
+                        {/* {label} */}
+                        <Box sx={{ mt: 0.5, display: 'block', color: 'rgba(255, 255, 255, 1.0)' }}>
+                           {label} : {options[Math.round(currentValue / step)] || currentValue.toFixed(0)}
+                    </Box>
+                    </Box>
                     <Slider
                         value={currentValue}
                         min={min}
@@ -111,11 +114,27 @@ export default function SynthControlPanel({ open, onClose }: SynthControlPanelPr
                         }))}
                         onChange={handleSliderChange(key)}
                         aria-label={label}
-                        sx={{ width: '100%' }}
+                        sx={{ 
+                            width: '100%', 
+                            fontSize: '10px',
+                            '& .MuiSlider-thumb': {
+                                width: 14,
+                                height: 14,
+                               fontSize: '10px',
+                            },
+                            '& .MuiSlider-valueLabel': {
+                                color: 'rgba(255,255,255,1.0)',
+                                fontSize: '10px',
+                            },
+                            '& .MuiSlider-markLabel': {
+                                color: 'rgba(255,255,255,1.0)',
+                                fontSize: '10px',
+                            }
+                        }}
                     />
-                    <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: 'text.secondary' }}>
+                    {/* <Box sx={{ mt: 0.5, display: 'block', color: 'rgba(255, 255, 255, 1.0)' }}>
                         {options[Math.round(currentValue / step)] || currentValue.toFixed(0)}
-                    </Typography>
+                    </Box> */}
                 </Box>
             );
         }
@@ -123,9 +142,9 @@ export default function SynthControlPanel({ open, onClose }: SynthControlPanelPr
         // Regular knob/slider controls
         return (
             <Box key={key} sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ mb: 1, fontSize: '0.875rem', color: 'text.secondary' }}>
+                <Box sx={{ mb: 1, fontSize: '0.875rem', color: 'rgba(255, 255, 255, 1.0)' }}>
                     {label}
-                </Typography>
+                </Box>
                 <Slider
                     value={currentValue}
                     min={min}
@@ -168,71 +187,85 @@ export default function SynthControlPanel({ open, onClose }: SynthControlPanelPr
             PaperProps={{
                 sx: {
                     backgroundColor: 'rgba(26, 28, 32, 0.95)',
-                    color: '#F5F7FA',
+                    color: 'rgba(255, 255, 255, 1.0)',
                     borderRadius: 2,
+                    maxHeight: '300px',
+                    // marginTop: '200px',
+                    width: '100vw',
+                    maxWidth: '360px',
+                    alignSelf: 'flex-start',
+                    top: '80px',
                 }
             }}
         >
             <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-                <Typography variant="h6" component="h2" sx={{ fontWeight: 600 }}>
+                <Box>
                     Oscillator Synth Controls
-                </Typography>
+                </Box>
                 <IconButton 
                     onClick={onClose} 
                     size="small" 
-                    sx={{ color: 'text.secondary' }}
+                    sx={{ color: 'rgba(255, 255, 255, 1.0)' }}
                     aria-label="Close oscillator synth controls"
                 >
                     <CloseIcon />
                 </IconButton>
             </DialogTitle>
-            <DialogContent sx={{ pt: 2 }}>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+            <DialogContent 
+                sx={{ 
+                    pt: 2, 
+                    color: 'rgba(255,255,255,1.0)', 
+                }}>
+                <Box sx={{ 
+                    display: 'flex', 
+                    flexWrap: 'wrap', 
+                    gap: 3, 
+                }}>
                     {/* Oscillators */}
-                    <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 12px)' }, minWidth: 0 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                    <Box sx={{ flex:'1 1 calc(50% - 12px)', minWidth: 0 }}>
+                        <Box sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
                             Oscillators
-                        </Typography>
+                        </Box>
                         {getParams(oscillatorParams).map(([key, item]) => renderControl(key, item))}
                     </Box>
 
                     {/* Filter */}
-                    <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 12px)' }, minWidth: 0 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                    <Box sx={{ flex: '1 1 calc(50% - 12px)', minWidth: 0 }}>
+                        <Box sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
                             Filter
-                        </Typography>
+                        </Box>
                         {getParams(filterParams).map(([key, item]) => renderControl(key, item))}
                     </Box>
 
                     {/* LFO */}
-                    <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 12px)' }, minWidth: 0 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                    <Box sx={{ flex: '1 1 calc(50% - 12px)', minWidth: 0 }}>
+                        <Box sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
                             LFO
-                        </Typography>
+                        </Box>
                         {getParams(lfoParams).map(([key, item]) => renderControl(key, item))}
                     </Box>
 
                     {/* ADSR Envelope */}
-                    <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 12px)' }, minWidth: 0 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                    <Box sx={{ flex: '1 1 calc(50% - 12px)', minWidth: 0 }}>
+                        <Box sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
                             ADSR Envelope
-                        </Typography>
+                        </Box>
                         {getParams(adsrParams).map(([key, item]) => renderControl(key, item))}
                     </Box>
 
                     {/* Limiter */}
-                    <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 12px)' }, minWidth: 0 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                    <Box sx={{ flex: '1 1 calc(50% - 12px)', minWidth: 0 }}>
+                        <Box sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
                             Limiter
-                        </Typography>
+                        </Box>
                         {getParams(limiterParams).map(([key, item]) => renderControl(key, item))}
                     </Box>
 
                     {/* Other */}
-                    <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 12px)' }, minWidth: 0 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                    <Box sx={{ flex: '1 1 calc(50% - 12px)', minWidth: 0 }}>
+                        <Box sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
                             Other
-                        </Typography>
+                        </Box>
                         {getParams(otherParams).map(([key, item]) => renderControl(key, item))}
                     </Box>
                 </Box>
@@ -241,7 +274,7 @@ export default function SynthControlPanel({ open, onClose }: SynthControlPanelPr
                 <Button 
                     onClick={onClose} 
                     variant="outlined" 
-                    sx={{ color: 'text.primary', borderColor: 'divider' }}
+                    sx={{ color: 'rgba(255, 255, 255, 1.0)', borderColor: 'divider' }}
                     aria-label="Close oscillator synth controls"
                 >
                     Close

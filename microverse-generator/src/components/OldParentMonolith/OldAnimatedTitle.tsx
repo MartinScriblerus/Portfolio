@@ -19,6 +19,8 @@ export const AnimatedTitle = (props: AnimTitleProps) => {
     const [randomizeColors, setRandomizeColors] = useState(colorOptions);
     
     useEffect(() => {
+        if (clickedBegin) return;
+
         let intervalId: ReturnType<typeof setInterval> | null = null;
 
         if (!clickedBegin) {
@@ -37,6 +39,7 @@ export const AnimatedTitle = (props: AnimTitleProps) => {
     
     return (
         <Box sx={{fontSize: "4rem !important", width: "100%", padding: '48px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'}}>
+            ***
             <h1 style={{top: "0px"}}>
                 <span
                     style={{

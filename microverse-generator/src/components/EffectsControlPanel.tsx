@@ -294,16 +294,32 @@ export default function EffectsControlPanel({ open, onClose, sourceName }: Effec
                                         onChange={handleSliderChange(effectKey, preset.name)}
                                         valueLabelDisplay="auto"
                                         valueLabelFormat={(val) => val.toFixed(max > 100 ? 0 : 2)}
-                                        sx={{ 
-                                            width: '100%',
+                                        // sx={{ 
+                                        //     width: '100%',
+                                        //     '& .MuiSlider-thumb': {
+                                        //         width: 14,
+                                        //         height: 14,
+                                        //     },
+                                        //     '& .MuiSlider-valueLabel': {
+                                        //         backgroundColor: 'rgba(0, 217, 255, 0.9)',
+                                        //         color: 'rgba(255,255,255,1.0)',
+                                        //         fontSize: '0.7rem',
+                                        //     }
+                                        // }}
+                                        sx={{
+                                            fontSize: '10px',
                                             '& .MuiSlider-thumb': {
                                                 width: 14,
                                                 height: 14,
+                                                fontSize: '10px',
                                             },
                                             '& .MuiSlider-valueLabel': {
-                                                backgroundColor: 'rgba(0, 217, 255, 0.9)',
-                                                color: '#000',
-                                                fontSize: '0.7rem',
+                                                color: 'rgba(255,255,255,1.0)',
+                                                fontSize: '10px',
+                                            },
+                                            '& .MuiSlider-markLabel': {
+                                                color: 'rgba(255,255,255,1.0)',
+                                                fontSize: '10px',
                                             }
                                         }}
                                         aria-label={`${label} slider for ${fx.Type || effectKey}, current value ${currentValue.toFixed(max > 100 ? 0 : 2)}`}
@@ -380,16 +396,32 @@ export default function EffectsControlPanel({ open, onClose, sourceName }: Effec
                                 onChange={handleSliderChange(effect.key, name)}
                                 valueLabelDisplay="auto"
                                 valueLabelFormat={(val) => val.toFixed(max > 1000 ? 0 : 2)}
-                                sx={{ 
-                                    width: '100%',
+                                // sx={{ 
+                                //     width: '100%',
+                                //     '& .MuiSlider-thumb': {
+                                //         width: 14,
+                                //         height: 14,
+                                //     },
+                                //     '& .MuiSlider-valueLabel': {
+                                //         backgroundColor: 'rgba(0, 217, 255, 0.9)',
+                                //         color: 'rgba(255,255,255,1.0)',
+                                //         fontSize: '0.7rem',
+                                //     }
+                                // }}
+                                sx={{
+                                                                        fontSize: '10px',
                                     '& .MuiSlider-thumb': {
                                         width: 14,
                                         height: 14,
+                                    fontSize: '10px',
                                     },
                                     '& .MuiSlider-valueLabel': {
-                                        backgroundColor: 'rgba(0, 217, 255, 0.9)',
-                                        color: '#000',
-                                        fontSize: '0.7rem',
+                                        color: 'rgba(255,255,255,1.0)',
+                                        fontSize: '10px',
+                                    },
+                                    '& .MuiSlider-markLabel': {
+                                        color: 'rgba(255,255,255,1.0)',
+                                        fontSize: '10px',
                                     }
                                 }}
                             />

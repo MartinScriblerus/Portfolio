@@ -39,44 +39,44 @@ export default function TimingControls() {
     }
   }, [timeSig, setBeatsNumerator, setBeatsDenominator]);
 
-  const handleFileUpload = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'audio/*';
-    input.onchange = async (e: any) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-        for (let i = 0; i < files.length; i++) {
-          const f: File | null = files.item(i);
-          if (!f) continue;
-          try {
-            const arrayBuffer = await f.arrayBuffer();
-            const data = new Uint8Array(arrayBuffer);
-            try {
-              filesToProcess.current = filesToProcess.current || [];
-              filesToProcess.current.push({ filename: f.name, data, processed: false });
-            } catch (err) {
-              console.warn('filesToProcess push failed:', err);
-            }
-            try {
-              if (chuckRef && chuckRef.current) {
-                await chuckRef.current.createFile('', f.name, arrayBuffer);
-              }
-            } catch (err) {
-              console.warn('Chuck createFile failed:', err);
-            }
-            try {
-              uploadedBlob.current = new Blob([arrayBuffer], { type: f.type || 'audio/wav' });
-            } catch (err) {}
-            console.log('Files selected and processed:', f.name);
-          } catch (err) {
-            console.error('Failed to read file:', err);
-          }
-        }
-      }
-    };
-    input.click();
-  };
+  // const handleFileUpload = () => {
+  //   const input = document.createElement('input');
+  //   input.type = 'file';
+  //   input.accept = 'audio/*';
+  //   input.onchange = async (e: any) => {
+  //     const files = e.target.files;
+  //     if (files && files.length > 0) {
+  //       for (let i = 0; i < files.length; i++) {
+  //         const f: File | null = files.item(i);
+  //         if (!f) continue;
+  //         try {
+  //           const arrayBuffer = await f.arrayBuffer();
+  //           const data = new Uint8Array(arrayBuffer);
+  //           try {
+  //             filesToProcess.current = filesToProcess.current || [];
+  //             filesToProcess.current.push({ filename: f.name, data, processed: false });
+  //           } catch (err) {
+  //             console.warn('filesToProcess push failed:', err);
+  //           }
+  //           try {
+  //             if (chuckRef && chuckRef.current) {
+  //               await chuckRef.current.createFile('', f.name, arrayBuffer);
+  //             }
+  //           } catch (err) {
+  //             console.warn('Chuck createFile failed:', err);
+  //           }
+  //           try {
+  //             uploadedBlob.current = new Blob([arrayBuffer], { type: f.type || 'audio/wav' });
+  //           } catch (err) {}
+  //           console.log('Files selected and processed:', f.name);
+  //         } catch (err) {
+  //           console.error('Failed to read file:', err);
+  //         }
+  //       }
+  //     }
+  //   };
+  //   input.click();
+  // };
 
   return (
     <Box 
@@ -85,7 +85,7 @@ export default function TimingControls() {
         flexDirection: 'row' 
       }}
     >
-      <Button
+      {/* <Button
         startIcon={<FileUploadIcon />}
         onClick={handleFileUpload}
         sx={{
@@ -101,7 +101,7 @@ export default function TimingControls() {
         }}
       >
         File
-      </Button>
+      </Button> */}
       <Box
         sx={{
           width: '100%',
@@ -110,7 +110,7 @@ export default function TimingControls() {
           borderRadius: 1,
           display: 'flex',
           flexDirection: 'row',
-          gap: 2,
+          // gap: 2,
         }}
       >
         <Box>
