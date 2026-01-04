@@ -225,9 +225,11 @@ export default function BabylonHydraCanvas() {
 
                     // tiny outset to avoid z-fighting with the underlying box face
                     const OUTSET = 0.006; // small but measurable in world units
+                    // Add a slight margin to the fallback planes to avoid seams between adjacent faces
+                    const PLANE_MARGIN = 0.012;
                     for (let i = 0; i < 6; i++) {
                         const pd = planeDefs[i];
-                        const plane = BABYLON.MeshBuilder.CreatePlane(`${c.name}-faceplane-${i}`, { width: 1, height: 1, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
+                        const plane = BABYLON.MeshBuilder.CreatePlane(`${c.name}-faceplane-${i}`, { width: 1 + PLANE_MARGIN, height: 1 + PLANE_MARGIN, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
                         plane.parent = c;
                         // move the plane slightly outward along its normal to avoid overlapping exactly with the box face
                         try { plane.position.copyFrom(pd.pos.scale(1 + OUTSET)); } catch { plane.position.copyFrom(pd.pos); }
@@ -1650,9 +1652,13 @@ export default function BabylonHydraCanvas() {
             const hydraMat = new BABYLON.StandardMaterial('hydraMat', scene);
             hydraMat.diffuseTexture = dynamicTexture;
             hydraMat.backFaceCulling = false;
-            // Use WRAP so the texture maps naturally around the sphere and avoids the "zoomed" CLAMP effect
-            (hydraMat.diffuseTexture as BABYLON.Texture).wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
-            (hydraMat.diffuseTexture as BABYLON.Texture).wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+            // Choose wrap mode: only use REPEAT/WRAP when the texture dimensions are power-of-two.
+            // Non-power-of-two (NPOT) textures cannot use REPEAT in WebGL1 reliably and cause seams.
+            const isPowerOfTwo = (n: number) => (n & (n - 1)) === 0;
+            const useWrap = isPowerOfTwo(hydraCanvas.width) && isPowerOfTwo(hydraCanvas.height);
+            const wrapMode = useWrap ? BABYLON.Texture.WRAP_ADDRESSMODE : BABYLON.Texture.CLAMP_ADDRESSMODE;
+            try { (hydraMat.diffuseTexture as BABYLON.Texture).wrapU = wrapMode; } catch {}
+            try { (hydraMat.diffuseTexture as BABYLON.Texture).wrapV = wrapMode; } catch {}
             // Flip only V to correct upside-down orientation on inside sphere (BACKSIDE)
             // Keep U at 1 to prevent text from reading backwards
             (hydraMat.diffuseTexture as BABYLON.Texture).uScale = 1;
@@ -1733,9 +1739,9 @@ export default function BabylonHydraCanvas() {
                     if (sm instanceof BABYLON.StandardMaterial) {
                         try {
                             sm.diffuseTexture = dynamicTexture; // shared hydra layer under letters
-                            // Prefer wrap addressing so the texture tiles naturally across faces
-                            try { (sm.diffuseTexture as any).wrapU = BABYLON.Texture.WRAP_ADDRESSMODE; } catch {}
-                            try { (sm.diffuseTexture as any).wrapV = BABYLON.Texture.WRAP_ADDRESSMODE; } catch {}
+                            // Use the same wrap mode chosen for the global hydra material (respect NPOT restrictions)
+                            try { (sm.diffuseTexture as any).wrapU = wrapMode; } catch {}
+                            try { (sm.diffuseTexture as any).wrapV = wrapMode; } catch {}
                             try { (sm.diffuseTexture as any).uScale = 1; } catch {}
                             try { (sm.diffuseTexture as any).vScale = -1; } catch {}
                             // Reduce diffuse level slightly so emissive overlays dominate and reduce color-bleed/flicker
