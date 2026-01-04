@@ -536,7 +536,7 @@ export const useHydraControlsStore = create<HydraControlsState>((set, get) => ({
           id,
           type,
           operation: operation as HydraSourceType | HydraTransformType | HydraCompositorType,
-          enabled: false,
+          enabled: true,
           params: finalParams,
           parentId: finalParentId,
           order: maxOrder + 1,
