@@ -715,6 +715,10 @@ export default function BabylonHydraCanvas() {
                 }
                 const gAny: any = globalThis as any;
                 const amp = getAudioAmp();
+                // Runtime override to scale osc/audio influence without code edits.
+                // Set `window.__hydra_osc_scale = 0.2` in the console to reduce procedural strength.
+                const oscScale = (typeof window !== 'undefined' && typeof (window as any).__hydra_osc_scale === 'number') ? Number((window as any).__hydra_osc_scale) : 1;
+                const scaledAmp = amp * oscScale;
                 // color with optional target bias mixing
                 const mix = (a:number, b:number, t:number)=> a*(1-t) + b*t;
                 const biasW = targetBias ? Math.max(0, Math.min(1, colorBiasWeight)) : 0.0;
@@ -735,8 +739,8 @@ export default function BabylonHydraCanvas() {
                         // () => 1.0 + smoothAvg.energy*0.5,
                         // 0.05,
                         // Reduced amp influence so procedural osc doesn't overwhelm video
-                        () => 1.0 + smoothAvg.energy*0.5 + amp*0.15,
-                        () => 0.05 + amp*0.008,
+                        () => 1.0 + smoothAvg.energy*0.5 + scaledAmp*0.15,
+                        () => 0.05 + scaledAmp*0.008,
                         0
                     )
                     .color(
@@ -745,8 +749,8 @@ export default function BabylonHydraCanvas() {
                         () => mix(0.055 + smoothAvg.b*0.35, targetBias?.b ?? 0, biasW)
                     )
                     .rotate(
-                        () => hydraState.hRotSpeed % (2*Math.PI) * -(hydraState.impact + amp*0.12),
-                        () => hydraState.hRotSpeed % (2*Math.PI) *  (hydraState.impact + amp*0.12)
+                        () => hydraState.hRotSpeed % (2*Math.PI) * -(hydraState.impact + scaledAmp*0.12),
+                        () => hydraState.hRotSpeed % (2*Math.PI) *  (hydraState.impact + scaledAmp*0.12)
                     )
                     .scale(hydraState.impact + 1.0)
                     // Kaleid sides increase as kaleidRamp grows (gradual strengthening)
@@ -2084,8 +2088,8 @@ export default function BabylonHydraCanvas() {
 
                     // Honor a developer override to show only the raw video (helps when procedural
                     // osc/shape chains visually obscure the video). Set `window.__hydra_force_videoOnly = true` in the console.
-                    const devForceVideoOnly = typeof window !== 'undefined' && (window as any).__hydra_force_videoOnly;
-                    if (devForceVideoOnly && videoFallbackAvailable) {
+
+                    if (devForceVideoOnly && detectedVideo) {
                         // Draw only the video element into the dynamic texture and skip hydra canvas
                         try {
                             ctx.drawImage(hydraVideoEl as any, 0, 0, canvasWidth, canvasHeight, 0, 0, finalTexSize.width, finalTexSize.height);
