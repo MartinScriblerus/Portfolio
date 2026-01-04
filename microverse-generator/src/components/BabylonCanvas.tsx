@@ -225,9 +225,10 @@ export default function BabylonHydraCanvas() {
 
                     // tiny outset to avoid z-fighting with the underlying box face
                     const OUTSET = 0.006; // small but measurable in world units
+                    const PLANE_MARGIN = 0.014; // small expansion so planes slightly overlap faces and avoid gaps
                     for (let i = 0; i < 6; i++) {
                         const pd = planeDefs[i];
-                        const plane = BABYLON.MeshBuilder.CreatePlane(`${c.name}-faceplane-${i}`, { width: 1, height: 1, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
+                        const plane = BABYLON.MeshBuilder.CreatePlane(`${c.name}-faceplane-${i}`, { width: 1 + PLANE_MARGIN, height: 1 + PLANE_MARGIN, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
                         plane.parent = c;
                         // move the plane slightly outward along its normal to avoid overlapping exactly with the box face
                         try { plane.position.copyFrom(pd.pos.scale(1 + OUTSET)); } catch { plane.position.copyFrom(pd.pos); }
@@ -1638,22 +1639,33 @@ export default function BabylonHydraCanvas() {
 
             new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0, 1, 0), scene);
 
-            // Dynamic texture from Hydra - ensure it matches canvas size exactly
+            // Dynamic texture from Hydra - back with a power-of-two canvas so WRAP addressing works
+            const nextPow2 = (n: number) => {
+                if (n <= 0) return 1;
+                let p = 1;
+                while (p < n) p <<= 1;
+                return p;
+            };
+
+            const canvasW = hydraCanvas.width || window.innerWidth;
+            const canvasH = hydraCanvas.height || window.innerHeight;
+            const potW = nextPow2(canvasW);
+            const potH = nextPow2(canvasH);
+
+            // Create dynamic texture using POT backing to allow WRAP without NPOT artifacts.
             const dynamicTexture = new BABYLON.DynamicTexture(
                 'hydraTex',
-                { width: hydraCanvas.width, height: hydraCanvas.height },
+                { width: potW, height: potH },
                 scene,
                 false
             );
-            // Ensure texture size matches canvas initially
-            dynamicTexture.scaleTo(hydraCanvas.width, hydraCanvas.height);
+            // Ensure texture size matches POT backing
+            dynamicTexture.scaleTo(potW, potH);
             const hydraMat = new BABYLON.StandardMaterial('hydraMat', scene);
             hydraMat.diffuseTexture = dynamicTexture;
             hydraMat.backFaceCulling = false;
-            // Choose wrap mode: only use REPEAT/WRAP when the texture dimensions are power-of-two.
-            // Non-power-of-two (NPOT) textures cannot use REPEAT in WebGL1 reliably and cause seams.
-            const isPowerOfTwo = (n: number) => (n & (n - 1)) === 0;
-            const useWrap = isPowerOfTwo(hydraCanvas.width) && isPowerOfTwo(hydraCanvas.height);
+            // We use POT backing for the dynamic texture; choose wrap mode accordingly
+            const useWrap = true; // POT backing (potW,potH) allows wrap
             const wrapMode = useWrap ? BABYLON.Texture.WRAP_ADDRESSMODE : BABYLON.Texture.CLAMP_ADDRESSMODE;
             try { (hydraMat.diffuseTexture as BABYLON.Texture).wrapU = wrapMode; } catch {}
             try { (hydraMat.diffuseTexture as BABYLON.Texture).wrapV = wrapMode; } catch {}
