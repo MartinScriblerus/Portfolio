@@ -734,8 +734,9 @@ export default function BabylonHydraCanvas() {
                 let base = osc(
                         // () => 1.0 + smoothAvg.energy*0.5,
                         // 0.05,
-                        () => 1.0 + smoothAvg.energy*0.5 + amp*0.4,
-                        () => 0.05 + amp*0.02,
+                        // Reduced amp influence so procedural osc doesn't overwhelm video
+                        () => 1.0 + smoothAvg.energy*0.5 + amp*0.15,
+                        () => 0.05 + amp*0.008,
                         0
                     )
                     .color(
@@ -744,8 +745,8 @@ export default function BabylonHydraCanvas() {
                         () => mix(0.055 + smoothAvg.b*0.35, targetBias?.b ?? 0, biasW)
                     )
                     .rotate(
-                        () => hydraState.hRotSpeed % (2*Math.PI) * -(hydraState.impact + amp*0.3),
-                        () => hydraState.hRotSpeed % (2*Math.PI) *  (hydraState.impact + amp*0.3)
+                        () => hydraState.hRotSpeed % (2*Math.PI) * -(hydraState.impact + amp*0.12),
+                        () => hydraState.hRotSpeed % (2*Math.PI) *  (hydraState.impact + amp*0.12)
                     )
                     .scale(hydraState.impact + 1.0)
                     // Kaleid sides increase as kaleidRamp grows (gradual strengthening)
