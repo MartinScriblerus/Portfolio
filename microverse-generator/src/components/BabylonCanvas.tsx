@@ -2014,7 +2014,15 @@ export default function BabylonHydraCanvas() {
             try {
                 if (!RUN_LOOP_BOUND.has(engine)) {
                     RUN_LOOP_BOUND.add(engine);
-                    engine.runRenderLoop(renderLoop);
+                    if (typeof renderLoop === 'function') {
+                        try {
+                            engine.runRenderLoop(renderLoop);
+                        } catch (err) {
+                            console.warn('[BabylonCanvas] engine.runRenderLoop threw', err);
+                        }
+                    } else {
+                        console.warn('[BabylonCanvas] renderLoop is not a function, skipping runRenderLoop', typeof renderLoop);
+                    }
                 } else {
                     console.log('[BabylonCanvas] render loop already bound for this engine — skipping bind');
                 }
