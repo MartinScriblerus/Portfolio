@@ -2051,7 +2051,15 @@ export default function BabylonHydraCanvas() {
                     const videoFallbackAvailable = typeof hydraVideoEl !== 'undefined' && hydraVideoEl && hydraVideoEl instanceof HTMLVideoElement;
                     const sourceEl: HTMLCanvasElement | HTMLVideoElement | null = (!s0HasVideo && videoFallbackAvailable) ? hydraVideoEl : hydraCanvasRef.current;
 
-                    if (sourceEl) {
+                    // Honor a developer override to show only the raw video (helps when procedural
+                    // osc/shape chains visually obscure the video). Set `window.__hydra_force_videoOnly = true` in the console.
+                    const devForceVideoOnly = typeof window !== 'undefined' && (window as any).__hydra_force_videoOnly;
+                    if (devForceVideoOnly && videoFallbackAvailable) {
+                        // Draw only the video element into the dynamic texture and skip hydra canvas
+                        try {
+                            ctx.drawImage(hydraVideoEl as any, 0, 0, canvasWidth, canvasHeight, 0, 0, finalTexSize.width, finalTexSize.height);
+                        } catch (e) { /* ignore */ }
+                    } else if (sourceEl) {
                         if (finalTexSize.width === canvasWidth && finalTexSize.height === canvasHeight) {
                             // Direct copy when sizes match exactly - ensure it covers the entire texture
                             try {
