@@ -294,6 +294,8 @@ export default function BabylonHydraCanvas() {
             hydraCanvas.width = window.innerWidth;
             hydraCanvas.height = window.innerHeight;
             hydraCanvasRef.current = hydraCanvas;
+            // Expose debug handles for manual inspection in devtools
+            try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraCanvas = hydraCanvas; (window as any).__hydra_debug.hydraVideoEl = (window as any).__hydra_debug.hydraVideoEl || null; } catch (e) {}
 
             const hydra = new Hydra({ canvas: hydraCanvas, detectAudio: false, makeGlobal: true });
 
@@ -401,14 +403,17 @@ export default function BabylonHydraCanvas() {
                             try {
                                 if (isBlobUrl) {
                                     hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                    try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = hydraVideoEl; } catch (e) {}
                                     console.log('[Hydra] Video reloaded from blob URL');
                                 } else {
                                     const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
                                     try {
-                                        hydraVideoEl = await g.s0.initVideo(proxyUrl);
+                                            hydraVideoEl = await g.s0.initVideo(proxyUrl);
+                                            try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = hydraVideoEl; } catch (e) {}
                                         console.log('[Hydra] Video reloaded via proxy');
                                     } catch (proxyErr: any) {
-                                        hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                            hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                            try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = hydraVideoEl; } catch (e) {}
                                         console.log('[Hydra] Video reloaded directly');
                                     }
                                 }
@@ -417,6 +422,7 @@ export default function BabylonHydraCanvas() {
                             } catch (err: any) {
                                 console.error('[Hydra] Video reload failed:', err);
                                 hydraVideoEl = null;
+                                try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = null; } catch (e) {}
                                 hydraCamReady = false;
                             }
                         })();
@@ -1398,6 +1404,7 @@ export default function BabylonHydraCanvas() {
                         if (isBlobUrl) {
                             // Use blob URL directly
                             hydraVideoEl = await g.s0.initVideo(videoUrl);
+                            try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = hydraVideoEl; } catch (e) {}
                             console.log('[Hydra] Video loaded from blob URL');
                         } else {
                             // For external URLs, use proxy first (handles CORS properly)
