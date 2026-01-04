@@ -225,11 +225,9 @@ export default function BabylonHydraCanvas() {
 
                     // tiny outset to avoid z-fighting with the underlying box face
                     const OUTSET = 0.006; // small but measurable in world units
-                    // Add a slight margin to the fallback planes to avoid seams between adjacent faces
-                    const PLANE_MARGIN = 0.012;
                     for (let i = 0; i < 6; i++) {
                         const pd = planeDefs[i];
-                        const plane = BABYLON.MeshBuilder.CreatePlane(`${c.name}-faceplane-${i}`, { width: 1 + PLANE_MARGIN, height: 1 + PLANE_MARGIN, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
+                        const plane = BABYLON.MeshBuilder.CreatePlane(`${c.name}-faceplane-${i}`, { width: 1, height: 1, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
                         plane.parent = c;
                         // move the plane slightly outward along its normal to avoid overlapping exactly with the box face
                         try { plane.position.copyFrom(pd.pos.scale(1 + OUTSET)); } catch { plane.position.copyFrom(pd.pos); }
@@ -294,8 +292,6 @@ export default function BabylonHydraCanvas() {
             hydraCanvas.width = window.innerWidth;
             hydraCanvas.height = window.innerHeight;
             hydraCanvasRef.current = hydraCanvas;
-            // Expose debug handles for manual inspection in devtools
-            try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraCanvas = hydraCanvas; (window as any).__hydra_debug.hydraVideoEl = (window as any).__hydra_debug.hydraVideoEl || null; } catch (e) {}
 
             const hydra = new Hydra({ canvas: hydraCanvas, detectAudio: false, makeGlobal: true });
 
@@ -403,17 +399,14 @@ export default function BabylonHydraCanvas() {
                             try {
                                 if (isBlobUrl) {
                                     hydraVideoEl = await g.s0.initVideo(videoUrl);
-                                    try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = hydraVideoEl; } catch (e) {}
                                     console.log('[Hydra] Video reloaded from blob URL');
                                 } else {
                                     const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
                                     try {
-                                            hydraVideoEl = await g.s0.initVideo(proxyUrl);
-                                            try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = hydraVideoEl; } catch (e) {}
+                                        hydraVideoEl = await g.s0.initVideo(proxyUrl);
                                         console.log('[Hydra] Video reloaded via proxy');
                                     } catch (proxyErr: any) {
-                                            hydraVideoEl = await g.s0.initVideo(videoUrl);
-                                            try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = hydraVideoEl; } catch (e) {}
+                                        hydraVideoEl = await g.s0.initVideo(videoUrl);
                                         console.log('[Hydra] Video reloaded directly');
                                     }
                                 }
@@ -422,7 +415,6 @@ export default function BabylonHydraCanvas() {
                             } catch (err: any) {
                                 console.error('[Hydra] Video reload failed:', err);
                                 hydraVideoEl = null;
-                                try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = null; } catch (e) {}
                                 hydraCamReady = false;
                             }
                         })();
@@ -715,10 +707,6 @@ export default function BabylonHydraCanvas() {
                 }
                 const gAny: any = globalThis as any;
                 const amp = getAudioAmp();
-                // Runtime override to scale osc/audio influence without code edits.
-                // Set `window.__hydra_osc_scale = 0.2` in the console to reduce procedural strength.
-                const oscScale = (typeof window !== 'undefined' && typeof (window as any).__hydra_osc_scale === 'number') ? Number((window as any).__hydra_osc_scale) : 1;
-                const scaledAmp = amp * oscScale;
                 // color with optional target bias mixing
                 const mix = (a:number, b:number, t:number)=> a*(1-t) + b*t;
                 const biasW = targetBias ? Math.max(0, Math.min(1, colorBiasWeight)) : 0.0;
@@ -738,9 +726,8 @@ export default function BabylonHydraCanvas() {
                 let base = osc(
                         // () => 1.0 + smoothAvg.energy*0.5,
                         // 0.05,
-                        // Reduced amp influence so procedural osc doesn't overwhelm video
-                        () => 1.0 + smoothAvg.energy*0.5 + scaledAmp*0.15,
-                        () => 0.05 + scaledAmp*0.008,
+                        () => 1.0 + smoothAvg.energy*0.5 + amp*0.4,
+                        () => 0.05 + amp*0.02,
                         0
                     )
                     .color(
@@ -749,8 +736,8 @@ export default function BabylonHydraCanvas() {
                         () => mix(0.055 + smoothAvg.b*0.35, targetBias?.b ?? 0, biasW)
                     )
                     .rotate(
-                        () => hydraState.hRotSpeed % (2*Math.PI) * -(hydraState.impact + scaledAmp*0.12),
-                        () => hydraState.hRotSpeed % (2*Math.PI) *  (hydraState.impact + scaledAmp*0.12)
+                        () => hydraState.hRotSpeed % (2*Math.PI) * -(hydraState.impact + amp*0.3),
+                        () => hydraState.hRotSpeed % (2*Math.PI) *  (hydraState.impact + amp*0.3)
                     )
                     .scale(hydraState.impact + 1.0)
                     // Kaleid sides increase as kaleidRamp grows (gradual strengthening)
@@ -1409,7 +1396,6 @@ export default function BabylonHydraCanvas() {
                         if (isBlobUrl) {
                             // Use blob URL directly
                             hydraVideoEl = await g.s0.initVideo(videoUrl);
-                            try { (window as any).__hydra_debug = (window as any).__hydra_debug || {}; (window as any).__hydra_debug.hydraVideoEl = hydraVideoEl; } catch (e) {}
                             console.log('[Hydra] Video loaded from blob URL');
                         } else {
                             // For external URLs, use proxy first (handles CORS properly)
@@ -1751,9 +1737,9 @@ export default function BabylonHydraCanvas() {
                     if (sm instanceof BABYLON.StandardMaterial) {
                         try {
                             sm.diffuseTexture = dynamicTexture; // shared hydra layer under letters
-                            // Use the same wrap mode chosen for the global hydra material (respect NPOT restrictions)
-                            try { (sm.diffuseTexture as any).wrapU = wrapMode; } catch {}
-                            try { (sm.diffuseTexture as any).wrapV = wrapMode; } catch {}
+                            // Prefer wrap addressing so the texture tiles naturally across faces
+                            try { (sm.diffuseTexture as any).wrapU = BABYLON.Texture.WRAP_ADDRESSMODE; } catch {}
+                            try { (sm.diffuseTexture as any).wrapV = BABYLON.Texture.WRAP_ADDRESSMODE; } catch {}
                             try { (sm.diffuseTexture as any).uScale = 1; } catch {}
                             try { (sm.diffuseTexture as any).vScale = -1; } catch {}
                             // Reduce diffuse level slightly so emissive overlays dominate and reduce color-bleed/flicker
@@ -2053,67 +2039,17 @@ export default function BabylonHydraCanvas() {
                     }
                     
                     // Draw the current Hydra canvas frame directly (no scaling needed if sizes match)
-                    // FALLBACK: if Hydra's s0 video element is available but Hydra's internal s0.video isn't
-                    // exposed (some hydra builds use an internal video element), prefer drawing the actual
-                    // video element so Babylon receives the live frames.
                     const finalTexSize = dynamicTexture.getSize();
-                    const gAny: any = globalThis as any;
-
-                    // Helper: try to locate a playable video element associated with Hydra or page
-                    function findPlayableVideo(): HTMLVideoElement | null {
-                        try {
-                            const dbg = (window as any).__hydra_debug || {};
-                            if (dbg.hydraVideoEl && dbg.hydraVideoEl instanceof HTMLVideoElement) {
-                                if (dbg.hydraVideoEl.readyState >= 2) return dbg.hydraVideoEl;
-                            }
-                            // Hydra common fields
-                            if (gAny.s0) {
-                                const cand = gAny.s0.video || gAny.s0.vid || gAny.s0._video || gAny.s0.el;
-                                if (cand && cand instanceof HTMLVideoElement && cand.readyState >= 2) return cand;
-                            }
-                            // Fallback: prefer any video element on page that has current data
-                            const vids = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-                            for (const v of vids) {
-                                if (v && v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0) return v;
-                            }
-                        } catch (e) {
-                            // ignore
-                        }
-                        return null;
-                    }
-
-                    const detectedVideo = findPlayableVideo();
-                    const devForceVideoOnly = typeof window !== 'undefined' && (window as any).__hydra_force_videoOnly;
-                    const sourceEl: HTMLCanvasElement | HTMLVideoElement | null = devForceVideoOnly && detectedVideo ? detectedVideo : (detectedVideo ?? hydraCanvasRef.current);
-
-                    // Honor a developer override to show only the raw video (helps when procedural
-                    // osc/shape chains visually obscure the video). Set `window.__hydra_force_videoOnly = true` in the console.
-
-                    if (devForceVideoOnly && detectedVideo) {
-                        // Draw only the video element into the dynamic texture and skip hydra canvas
-                        try {
-                            ctx.drawImage(hydraVideoEl as any, 0, 0, canvasWidth, canvasHeight, 0, 0, finalTexSize.width, finalTexSize.height);
-                        } catch (e) { /* ignore */ }
-                    } else if (sourceEl) {
-                        if (finalTexSize.width === canvasWidth && finalTexSize.height === canvasHeight) {
-                            // Direct copy when sizes match exactly - ensure it covers the entire texture
-                            try {
-                                ctx.drawImage(sourceEl as any, 0, 0, canvasWidth, canvasHeight, 0, 0, finalTexSize.width, finalTexSize.height);
-                            } catch (e) {
-                                // If drawImage fails (cross-origin, not ready), swallow and continue
-                            }
-                        } else {
-                            // Scale if sizes don't match - ensure it covers the entire texture
-                            try {
-                                ctx.drawImage(
-                                    sourceEl as any,
-                                    0, 0, canvasWidth, canvasHeight,
-                                    0, 0, finalTexSize.width, finalTexSize.height
-                                );
-                            } catch (e) {
-                                // Ignore drawing errors
-                            }
-                        }
+                    if (finalTexSize.width === canvasWidth && finalTexSize.height === canvasHeight) {
+                        // Direct copy when sizes match exactly - ensure it covers the entire texture
+                        ctx.drawImage(hydraCanvasRef.current, 0, 0, canvasWidth, canvasHeight, 0, 0, finalTexSize.width, finalTexSize.height);
+                    } else {
+                        // Scale if sizes don't match - ensure it covers the entire texture
+                        ctx.drawImage(
+                            hydraCanvasRef.current,
+                            0, 0, canvasWidth, canvasHeight,
+                            0, 0, finalTexSize.width, finalTexSize.height
+                        );
                     }
                     dynamicTexture.update();
                     // Debug: log a frame update every 2 seconds
