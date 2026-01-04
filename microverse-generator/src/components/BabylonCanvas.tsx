@@ -2053,10 +2053,33 @@ export default function BabylonHydraCanvas() {
                     // video element so Babylon receives the live frames.
                     const finalTexSize = dynamicTexture.getSize();
                     const gAny: any = globalThis as any;
-                    // Prefer hydraCanvas when available; fallback to hydraVideoEl if s0.video isn't present
-                    const s0HasVideo = !!(gAny.s0 && (gAny.s0.video || gAny.s0.vid));
-                    const videoFallbackAvailable = typeof hydraVideoEl !== 'undefined' && hydraVideoEl && hydraVideoEl instanceof HTMLVideoElement;
-                    const sourceEl: HTMLCanvasElement | HTMLVideoElement | null = (!s0HasVideo && videoFallbackAvailable) ? hydraVideoEl : hydraCanvasRef.current;
+
+                    // Helper: try to locate a playable video element associated with Hydra or page
+                    function findPlayableVideo(): HTMLVideoElement | null {
+                        try {
+                            const dbg = (window as any).__hydra_debug || {};
+                            if (dbg.hydraVideoEl && dbg.hydraVideoEl instanceof HTMLVideoElement) {
+                                if (dbg.hydraVideoEl.readyState >= 2) return dbg.hydraVideoEl;
+                            }
+                            // Hydra common fields
+                            if (gAny.s0) {
+                                const cand = gAny.s0.video || gAny.s0.vid || gAny.s0._video || gAny.s0.el;
+                                if (cand && cand instanceof HTMLVideoElement && cand.readyState >= 2) return cand;
+                            }
+                            // Fallback: prefer any video element on page that has current data
+                            const vids = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+                            for (const v of vids) {
+                                if (v && v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0) return v;
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+                        return null;
+                    }
+
+                    const detectedVideo = findPlayableVideo();
+                    const devForceVideoOnly = typeof window !== 'undefined' && (window as any).__hydra_force_videoOnly;
+                    const sourceEl: HTMLCanvasElement | HTMLVideoElement | null = devForceVideoOnly && detectedVideo ? detectedVideo : (detectedVideo ?? hydraCanvasRef.current);
 
                     // Honor a developer override to show only the raw video (helps when procedural
                     // osc/shape chains visually obscure the video). Set `window.__hydra_force_videoOnly = true` in the console.
