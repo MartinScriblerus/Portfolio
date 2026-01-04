@@ -459,7 +459,10 @@ function RightDrawer(props: RightDrawerProps) {
 
       <main style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {tab === 'grid' && (
-          <div style={{ padding: 4, zIndex: 999999, minHeight: '100%' }}>
+          <div style={{ 
+            // padding: 4, 
+            zIndex: 999999, 
+            minHeight: '100%' }}>
             <Box sx={{ mt: 2, marginTop: 0, minHeight: 400, border: '1px solid #333', backgroundColor: 'rgba(0,0,0,0.3)' }}>
               <BeatGridPanel
                 bpm={bpm}
@@ -539,9 +542,9 @@ function RightDrawer(props: RightDrawerProps) {
                 onBpmDetected={(bpm) => props.setDetectedBpm(bpm)}
               />
             </Box>
-            <div style={{ color: '#aaa', fontSize: 12, marginTop: 8 }}>
+            {/* <div style={{ color: '#aaa', fontSize: 12, marginTop: 8 }}>
               BPM: {bpm} • {timeSig.num}/{timeSig.den} • Steps/Measure: {stepsPerMeasure}
-            </div>
+            </div> */}
           </div>
         )}
         {tab === 'mixer' && (

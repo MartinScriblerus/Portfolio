@@ -699,6 +699,12 @@ export default function BabylonHydraCanvas() {
             };
             function buildHydraPipeline(pattern: number) {
                 hydraState.pattern = pattern;
+                try {
+                    const debugChains = useHydraControlsStore.getState().chains || [];
+                    console.log('[Hydra] buildHydraPipeline start', { pattern, chains: debugChains.length });
+                } catch (e) {
+                    console.warn('[Hydra] buildHydraPipeline: could not read chain count', e);
+                }
                 const gAny: any = globalThis as any;
                 const amp = getAudioAmp();
                 // color with optional target bias mixing
@@ -884,6 +890,7 @@ export default function BabylonHydraCanvas() {
                             visited: Set<string> = new Set(),
                             cacheKey?: string
                         ): any {
+                            console.log('[Hydra] buildChainFromNested called', { parentId, hasBase: !!baseChain, cacheKey });
                             // Create cache key for this specific build
                             const key = cacheKey || `chain_${parentId || 'root'}_${baseChain ? 'withBase' : 'noBase'}`;
                             
@@ -930,6 +937,50 @@ export default function BabylonHydraCanvas() {
                                             visited.delete(chain.id);
                                             continue;
                                         }
+
+                                        // FALLBACK: if the recursive build returned falsy (no explicit child source),
+                                        // create a source from this chain's operation itself and attach its children.
+                                        // This handles cases where a `shape` (or other source) is un-nested from `src`
+                                        // but still should be incorporated into the video/base chain.
+                                        let fallbackSource: any = null;
+                                        switch (chain.operation) {
+                                            case 'osc':
+                                                fallbackSource = gAny.osc(
+                                                    () => getParamValue('freq'),
+                                                    () => getParamValue('sync'),
+                                                    () => getParamValue('offset')
+                                                );
+                                                break;
+                                            case 'noise':
+                                                fallbackSource = gAny.noise(() => getParamValue('scale'));
+                                                break;
+                                            case 'shape':
+                                                fallbackSource = gAny.shape(
+                                                    () => getParamValue('sides'),
+                                                    () => getParamValue('radius')
+                                                );
+                                                break;
+                                            case 'gradient':
+                                                fallbackSource = gAny.gradient(() => getParamValue('speed') ?? 1);
+                                                break;
+                                            case 'voronoi':
+                                                fallbackSource = gAny.voronoi(
+                                                    () => getParamValue('scale'),
+                                                    () => getParamValue('speed')
+                                                );
+                                                break;
+                                            case 'src':
+                                                if (gAny.s0) fallbackSource = gAny.src(gAny.s0);
+                                                break;
+                                        }
+
+                                        if (fallbackSource) {
+                                            // Attach any children under this source and then add to base
+                                            const built = buildChainFromNested(chains, chain.id, fallbackSource, new Set(visited), `nested_source_fallback_${chain.id}`);
+                                            result = baseChain.add(built || fallbackSource);
+                                            visited.delete(chain.id);
+                                            continue;
+                                        }
                                     }
                                     
                                     // If no baseChain, create a new source chain (root level or inner source)
@@ -946,6 +997,7 @@ export default function BabylonHydraCanvas() {
                                         
                                         switch (chain.operation) {
                                             case 'osc':
+                                                console.log('[Hydra] creating osc source', { id: chain.id });
                                                 // osc(freq, sync, offset) - all can be dynamic
                                                 sourceChain = gAny.osc(
                                                     () => getParamValue('freq'),
@@ -954,20 +1006,24 @@ export default function BabylonHydraCanvas() {
                                                 );
                                                 break;
                                             case 'noise':
+                                                console.log('[Hydra] creating noise source', { id: chain.id });
                                                 sourceChain = gAny.noise(() => getParamValue('scale'));
                                                 break;
                                             case 'shape':
+                                                console.log('[Hydra] creating shape source', { id: chain.id });
                                                 sourceChain = gAny.shape(
                                                     () => getParamValue('sides'),
                                                     () => getParamValue('radius')
                                                 );
                                                 break;
                                             case 'gradient':
+                                                console.log('[Hydra] creating gradient source', { id: chain.id });
                                                 // gradient() can take a speed parameter
                                                 const gradSpeed = getParamValue('speed') ?? 1;
                                                 sourceChain = gAny.gradient(() => gradSpeed);
                                                 break;
                                             case 'voronoi':
+                                                console.log('[Hydra] creating voronoi source', { id: chain.id });
                                                 // voronoi(scale, speed)
                                                 sourceChain = gAny.voronoi(
                                                     () => getParamValue('scale'),
@@ -975,6 +1031,7 @@ export default function BabylonHydraCanvas() {
                                                 );
                                                 break;
                                             case 'src':
+                                                console.log('[Hydra] creating src source', { id: chain.id });
                                                 // src() references the video source (s0)
                                                 // Ensure s0 exists and has video
                                                 if (gAny.s0) {
@@ -994,8 +1051,15 @@ export default function BabylonHydraCanvas() {
                                         
                                         if (sourceChain) {
                                             // Recursively build children of this source
-                                            result = buildChainFromNested(chains, chain.id, sourceChain, new Set(visited), sourceCacheKey);
-                                            // Cache the source chain
+                                            const recursiveResult = buildChainFromNested(chains, chain.id, sourceChain, new Set(visited), sourceCacheKey);
+                                            // If recursion returned falsy (no children built), fall back to the sourceChain itself
+                                            if (!recursiveResult) {
+                                                console.log('[Hydra] recursive build returned falsy for sourceChain, using sourceChain as result', { id: chain.id, sourceCacheKey });
+                                                result = sourceChain;
+                                            } else {
+                                                result = recursiveResult;
+                                            }
+                                            // Cache the source chain result
                                             chainCache.set(sourceCacheKey, result);
                                         }
                                     }
@@ -1167,6 +1231,9 @@ export default function BabylonHydraCanvas() {
                             // Cache the final result
                             if (result && result !== baseChain) {
                                 chainCache.set(key, result);
+                                console.log('[Hydra] buildChainFromNested result cached', { key });
+                            } else {
+                                console.log('[Hydra] buildChainFromNested result empty or same as base', { key, result: !!result });
                             }
                             
                             return result;
@@ -1176,47 +1243,59 @@ export default function BabylonHydraCanvas() {
                         // Use chains directly from store instead of getChainTree() to avoid creating new arrays
                         const allChains = hydraControls.chains;
                         const rootChains = allChains.filter(c => !c.parentId && c.enabled).sort((a, b) => a.order - b.order);
-                        
+
                         let finalChain: any = null;
-                        
-                        // If chains exist, use them; otherwise use legacy system
+
                         if (rootChains.length > 0) {
                             // Separate root chains by type
                             const rootSources = rootChains.filter(c => c.type === 'source').sort((a, b) => a.order - b.order);
                             const rootTransforms = rootChains.filter(c => c.type === 'transform').sort((a, b) => a.order - b.order);
                             const rootCompositors = rootChains.filter(c => c.type === 'compositor').sort((a, b) => a.order - b.order);
-                            
-                            // ALWAYS start with video as base - it should never disappear
-                            // Video is the foundation, procedural sources enhance it
-                            // Check if s0 exists, if not create a fallback
-                            if (gAny.s0) {
-                                finalChain = gAny.src(gAny.s0).color(1, 1, 1);
-                            } else {
-                                // Fallback: use solid color if video not ready
-                                console.warn('[Hydra] s0 not available, using solid fallback');
-                                finalChain = gAny.solid(0.1, 0.1, 0.1);
-                            }
-                            
+
                             // Find video node (src) - it may be root or have children nested under it
                             const videoNode = rootSources.find(s => s.operation === 'src');
-                            
+
+                            // If video node exists and s0 available, use video as base and build its nested children
                             if (videoNode) {
-                                // Build video node with all its nested children (sources, transforms, compositors)
-                                // This handles the case where sources are nested under video
+                                if (gAny.s0) {
+                                    finalChain = gAny.src(gAny.s0).color(1, 1, 1);
+                                } else {
+                                    console.warn('[Hydra] s0 not available for video node, using solid fallback');
+                                    finalChain = gAny.solid(0.1, 0.1, 0.1);
+                                }
                                 finalChain = buildChainFromNested(allChains, videoNode.id, finalChain);
+                            } else if (rootSources.length > 0) {
+                                // No video node: start from the first procedural root source as the base
+                                const first = rootSources[0];
+                                const sourceChain = buildChainFromNested(allChains, first.id, null);
+                                if (sourceChain) {
+                                    finalChain = sourceChain;
+                                    // If there are additional root sources, append them
+                                    for (const source of rootSources.slice(1)) {
+                                        if (source.operation !== 'src' && source.enabled) {
+                                            const sc = buildChainFromNested(allChains, source.id, null);
+                                            if (sc) {
+                                                console.log(`[Hydra] Appending root-level ${source.operation}() source to base`);
+                                                finalChain = finalChain.add(sc);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No sources: fall back to video or solid
+                                if (gAny.s0) {
+                                    finalChain = gAny.src(gAny.s0).color(1, 1, 1);
+                                } else {
+                                    console.warn('[Hydra] no root sources and no s0 available, using solid fallback');
+                                    finalChain = gAny.solid(0.1, 0.1, 0.1);
+                                }
                             }
                             
-                            // Also handle any procedural sources that are still at root level (for backward compatibility)
-                            // But prefer nested sources under video node
-                            for (const source of rootSources) {
-                                if (source.operation !== 'src' && source.enabled && !videoNode) {
-                                    // Only process root-level sources if there's no video node
-                                    // (video node children are already processed above)
-                                    const sourceChain = buildChainFromNested(allChains, source.id, null);
-                                    if (sourceChain) {
-                                        console.log(`[Hydra] Adding root-level ${source.operation}() source to video`);
-                                        finalChain = finalChain.add(sourceChain);
-                                    }
+                            // Apply root-level transforms to video (if not already applied via video node)
+                            if (!rootSources.find(s => s.operation === 'src')) {
+                                for (const transform of rootTransforms) {
+                                    finalChain = applyRootChainOperation(finalChain, transform, allChains, hydraControls, meydaData);
+                                    finalChain = buildChainFromNested(allChains, transform.id, finalChain);
                                 }
                             }
                             
@@ -1236,9 +1315,19 @@ export default function BabylonHydraCanvas() {
                             
                             // Output the final chain
                             if (finalChain) {
-                                finalChain.out();
+                                try {
+                                    console.log('[Hydra] finalChain ready, calling out()');
+                                    finalChain.out();
+                                } catch (err) {
+                                    console.error('[Hydra] error calling finalChain.out()', err);
+                                }
                             } else {
-                                base.out();
+                                try {
+                                    console.log('[Hydra] finalChain missing, falling back to base.out()');
+                                    base.out();
+                                } catch (err) {
+                                    console.error('[Hydra] error calling base.out()', err);
+                                }
                             }
                         } else {
                             // Legacy system: apply effects to camera
@@ -1410,6 +1499,28 @@ export default function BabylonHydraCanvas() {
 
             // initial pipeline build with zeroed averages
             buildHydraPipeline(0);
+
+            // Dev-only test: optionally simulate a no-src root (for debugging only)
+            try {
+                if (typeof window !== 'undefined' && (window as any).__hydra_dev_test) {
+                    console.log('[Hydra][DEVTEST] Simulating no-src root scenario');
+                    const hydraStore = useHydraControlsStore.getState();
+                    // Remove any existing src() root chains temporarily
+                    const srcChains = hydraStore.chains.filter((c: any) => c.operation === 'src');
+                    for (const sc of srcChains) {
+                        hydraStore.removeChain(sc.id);
+                    }
+                    // Add a procedural shape as root
+                    const newId = hydraStore.addChain('source', 'shape', undefined as any, undefined);
+                    hydraStore.setChainParamValue(newId, 'sides', 5);
+                    hydraStore.setChainEnabled(newId, true);
+                    // Rebuild pipeline after modifications
+                    buildHydraPipeline(hydraState.pattern);
+                    console.log('[Hydra][DEVTEST] No-src simulation complete');
+                }
+            } catch (e) {
+                console.warn('[Hydra][DEVTEST] Error running no-src simulation', e);
+            }
 
             // Minimal keyboard toggles for demo:
             // const onKey = (e: KeyboardEvent) => {
@@ -2014,7 +2125,20 @@ export default function BabylonHydraCanvas() {
             try {
                 if (!RUN_LOOP_BOUND.has(engine)) {
                     RUN_LOOP_BOUND.add(engine);
-                    engine.runRenderLoop(renderLoop);
+                    // Wrap the renderLoop in a safe caller to avoid passing a non-function
+                    // into requestAnimationFrame (some runtime states or HMR can corrupt bindings).
+                    const safeRunner = () => {
+                        try {
+                            if (typeof renderLoop === 'function') {
+                                renderLoop();
+                            } else {
+                                console.warn('[BabylonCanvas] renderLoop is not a function', { renderLoop });
+                            }
+                        } catch (err) {
+                            console.error('[BabylonCanvas] error during renderLoop execution', err);
+                        }
+                    };
+                    engine.runRenderLoop(safeRunner as any);
                 } else {
                     console.log('[BabylonCanvas] render loop already bound for this engine — skipping bind');
                 }
