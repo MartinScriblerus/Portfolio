@@ -536,19 +536,28 @@ export const useHydraControlsStore = create<HydraControlsState>((set, get) => ({
           id,
           type,
           operation: operation as HydraSourceType | HydraTransformType | HydraCompositorType,
-          enabled: true,
+          enabled: true, // start enabled so new chains are immediately visible/configurable
           params: finalParams,
           parentId: finalParentId,
           order: maxOrder + 1,
         },
       ],
     }));
+    try { console.log('[HydraStore] addChain', { id, type, operation, parentId: finalParentId }); } catch {}
     return id;
   },
   
   removeChain: (id) =>
     set((state) => ({
-      chains: state.chains.filter(c => c.id !== id && c.parentId !== id && c.innerSourceId !== id),
+      chains: state.chains
+        // remove the chain itself
+        .filter(c => c.id !== id)
+        // clear any references to the removed chain so selects don't point to missing options
+        .map((c) => ({
+          ...c,
+          parentId: c.parentId === id ? undefined : c.parentId,
+          innerSourceId: c.innerSourceId === id ? undefined : c.innerSourceId,
+        })),
     })),
   
   setChainEnabled: (id, enabled) =>
@@ -678,9 +687,12 @@ export const useHydraControlsStore = create<HydraControlsState>((set, get) => ({
     }),
   
   setChainParent: (id, parentId) =>
-    set((state) => ({
-      chains: state.chains.map(c => c.id === id ? { ...c, parentId } : c),
-    })),
+    set((state) => {
+      try { console.log('[HydraStore] setChainParent', { id, parentId }); } catch {}
+      return {
+        chains: state.chains.map(c => c.id === id ? { ...c, parentId } : c),
+      };
+    }),
   
   setChainOrder: (id, order) =>
     set((state) => ({

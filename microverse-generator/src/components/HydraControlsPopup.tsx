@@ -126,7 +126,7 @@ const ChainParamControl: React.FC<ChainParamControlProps> = ({ chainId, param, l
 
   return (
     <Box sx={{ mb: 1, p: 1, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 0.5 }}>
-      <Typography variant="caption" sx={{ mb: 0.75, fontWeight: 600, fontSize: '0.75rem', color: '#ffffff' }}>
+      <Typography variant="caption" sx={{ mb: 0.75, fontWeight: 600, fontSize: '10px', color: '#ffffff' }}>
         {label}
       </Typography>
       
@@ -435,6 +435,34 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
       case 'posterize':
         return [{ key: 'levels', label: 'Levels' }];
       case 'luma':
+         case 'gradient':
+           return [
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'voronoi':
+           return [
+             { key: 'scale', label: 'Scale' },
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'rotate':
+           return [
+             { key: 'angle', label: 'Angle' },
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'scale':
+           return [{ key: 'amount', label: 'Scale' }];
+         case 'scrollX':
+           return [
+             { key: 'amount', label: 'Amount' },
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'scrollY':
+           return [
+             { key: 'amount', label: 'Amount' },
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'colorama':
+           return [{ key: 'amount', label: 'Amount' }];
         return [{ key: 'threshold', label: 'Threshold' }];
       default:
         return [];
@@ -539,7 +567,7 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
               <FormControl fullWidth size="small">
                 <InputLabel sx={{ fontSize: '0.75rem', color: '#ffffff' }}>Nest Under</InputLabel>
                 <Select
-                  value={chain.parentId || ''}
+                  value={potentialParents.some(p => p.id === chain.parentId) ? chain.parentId : ''}
                   label="Nest Under"
                   onChange={(e) => setChainParent(chain.id, e.target.value || undefined)}
                   MenuProps={{
@@ -591,7 +619,7 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
                 <FormControl fullWidth size="small">
                   <InputLabel sx={{ fontSize: '0.75rem', color: '#ffffff' }}>Inner Source (2nd texture)</InputLabel>
                   <Select
-                    value={chain.innerSourceId || ''}
+                    value={availableChains.some(c => c.type === 'source' && c.id !== chain.id && c.id === chain.innerSourceId) ? chain.innerSourceId : ''}
                     label="Inner Source (2nd texture)"
                     onChange={(e) => setChainInnerSource(chain.id, e.target.value || undefined)}
                     MenuProps={{
