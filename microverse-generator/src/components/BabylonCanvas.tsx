@@ -2041,17 +2041,36 @@ export default function BabylonHydraCanvas() {
                     }
                     
                     // Draw the current Hydra canvas frame directly (no scaling needed if sizes match)
+                    // FALLBACK: if Hydra's s0 video element is available but Hydra's internal s0.video isn't
+                    // exposed (some hydra builds use an internal video element), prefer drawing the actual
+                    // video element so Babylon receives the live frames.
                     const finalTexSize = dynamicTexture.getSize();
-                    if (finalTexSize.width === canvasWidth && finalTexSize.height === canvasHeight) {
-                        // Direct copy when sizes match exactly - ensure it covers the entire texture
-                        ctx.drawImage(hydraCanvasRef.current, 0, 0, canvasWidth, canvasHeight, 0, 0, finalTexSize.width, finalTexSize.height);
-                    } else {
-                        // Scale if sizes don't match - ensure it covers the entire texture
-                        ctx.drawImage(
-                            hydraCanvasRef.current,
-                            0, 0, canvasWidth, canvasHeight,
-                            0, 0, finalTexSize.width, finalTexSize.height
-                        );
+                    const gAny: any = globalThis as any;
+                    // Prefer hydraCanvas when available; fallback to hydraVideoEl if s0.video isn't present
+                    const s0HasVideo = !!(gAny.s0 && (gAny.s0.video || gAny.s0.vid));
+                    const videoFallbackAvailable = typeof hydraVideoEl !== 'undefined' && hydraVideoEl && hydraVideoEl instanceof HTMLVideoElement;
+                    const sourceEl: HTMLCanvasElement | HTMLVideoElement | null = (!s0HasVideo && videoFallbackAvailable) ? hydraVideoEl : hydraCanvasRef.current;
+
+                    if (sourceEl) {
+                        if (finalTexSize.width === canvasWidth && finalTexSize.height === canvasHeight) {
+                            // Direct copy when sizes match exactly - ensure it covers the entire texture
+                            try {
+                                ctx.drawImage(sourceEl as any, 0, 0, canvasWidth, canvasHeight, 0, 0, finalTexSize.width, finalTexSize.height);
+                            } catch (e) {
+                                // If drawImage fails (cross-origin, not ready), swallow and continue
+                            }
+                        } else {
+                            // Scale if sizes don't match - ensure it covers the entire texture
+                            try {
+                                ctx.drawImage(
+                                    sourceEl as any,
+                                    0, 0, canvasWidth, canvasHeight,
+                                    0, 0, finalTexSize.width, finalTexSize.height
+                                );
+                            } catch (e) {
+                                // Ignore drawing errors
+                            }
+                        }
                     }
                     dynamicTexture.update();
                     // Debug: log a frame update every 2 seconds
