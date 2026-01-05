@@ -349,20 +349,27 @@ function BabylonScene(props: {
     
 
 
-            game && game.engine && game.engine.runRenderLoop(function () {
-                if (game && game.scene && game.scene.cameras.length > 0 && rot_state.current && rot_state.current.length > 0) {
-                    if (game.scene.cameras && game.scene.cameras.length > 0) {
-                        game.scene.cameras[0].rotation.x = rot_state.current.x;
-                        game.scene.cameras[0].rotation.y = rot_state.current.y;
-                        game.scene.cameras[0].setTarget(BABYLON.Vector3.Zero());
-                        game.scene.cameras[0].inputs.attached.mouse.detachControl();
-                        game.scene.cameras[0].position = new BABYLON.Vector3(0, 0, 12);
+            if (game && game.engine) {
+                const safeOldRunner = () => {
+                    try {
+                        if (game && game.scene) {
+                            if (game.scene.cameras && game.scene.cameras.length > 0 && rot_state.current && rot_state.current.length > 0) {
+                                game.scene.cameras[0].rotation.x = rot_state.current.x;
+                                game.scene.cameras[0].rotation.y = rot_state.current.y;
+                                game.scene.cameras[0].setTarget(BABYLON.Vector3.Zero());
+                                try { game.scene.cameras[0].inputs.attached.mouse.detachControl(); } catch {}
+                                game.scene.cameras[0].position = new BABYLON.Vector3(0, 0, 12);
+                            }
+                            if (typeof game.scene.render === 'function') {
+                                game.scene.render();
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[OldBabylonLayer] error during render', err);
                     }
-
-                }
-                game && game.scene && game.scene.render();
-        
-            });
+                };
+                game.engine.runRenderLoop(safeOldRunner as any);
+            }
             return () => {
                 if (game && game.scene) {
 

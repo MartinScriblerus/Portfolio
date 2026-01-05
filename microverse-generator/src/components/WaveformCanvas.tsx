@@ -20,6 +20,7 @@ export function WaveformCanvas({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
+  const lastUpdateRef = useRef<number>(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -28,8 +29,24 @@ export function WaveformCanvas({
     if (!ctx) return;
     let running = true;
 
+    // Throttle to 30 FPS to avoid competing with Babylon render loop
+    // 1000ms / 30fps = ~33.33ms per frame
+    const TARGET_FPS = 30;
+    const MIN_FRAME_MS = 1000 / TARGET_FPS;
+
     const loop = () => {
       if (!running) return;
+
+      const now = performance.now();
+      const elapsed = now - lastUpdateRef.current;
+
+      // Skip frame if not enough time has passed (throttle to 30 FPS)
+      if (elapsed < MIN_FRAME_MS) {
+        rafRef.current = requestAnimationFrame(loop);
+        return;
+      }
+
+      lastUpdateRef.current = now;
 
       const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
       const cssW = canvas.clientWidth || 600;
@@ -66,6 +83,7 @@ export function WaveformCanvas({
         ctx.stroke();
       }
 
+      // Continue with RAF but throttled to avoid competing with Babylon
       rafRef.current = requestAnimationFrame(loop);
     };
 

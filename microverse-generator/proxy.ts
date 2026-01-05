@@ -42,48 +42,46 @@ function checkRateLimit(req: NextRequest): { allowed: boolean; headers: Record<s
   return { allowed: b.count <= LIMIT, headers };
 }
 
-export function middleware(req: NextRequest) {
-  // TEMPORARILY DISABLED - Return immediately to test if middleware is causing 500 errors
+export function proxy(req: NextRequest) {
+  // TEMPORARILY DISABLED - Return immediately to test if proxy is causing 500 errors
   return NextResponse.next();
-  
+
   /* ORIGINAL CODE - COMMENTED OUT FOR TESTING
   try {
-    // Restrict methods for specific API routes
     const path = req.nextUrl.pathname;
     const method = req.method.toUpperCase();
 
-  // Only allow POST for these endpoints
-  if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent') && method !== 'POST') {
-    const res = NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
-    res.headers.set('Allow', 'POST');
-    return res;
-  }
-
-  // For POST endpoints, ensure JSON Content-Type
-  if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent') && method === 'POST') {
-    const ct = req.headers.get('content-type') || '';
-    if (!ct.toLowerCase().includes('application/json')) {
-      return NextResponse.json({ error: 'Unsupported Media Type' }, { status: 415 });
-    }
-  }
-
-  // Apply rate limit (POST endpoints) and light limit on GET test/count
-  if (path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent' || path === '/api/rag/test' || path === '/api/rag/count') {
-    const { allowed, headers } = checkRateLimit(req);
-    if (!allowed) {
-      const res = NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
-      Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
-      // Advise when to retry in seconds
-      const retryAfter = Math.max(1, Number(headers['X-RateLimit-Reset']) - Math.floor(Date.now() / 1000));
-      res.headers.set('Retry-After', String(retryAfter));
+    // Only allow POST for these endpoints
+    if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent') && method !== 'POST') {
+      const res = NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
+      res.headers.set('Allow', 'POST');
       return res;
     }
-  }
+
+    // For POST endpoints, ensure JSON Content-Type
+    if ((path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent') && method === 'POST') {
+      const ct = req.headers.get('content-type') || '';
+      if (!ct.toLowerCase().includes('application/json')) {
+        return NextResponse.json({ error: 'Unsupported Media Type' }, { status: 415 });
+      }
+    }
+
+    // Apply rate limit (POST endpoints) and light limit on GET test/count
+    if (path === '/api/embed' || path === '/api/rag/search' || path === '/api/utter' || path === '/api/intent' || path === '/api/rag/test' || path === '/api/rag/count') {
+      const { allowed, headers } = checkRateLimit(req);
+      if (!allowed) {
+        const res = NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+        Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
+        const retryAfter = Math.max(1, Number(headers['X-RateLimit-Reset']) - Math.floor(Date.now() / 1000));
+        res.headers.set('Retry-After', String(retryAfter));
+        return res;
+      }
+    }
 
     return NextResponse.next();
   } catch (error) {
-    // If middleware crashes, log and allow request to proceed
-    console.error('[middleware] Error:', error);
+    // If proxy crashes, log and allow request to proceed
+    console.error('[proxy] Error:', error);
     return NextResponse.next();
   }
   */

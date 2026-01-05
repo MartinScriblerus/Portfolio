@@ -1,9 +1,13 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import VolumeMuteIcon from '@mui/icons-material/VolumeMute';
+import SignalWifiConnectedNoInternet4Icon from '@mui/icons-material/SignalWifiConnectedNoInternet4';
 import {
   Box,
   Dialog,
+  Snackbar,
   DialogTitle,
   DialogContent,
   DialogActions,
@@ -24,9 +28,12 @@ import {
   IconButton,
   Divider,
 } from '@mui/material';
+import Alert from '@mui/material/Alert';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import CodeIcon from '@mui/icons-material/Code';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import {
   useHydraControlsStore,
   MusicVariableSource,
@@ -34,6 +41,9 @@ import {
   HydraOperationChain,
   HydraOperationType,
 } from '../store/useHydraControlsStore';
+import { useOldMonolithStore } from '../store/useOldMonolithStore';
+import VideoUpload from './VideoUpload';
+import { generateHydraCode } from '../utils/generateHydraCode';
 
 const MUSIC_SOURCES: MusicVariableSource[] = [
   'none',
@@ -121,7 +131,7 @@ const ChainParamControl: React.FC<ChainParamControlProps> = ({ chainId, param, l
 
   return (
     <Box sx={{ mb: 1, p: 1, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 0.5 }}>
-      <Typography variant="caption" sx={{ mb: 0.75, fontWeight: 600, fontSize: '0.75rem', color: '#ffffff' }}>
+      <Typography variant="caption" sx={{ mb: 0.75, fontWeight: 600, fontSize: '10px', color: '#ffffff' }}>
         {label}
       </Typography>
       
@@ -130,24 +140,37 @@ const ChainParamControl: React.FC<ChainParamControlProps> = ({ chainId, param, l
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
             <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#ffffff' }}>Value</Typography>
-            <TextField
-              type="number"
-              size="small"
-              value={paramConfig?.value ?? 0}
-              onChange={(e) => {
-                const numVal = Number(e.target.value);
-                setChainParamValue(chainId, param, numVal);
-              }}
-              inputProps={{ min: paramConfig?.min ?? 0, max: paramConfig?.max ?? 100, step: paramConfig?.step ?? 1 }}
-              sx={{ 
-                width: 70, 
-                '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5, color: '#ffffff' },
-                '& .MuiInputLabel-root': { color: '#ffffff' },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.5)' },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.7)' },
-              }}
-            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig?.value ?? 0);
+                  const step = Number(paramConfig?.step ?? 1);
+                  const min = Number(paramConfig?.min ?? 0);
+                  const next = Math.max(min, cur - step);
+                  setChainParamValue(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                -
+              </Button>
+              <Box sx={{ width: 70, textAlign: 'center', color: '#ffffff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, py: '6px', background: 'rgba(20,20,25,0.6)' }}>
+                {paramConfig?.value ?? 0}
+              </Box>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig?.value ?? 0);
+                  const step = Number(paramConfig?.step ?? 1);
+                  const max = Number(paramConfig?.max ?? 100);
+                  const next = Math.min(max, cur + step);
+                  setChainParamValue(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                +
+              </Button>
+            </Box>
           </Box>
           <Slider
             value={paramConfig?.value ?? 0}
@@ -166,22 +189,67 @@ const ChainParamControl: React.FC<ChainParamControlProps> = ({ chainId, param, l
 
         {/* Min/Max Controls */}
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            label="Min"
-            type="number"
-            size="small"
-            value={paramConfig.min}
-            onChange={(e) => setChainParamMin(chainId, param, Number(e.target.value))}
-            sx={{ width: 70, '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5 } }}
-          />
-          <TextField
-            label="Max"
-            type="number"
-            size="small"
-            value={paramConfig.max}
-            onChange={(e) => setChainParamMax(chainId, param, Number(e.target.value))}
-            sx={{ width: 70, '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5 } }}
-          />
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig.min ?? 0);
+                  const step = 1;
+                  const next = Math.max(0, cur - step);
+                  setChainParamMin(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                -
+              </Button>
+              <Box sx={{ width: 70, textAlign: 'center', color: '#ffffff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, py: '6px', background: 'rgba(20,20,25,0.6)' }}>
+                {paramConfig.min}
+              </Box>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig.min ?? 0);
+                  const step = 1;
+                  const next = cur + step;
+                  setChainParamMin(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                +
+              </Button>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig.max ?? 100);
+                  const step = 1;
+                  const next = Math.max(0, cur - step);
+                  setChainParamMax(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                -
+              </Button>
+              <Box sx={{ width: 70, textAlign: 'center', color: '#ffffff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, py: '6px', background: 'rgba(20,20,25,0.6)' }}>
+                {paramConfig.max}
+              </Box>
+              <Button
+                size="small"
+                onClick={() => {
+                  const cur = Number(paramConfig.max ?? 100);
+                  const step = 1;
+                  const next = cur + step;
+                  setChainParamMax(chainId, param, next);
+                }}
+                sx={{ minWidth: 28, height: 28, padding: '4px' }}
+              >
+                +
+              </Button>
+            </Box>
+          </Box>
         </Box>
 
         {/* Music Variable Latch */}
@@ -276,14 +344,33 @@ const ChainParamControl: React.FC<ChainParamControlProps> = ({ chainId, param, l
                 </Select>
               </FormControl>
               {paramConfig.musicOperator !== 'none' && paramConfig.musicOperator !== 'sqrt' && paramConfig.musicOperator !== 'log' && (
-                <TextField
-                  label="Val"
-                  type="number"
-                  size="small"
-                  value={paramConfig.musicOperand}
-                  onChange={(e) => setChainParamMusicOperand(chainId, param, Number(e.target.value))}
-                  sx={{ width: 80, '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5 } }}
-                />
+                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const cur = Number(paramConfig.musicOperand ?? 1);
+                      const next = Math.max(0, cur - 1);
+                      setChainParamMusicOperand(chainId, param, next);
+                    }}
+                    sx={{ minWidth: 28, height: 28, padding: '4px' }}
+                  >
+                    -
+                  </Button>
+                  <Box sx={{ width: 80, textAlign: 'center', color: '#ffffff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, py: '6px', background: 'rgba(20,20,25,0.6)' }}>
+                    {paramConfig.musicOperand}
+                  </Box>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const cur = Number(paramConfig.musicOperand ?? 1);
+                      const next = cur + 1;
+                      setChainParamMusicOperand(chainId, param, next);
+                    }}
+                    sx={{ minWidth: 28, height: 28, padding: '4px' }}
+                  >
+                    +
+                  </Button>
+                </Box>
               )}
             </Box>
           )}
@@ -353,6 +440,34 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
       case 'posterize':
         return [{ key: 'levels', label: 'Levels' }];
       case 'luma':
+         case 'gradient':
+           return [
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'voronoi':
+           return [
+             { key: 'scale', label: 'Scale' },
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'rotate':
+           return [
+             { key: 'angle', label: 'Angle' },
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'scale':
+           return [{ key: 'amount', label: 'Scale' }];
+         case 'scrollX':
+           return [
+             { key: 'amount', label: 'Amount' },
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'scrollY':
+           return [
+             { key: 'amount', label: 'Amount' },
+             { key: 'speed', label: 'Speed' },
+           ];
+         case 'colorama':
+           return [{ key: 'amount', label: 'Amount' }];
         return [{ key: 'threshold', label: 'Threshold' }];
       default:
         return [];
@@ -457,7 +572,7 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
               <FormControl fullWidth size="small">
                 <InputLabel sx={{ fontSize: '0.75rem', color: '#ffffff' }}>Nest Under</InputLabel>
                 <Select
-                  value={chain.parentId || ''}
+                  value={potentialParents.some(p => p.id === chain.parentId) ? chain.parentId : ''}
                   label="Nest Under"
                   onChange={(e) => setChainParent(chain.id, e.target.value || undefined)}
                   MenuProps={{
@@ -504,12 +619,12 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
             {isCompositor && (
               <Box>
                 <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', mb: 0.5, display: 'block' }}>
-                  <strong>Compositors combine 2 textures:</strong> The main chain (from above) + inner source (select below). If no inner source selected, uses noise default.
+                  <strong>Compositors</strong> combine 2 textures
                 </Typography>
                 <FormControl fullWidth size="small">
                   <InputLabel sx={{ fontSize: '0.75rem', color: '#ffffff' }}>Inner Source (2nd texture)</InputLabel>
                   <Select
-                    value={chain.innerSourceId || ''}
+                    value={availableChains.some(c => c.type === 'source' && c.id !== chain.id && c.id === chain.innerSourceId) ? chain.innerSourceId : ''}
                     label="Inner Source (2nd texture)"
                     onChange={(e) => setChainInnerSource(chain.id, e.target.value || undefined)}
                     MenuProps={{
@@ -555,6 +670,16 @@ const ChainControl: React.FC<ChainControlProps> = ({ chain, depth, availableChai
               </Box>
             )}
             
+            {/* Video Upload for src operation */}
+            {isSource && chain.operation === 'src' && (
+              <Box sx={{ mb: 1, p: 1, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 0.5 }}>
+                <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ffffff', mb: 1, display: 'block' }}>
+                  Video Source
+                </Typography>
+                <VideoUpload />
+              </Box>
+            )}
+            
             {/* Parameters */}
             {paramLabels.map(({ key, label }) => (
               <ChainParamControl key={key} chainId={chain.id} param={key} label={label} />
@@ -583,6 +708,9 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
   const addChain = useHydraControlsStore((s) => s.addChain);
   const [addType, setAddType] = useState<HydraOperationType>('source');
   const [addOperation, setAddOperation] = useState<string>('osc');
+  const rightDrawerOpen = useOldMonolithStore((s) => s.rightDrawerOpen);
+  const [codeDialogOpen, setCodeDialogOpen] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState<string>('');
   
   // Create a stable hash of chains to use as dependency for useMemo
   // This prevents infinite loops by only recalculating when chains actually change
@@ -626,6 +754,107 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
       setAddOperation(operations[0]?.value || 'osc');
     }
   };
+
+  const handleGenerateCode = () => {
+    const code = generateHydraCode(chains);
+    setGeneratedCode(code);
+    setCodeDialogOpen(true);
+  };
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedCode);
+      // You could add a toast notification here if desired
+    } catch (err) {
+      console.error('Failed to copy code:', err);
+    }
+  };
+
+  const handleInitCam = async () => {
+    try {
+      const w: any = window as any;
+      // Ensure we have a shared A+V stream (user gesture required)
+      let stream = null;
+      if (typeof w.ensureSharedMedia === 'function') {
+        try {
+          stream = await w.ensureSharedMedia({ audio: true, video: true });
+        } catch (e) {
+          // Fall back to attempting camera-only if merged request fails
+          try { stream = await w.ensureSharedCamera(); } catch (e2) { stream = null; }
+        }
+      } else if (typeof w.ensureSharedCamera === 'function') {
+        try { stream = await w.ensureSharedCamera(); } catch (e) { stream = null; }
+      }
+
+      // Dispatch hydra-init-cam with the obtained stream (if any). Babylon/Hyra canvas will route it.
+      try {
+        window.dispatchEvent(new CustomEvent('hydra-init-cam', { detail: { stream } }));
+      } catch (e) {
+        console.warn('Failed to dispatch hydra-init-cam', e);
+      }
+    } catch (e) {
+      console.warn('handleInitCam failed', e);
+    }
+  };
+
+  // Toggle hydra video mute via global helper
+  const [videoMuted, setVideoMuted] = useState<boolean>(() => {
+    try { return !!(window as any).__hydraVideoEl?.muted; } catch { return true; }
+  });
+
+  const handleToggleVideoMute = () => {
+    try {
+      const res = (window as any).toggleHydraVideoMute ? (window as any).toggleHydraVideoMute() : null;
+      // If function returned new muted state, use it; otherwise read from element
+      if (typeof res === 'boolean') setVideoMuted(res);
+      else setVideoMuted(!!(window as any).__hydraVideoEl?.muted);
+    } catch (e) {
+      console.warn('toggleHydraVideoMute failed', e);
+    }
+  };
+
+  // Camera / shared media status indicator + device labels
+  const [cameraStatus, setCameraStatus] = useState<{ hasAudio: boolean; hasVideo: boolean; audioLabels: string[]; videoLabels: string[] }>({ hasAudio: false, hasVideo: false, audioLabels: [], videoLabels: [] });
+
+  useEffect(() => {
+    const update = async () => {
+      try {
+        const w: any = window as any;
+        const stat = w.getSharedMediaStatus ? w.getSharedMediaStatus() : { hasAudio: !!w.__sharedAudioStream, hasVideo: !!w.__cameraStream };
+        const devices = w.__sharedMediaDevices || { audio: [], video: [] };
+        setCameraStatus({ hasAudio: !!stat.hasAudio, hasVideo: !!stat.hasVideo, audioLabels: devices.audio || [], videoLabels: devices.video || [] });
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    update();
+    const handler = () => update();
+    window.addEventListener('shared-media-updated', handler);
+    return () => { window.removeEventListener('shared-media-updated', handler); };
+  }, []);
+
+  // Snackbar for camera routing feedback
+  const [snackOpen, setSnackOpen] = useState(false);
+  const [snackMsg, setSnackMsg] = useState('');
+  const [snackSeverity, setSnackSeverity] = useState<'success'|'error'|'info'|'warning'>('success');
+
+  useEffect(() => {
+    const onCameraRouted = (ev: any) => {
+      try {
+        const d = ev?.detail || {};
+        const success = d.success === true;
+        const msg = d.message || (success ? 'Camera routed to Hydra' : 'Camera routing pending/failed');
+        setSnackMsg(msg);
+        setSnackSeverity(success ? 'success' : 'info');
+        setSnackOpen(true);
+      } catch (e) {
+        // ignore
+      }
+    };
+    window.addEventListener('hydra-camera-routed', onCameraRouted as EventListener);
+    return () => window.removeEventListener('hydra-camera-routed', onCameraRouted as EventListener);
+  }, []);
   
   // Get root chains (no parent) - use memoized tree
   const rootChains = chainTree.filter(c => !c.parentId);
@@ -634,34 +863,72 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="sm"
+      maxWidth={false}
       PaperProps={{
         sx: {
           bgcolor: 'rgba(20, 20, 25, 0.95)',
           color: '#e8e8e8',
           border: '1px solid rgba(255,255,255,0.1)',
-          width: '344px',
-          
-        //   maxHeight: '48vh',
+          width: '444px',
+          position: 'fixed',
+          bottom: '16rem', // Above piano keys
+          //left: '360px', // To the right of rgb panels and buttons
+          right: rightDrawerOpen ? '360px' : '20px', // Slide left when right drawer opens
+          top: '20px',
+          margin: 0,
+          maxHeight: 'calc(100vh - 140px)',
+          transform: 'none', // Override default centering
+          transition: 'right 180ms ease', // Match right drawer transition
+        },
+      }}
+      sx={{
+        '& .MuiDialog-container': {
+          alignItems: 'flex-end',
+          justifyContent: 'flex-start',
+        },
+        '& .MuiBackdrop-root': {
+          backgroundColor: 'transparent', // No backdrop overlay
         },
       }}
     >
       <DialogTitle sx={{ pb: 1, fontSize: '0.95rem', fontWeight: 600, color: '#ffffff' }}>
         Hydra Operation Chains
         <Typography variant="caption" sx={{ display: 'block', fontSize: '0.7rem', color: 'rgba(255,255,255,0.6)', mt: 0.5, fontWeight: 400 }}>
-          <strong>Sources:</strong> osc, noise, shape, voronoi create new textures that add to video • <strong>Src (Video)</strong> = references the video buffer • <strong>Transforms:</strong> kaleid, repeat, rotate modify textures • <strong>Compositors:</strong> blend, modulate combine 2 textures (select inner source below)
+          <strong>Sources</strong> create new textures • <strong>Transforms:</strong> modify textures • <strong>Compositors:</strong> combine 2 textures (select inner source below)
         </Typography>
       </DialogTitle>
-      <DialogContent sx={{ p: 1.5, '&.MuiDialogContent-root': { pt: 1, color: '#ffffff' } }}>
+      <DialogContent sx={{ 
+        p: 1.5,
+      
+        '&.MuiDialogContent-root': { 
+          pt: 1, 
+          color: '#ffffff',
+           
+          } 
+        }}
+      >
         <Stack spacing={1}>
+          {/* Video Upload Section */}
+          <Box sx={{ p: 1, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 0.5, mb: 1 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ffffff', mb: 1, display: 'block' }}>
+              Video Source
+            </Typography>
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', mb: 1, display: 'block' }}>
+              Upload a video to use with the <strong>Src (Video)</strong> operation. The video will be available to all src() chains.
+            </Typography>
+            <VideoUpload />
+          </Box>
+          
+          <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+          
           {/* Add New Chain */}
           <Box sx={{ p: 1, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 0.5 }}>
-            <Typography variant="caption" sx={{ mb: 0.5, fontSize: '0.75rem', fontWeight: 600, color: '#ffffff' }}>
+            {/* <Typography variant="caption" sx={{ mb: 0.5, padding: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#ffffff' }}>
               Add Operation
-            </Typography>
-            <Typography variant="caption" sx={{ display: 'block', mb: 1, fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)' }}>
+            </Typography> */}
+            {/* <Typography variant="caption" sx={{ display: 'block', mb: 1, fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)' }}>
               <strong>Tip:</strong> Sources (osc, noise, etc.) automatically nest under video. Video is always the base. Use 'Nest Under' to chain operations: e.g., nest a 'modulate' compositor under 'osc', then select another 'osc' as its inner source for osc().modulate(osc()) patterns.
-            </Typography>
+            </Typography> */}
             <Stack spacing={1} direction="row">
               <FormControl size="small" sx={{ flex: 1 }}>
                 <InputLabel sx={{ fontSize: '0.75rem', color: '#ffffff' }}>Type</InputLabel>
@@ -767,22 +1034,169 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
           </Box>
           
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-          
+          <div style={{
+            overflow: 'auto',
+            marginLeft: '12px'
+          }}>
           {/* Chain Tree */}
-          {rootChains.length === 0 ? (
-            <Typography variant="caption" sx={{ fontSize: '0.75rem', color: '#ffffff', textAlign: 'center', py: 2 }}>
-              No operations yet. Add a source to start building a chain.
-            </Typography>
-          ) : (
-            rootChains.map((chain) => (
-              <ChainControl key={chain.id} chain={chain} depth={0} availableChains={chainTree} />
-            ))
-          )}
+            {rootChains.length === 0 ? (
+              <Typography variant="caption" sx={{ fontSize: '0.75rem', color: '#ffffff', textAlign: 'center', py: 2 }}>
+                No operations yet. Add a source to start building a chain.
+              </Typography>
+            ) : (
+              rootChains.map((chain) => (
+                <ChainControl key={chain.id} chain={chain} depth={0} availableChains={chainTree} />
+              ))
+            )}
+          </div>
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ p: 1.5, pt: 1 }}>
+      <DialogActions sx={{ p: 1.5, pt: 1, display: 'flex', justifyContent: 'space-between' }}>
+        <Box sx={{ display: 'flex', gap: 1, marginLeft: '12px' }}>
+          <Button 
+            onClick={handleGenerateCode} 
+            size="small" 
+            startIcon={<CodeIcon />}
+            sx={{ 
+              fontSize: '0.8rem', 
+              color: '#ffffff',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            Generate Code
+          </Button>
+          <Button
+            onClick={handleInitCam}
+            size="small"
+            title="Request camera + microphone and route to Hydra (user gesture required)"
+            sx={{ fontSize: '0.8rem', color: '#ffffff', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+          >
+            Enable Camera
+          </Button>
+          {cameraStatus.hasVideo && <Button
+            onClick={() => { try { (window as any).disconnectSharedMedia && (window as any).disconnectSharedMedia(); } catch (e) { console.warn(e); } }}
+            size="small"
+            sx={{ fontSize: '0.8rem', color: '#ffffff', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+          >
+            {/* Disconnect */}
+            <SignalWifiConnectedNoInternet4Icon/>
+          </Button>}
+          <Button
+            onClick={handleToggleVideoMute}
+            size="small"
+            sx={{ fontSize: '0.8rem', color: '#ffffff', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+          >
+            {videoMuted ? 
+              // 'Unmute Video' 
+              // <VolumeUpIcon />
+              'Unmute'
+              : 
+              // <VolumeMuteIcon />
+              'Mute'
+              // 'Mute Video'
+              }
+          </Button>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ fontSize: '0.75rem', color: cameraStatus.hasVideo ? '#7CFC00' : '#ff6b6b', border: '1px solid rgba(255,255,255,0.06)', px: 1, py: '2px', borderRadius: 1 }}>
+            {cameraStatus.hasVideo ? 'Camera: Connected' : 'Camera: Disconnected'}
+          </Box>
+          {cameraStatus.videoLabels && cameraStatus.videoLabels.length > 0 && (
+            <Box sx={{ fontSize: '0.7rem', color: '#e0e0e0', opacity: 0.85 }}>
+              {cameraStatus.videoLabels.join(', ')}
+            </Box>
+          )}
+        </Box>
         <Button onClick={onClose} size="small" sx={{ fontSize: '0.8rem', color: '#ffffff' }}>Close</Button>
       </DialogActions>
+
+      {/* Code Display Dialog */}
+      <Dialog
+        open={codeDialogOpen}
+        onClose={() => setCodeDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: 'rgba(20, 20, 25, 0.95)',
+            color: '#e8e8e8',
+            border: '1px solid rgba(255,255,255,0.1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1, fontSize: '0.95rem', fontWeight: 600, color: '#ffffff' }}>
+          Generated Hydra Code
+        </DialogTitle>
+        <DialogContent>
+          <Box
+            sx={{
+              position: 'relative',
+              bgcolor: 'rgba(0, 0, 0, 0.3)',
+              borderRadius: 1,
+              p: 2,
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            <IconButton
+              onClick={handleCopyCode}
+              size="small"
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                color: 'rgba(255,255,255,0.7)',
+                '&:hover': {
+                  color: '#ffffff',
+                  bgcolor: 'rgba(255,255,255,0.1)',
+                },
+              }}
+              title="Copy to clipboard"
+            >
+              <ContentCopyIcon fontSize="small" />
+            </IconButton>
+            <pre
+              style={{
+                margin: 0,
+                fontSize: '0.85rem',
+                fontFamily: 'monospace',
+                color: '#ffffff',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                overflowX: 'auto',
+              }}
+            >
+              {generatedCode}
+            </pre>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 1.5, pt: 1 }}>
+          <Button 
+            onClick={handleCopyCode} 
+            size="small" 
+            startIcon={<ContentCopyIcon />}
+            sx={{ fontSize: '0.8rem', color: '#ffffff' }}
+          >
+            Copy
+          </Button>
+          <Button 
+            onClick={() => setCodeDialogOpen(false)} 
+            size="small" 
+            sx={{ fontSize: '0.8rem', color: '#ffffff' }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+        <Snackbar
+          open={snackOpen}
+          autoHideDuration={4000}
+          onClose={() => setSnackOpen(false)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        >
+          <Alert onClose={() => setSnackOpen(false)} severity={snackSeverity} sx={{ width: '100%' }}>
+            {snackMsg}
+          </Alert>
+        </Snackbar>
     </Dialog>
   );
 }

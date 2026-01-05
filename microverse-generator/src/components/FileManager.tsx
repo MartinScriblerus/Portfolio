@@ -53,22 +53,21 @@ const FileManager = (props: FileManagerProps) => {
                     <Button
                         component="label"
                         sx={{
-            //    border: `solid 1px ${HERITAGE_GOLD}`,
-                backgroundColor: chuckHook ? 'rgba(28,28,28,0.78)' : undefined,
-                color: 'rgba(245,245,245,0.78)',
-                height: '48px',
-                width: '100%',
-                minHeight: '48px',
-                display: "flex",
-                zIndex: 99,
-                pointerEvents: "auto",
-                cursor: "pointer",
-                '&:hover': {
-                  color: 'rgba(245,245,245,0.78)',
-                  background: HERITAGE_GOLD,
-                }
-              }}
-              className="ui_SynthLayerButton"
+                            backgroundColor: chuckHook ? 'rgba(28,28,28,0.78)' : undefined,
+                            color: 'rgba(245,245,245,0.78)',
+                            height: '48px',
+                            width: '100%',
+                            minHeight: '48px',
+                            display: "flex",
+                            zIndex: 99,
+                            pointerEvents: "auto",
+                            cursor: "pointer",
+                            '&:hover': {
+                                color: 'rgba(245,245,245,0.78)',
+                                background: HERITAGE_GOLD,
+                            }
+                        }}
+                        className="ui_SynthLayerButton"
                         onClick={handleButtonClick}
                         endIcon={<FileUploadIcon />}
                     >

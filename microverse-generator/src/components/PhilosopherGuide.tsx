@@ -13,7 +13,6 @@ import obliqueStrategiesData from '../../data/oblique-strategies.json';
 import { searchDSPDocsClient } from '../lib/dsp-rag/search-dsp-docs';
 import { DSPDoc } from '../types/dsp-rag';
 import ChuckCodeDisplay from './ChuckCodeDisplay';
-// BYOTTokenManager removed - no longer needed (OpenAI removed)
 import { useChuckCodeState, formatCodeStateForRAG } from '../hooks/useChuckCodeState';
 
 export default function CodeGuide() {
@@ -49,18 +48,10 @@ export default function CodeGuide() {
 
   // Start state
   const [started, setStarted] = useState<boolean>(false);
-  
-  // API Key removed - no longer needed (using Supabase RAG directly)
-  
   // ChucK code state observation
   const chuckCodeState = useChuckCodeState(2000);
 
   const task = useMemo(() => tasks.find((t) => t.id === currentTaskId), [tasks, currentTaskId]);
-  
-  // Debug logging - must be before any conditional returns (Rules of Hooks)
-  useEffect(() => {
-    console.log('[CodeGuide] Component mounted/updated - introActive:', introActive, 'clickedBegin:', clickedBegin, 'shouldShow:', shouldShow, 'task:', task?.id, 'started:', started);
-  }, [introActive, clickedBegin, shouldShow, task?.id, started]);
 
   // On task changes, seed a guide line to keep it alive.
   useEffect(() => {
@@ -411,9 +402,9 @@ export default function CodeGuide() {
         aria-label="ChucK Code Guide"
         style={{ 
           position: 'fixed', // Use fixed to ensure it's above the canvas
-          bottom: 240, 
-          left: 16, 
-          maxWidth: 540, 
+          top: 284, 
+          left: 8, 
+          maxWidth: 240, 
           padding: '12px 14px', 
           background: 'rgba(0,0,0,0.5)', 
           color: '#e9f1ff', 
@@ -429,10 +420,10 @@ export default function CodeGuide() {
       >
         <div style={{ marginBottom: 12 }}>
           <h3 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 'bold' }}>
-            ChucK Code Generator
+            ChucK Code Companion
           </h3>
           <p style={{ margin: '0 0 12px 0', fontSize: '11px', opacity: 0.8 }}>
-            An agent guided by Oblique Strategies will help you generate ChucK code. Describe the sound or effect you want to create.
+            For technical guidance and inspiration, this guide draws on ChucK and Hydra docs, along with Brian Eno’s Oblique Strategies.
           </p>
           <button
             onClick={(e) => {
@@ -474,7 +465,7 @@ export default function CodeGuide() {
         position: 'fixed', // Use fixed to ensure it's above the canvas
         bottom: 240, 
         left: 16, 
-        maxWidth: 540, 
+        maxWidth: 340, 
         padding: '12px 14px', 
         background: 'rgba(0,0,0,0.5)', 
         color: '#e9f1ff', 
@@ -495,18 +486,17 @@ export default function CodeGuide() {
       }}
     >
       {/* Status - Using Supabase RAG (no API key needed) */}
-      <div style={{ marginBottom: 8, fontSize: '10px' }}>
-        <div style={{ padding: '4px 8px', background: 'rgba(34,197,94,0.2)', borderRadius: 4, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>✅ Using Supabase RAG - No API key needed</span>
-        </div>
-      </div>
+      <div style={{ marginBottom: 8, fontSize: '10px', background: 'rgba(34,197,94,0.2)',  }}>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8, fontSize: '10px', fontFamily: 'monospace' }}>
-        {chat.map((m, i) => (
-          <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
-            {m.text}
-          </div>
-        ))}
+      
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto', paddingRight: 8, fontSize: '10px', fontFamily: 'monospace' }}>
+          {chat.map((m, i) => (
+            <div key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: 4, opacity: m.role === 'you' ? 0.9 : 1 }}>
+              {m.text}
+            </div>
+          ))}
+        </div>
       </div>
       <div style={{ margin: 0, marginTop: 12, width: '100%', display: 'flex', gap: 8, flexDirection: 'row' }}>
         <label htmlFor="code-guide-input" className="sr-only">

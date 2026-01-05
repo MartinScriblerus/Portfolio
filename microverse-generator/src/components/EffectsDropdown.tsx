@@ -3,7 +3,12 @@ import { EFFECTS } from "../constants";
 import { JSXElementConstructor, Key, ReactElement, ReactNode, ReactPortal, useEffect, useState } from "react";
 import { audioInEffectSlidersHelper } from '../utils/utils';
 
-import { FxDropProps } from "./ChuckSetup";
+// Props for this dropdown component
+type FxDropProps = {
+    chuckRef: React.MutableRefObject<any>;
+    updateSelectedAudioInSetting: (effect: string) => void;
+    showAudioInDropdown?: boolean;
+};
 
 function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: { 
     effect: string, 

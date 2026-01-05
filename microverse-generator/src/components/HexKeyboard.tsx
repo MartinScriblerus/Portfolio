@@ -169,9 +169,18 @@ function HexKeyboard({
     viewBox: `${bounds.minX - tileRadius * paddingR} ${bounds.minY - tileRadius * paddingR} ${(bounds.maxX - bounds.minX) + tileRadius * paddingR * 2} ${(bounds.maxY - bounds.minY) + tileRadius * paddingR * 2}`,
   } as const;
 
+  // Handle clicks on HexKeyboard to enable HID (for MIDI keyboard input)
+  const handleHexKeyboardClick = (e: React.MouseEvent) => {
+    // Focus the Babylon canvas to enable HID keyboard
+    const canvas = document.querySelector('canvas#babylonCanvas') as HTMLCanvasElement;
+    if (canvas) {
+      canvas.focus();
+    }
+  };
+
   return (
-    <div style={containerStyles}>
-      <svg {...svgProps}>
+    <div style={containerStyles} onClick={handleHexKeyboardClick}>
+      <svg {...svgProps} tabIndex={0} style={{ outline: 'none' }}>
         {tilesWithGeom.map((t, i) => {
           const customFill = typeof resolveFill === 'function' ? resolveFill(t.absStep, t.pitchIndex) : undefined;
           const baseFill = customFill ?? colors[t.pitchIndex % colors.length];

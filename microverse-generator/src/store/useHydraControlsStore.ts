@@ -57,6 +57,10 @@ export interface HydraOperationChain {
 
 // Store state
 export interface HydraControlsState {
+  // Video URL for src() source
+  userVideoUrl: string | null;
+  setUserVideoUrl: (url: string | null) => void;
+  
   // Legacy flat structure (kept for backward compatibility)
   effects: {
     pixelate: HydraEffectControl;
@@ -239,6 +243,9 @@ const getDefaultParams = (operation: string): Record<string, HydraControlParam> 
 };
 
 export const useHydraControlsStore = create<HydraControlsState>((set, get) => ({
+  userVideoUrl: null,
+  setUserVideoUrl: (url) => set({ userVideoUrl: url }),
+  
   effects: {
     pixelate: createEffect({
       amount: createParam(50, 1, 300, 1), // Based on code: 2-180 typical, but can go higher
@@ -529,19 +536,28 @@ export const useHydraControlsStore = create<HydraControlsState>((set, get) => ({
           id,
           type,
           operation: operation as HydraSourceType | HydraTransformType | HydraCompositorType,
-          enabled: false,
+          enabled: true, // start enabled so new chains are immediately visible/configurable
           params: finalParams,
           parentId: finalParentId,
           order: maxOrder + 1,
         },
       ],
     }));
+    try { console.log('[HydraStore] addChain', { id, type, operation, parentId: finalParentId }); } catch {}
     return id;
   },
   
   removeChain: (id) =>
     set((state) => ({
-      chains: state.chains.filter(c => c.id !== id && c.parentId !== id && c.innerSourceId !== id),
+      chains: state.chains
+        // remove the chain itself
+        .filter(c => c.id !== id)
+        // clear any references to the removed chain so selects don't point to missing options
+        .map((c) => ({
+          ...c,
+          parentId: c.parentId === id ? undefined : c.parentId,
+          innerSourceId: c.innerSourceId === id ? undefined : c.innerSourceId,
+        })),
     })),
   
   setChainEnabled: (id, enabled) =>
@@ -671,9 +687,12 @@ export const useHydraControlsStore = create<HydraControlsState>((set, get) => ({
     }),
   
   setChainParent: (id, parentId) =>
-    set((state) => ({
-      chains: state.chains.map(c => c.id === id ? { ...c, parentId } : c),
-    })),
+    set((state) => {
+      try { console.log('[HydraStore] setChainParent', { id, parentId }); } catch {}
+      return {
+        chains: state.chains.map(c => c.id === id ? { ...c, parentId } : c),
+      };
+    }),
   
   setChainOrder: (id, order) =>
     set((state) => ({

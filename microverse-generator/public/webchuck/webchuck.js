@@ -506,14 +506,26 @@ class ChuckNode extends AudioWorkletProcessor
                     {
                         return function( text )
                         {
-                            self.port.postMessage( { type: "console print", message: text } );
+                            // forward console prints as before
+                            try { self.port.postMessage( { type: "console print", message: text } ); } catch(e){}
+
+                            // Fast path: detect textual TICK messages emitted by injected ChucK code
+                            // Example textual format: "TICK 123" or "TICK, 123"
+                            try {
+                                var m = /TICK\s*[,\:]?\s*(\d+)/i.exec(String(text));
+                                if(m && m[1]) {
+                                    var tick = parseInt(m[1], 10);
+                                    // post a structured tick message including the current audio time
+                                    try { self.port.postMessage({ type: 'tick', tick: tick, audioTime: (typeof currentTime !== 'undefined' ? currentTime : null) }); } catch(e){}
+                                }
+                            } catch(e) {}
                         }
                     })( this ),
                 printErr: (function( self )
                     {
                         return function( text )
                         {
-                            self.port.postMessage( { type: "console print", message: text } );
+                            try { self.port.postMessage( { type: "console print", message: text } ); } catch(e){}
                         }
                     })( this ),
                 // don't try to decode audio files; I'm really truly trying to copy the binaries only I promise

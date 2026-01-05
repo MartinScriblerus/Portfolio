@@ -1,10 +1,12 @@
+'use client';
+
 declare global {
     interface Window {
         __hydraDebugLastLog?: number;
+        __userGestureSeen?: boolean;
+        __babylonEngine?: any;
     }
 }
-
-'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSignalBus } from '../store/useSignalBus';
@@ -29,6 +31,9 @@ import { Box } from '@mui/material';
 import { useBeatGridStore } from '../store/useBeatGridStore';
 import { useHydraControlsStore } from '../store/useHydraControlsStore';
 
+// Guard to ensure we don't bind multiple run loops for the same engine (helps with StrictMode remounts)
+const RUN_LOOP_BOUND: WeakSet<any> = new WeakSet();
+
 export default function BabylonHydraCanvas() {
             // const metrics = useGuideMetricsStore(state => state.metrics);
 
@@ -51,6 +56,69 @@ export default function BabylonHydraCanvas() {
             (window as any).__clickCount = 0;
             (window as any).__bpm = bpm;
         }
+    }, []);
+
+    // Development-only debug shims: log when code attempts to fetch or set element src with a non-string
+    useEffect(() => {
+        // Enable dev-only instrumentation when not in production. Do NOT force-enable in production.
+        const isDev = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production');
+        if (!isDev || typeof window === 'undefined') return;
+
+        const origFetch = (window as any).fetch;
+        (window as any).fetch = function(this: any, input: any, init?: any) {
+            if (typeof input !== 'string') {
+                console.warn('[HydraDebug] fetch called with non-string input:', input, new Error().stack);
+            }
+            return origFetch.apply(this, [input, init]);
+        } as any;
+
+        const origXHROpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(this: any, method: any, url: any, ...rest: any[]) {
+            if (typeof url !== 'string') {
+                console.warn('[HydraDebug] XHR.open called with non-string url:', url, new Error().stack);
+            }
+            return (origXHROpen as any).apply(this, [method, url, ...rest]);
+        };
+
+        // Wrap HTMLImageElement.src and HTMLMediaElement.src setters to catch non-string assignments
+        const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+        if (imgDesc && imgDesc.set) {
+            const origImgSrcSet = imgDesc.set;
+            Object.defineProperty(HTMLImageElement.prototype, 'src', {
+                configurable: true,
+                enumerable: imgDesc.enumerable,
+                get: imgDesc.get,
+                set: function(this: any, v: any) {
+                    if (typeof v !== 'string') {
+                        console.warn('[HydraDebug] Image.src assigned non-string:', v, new Error().stack);
+                    }
+                    return origImgSrcSet.call(this, v);
+                }
+            });
+        }
+
+        const mediaDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+        if (mediaDesc && mediaDesc.set) {
+            const origMediaSrcSet = mediaDesc.set;
+            Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+                configurable: true,
+                enumerable: mediaDesc.enumerable,
+                get: mediaDesc.get,
+                set: function(this: any, v: any) {
+                    if (typeof v !== 'string') {
+                        console.warn('[HydraDebug] Media.src assigned non-string:', v, new Error().stack);
+                    }
+                    return origMediaSrcSet.call(this, v);
+                }
+            });
+        }
+
+        return () => {
+            try { (window as any).fetch = origFetch; } catch (e) {}
+            try { XMLHttpRequest.prototype.open = origXHROpen; } catch (e) {}
+            try { if (imgDesc) Object.defineProperty(HTMLImageElement.prototype, 'src', imgDesc); } catch (e) {}
+            try { if (mediaDesc) Object.defineProperty(HTMLMediaElement.prototype, 'src', mediaDesc); } catch (e) {}
+        };
     }, []);
 
     // Microtonal state
@@ -122,14 +190,24 @@ export default function BabylonHydraCanvas() {
     };
 
     class CubeManager {
-        private static _instance: CubeManager | null = null;
+        // Use a WeakMap to scope instances to a particular scene to avoid cross-scene singletons
+        private static _instances: WeakMap<BABYLON.Scene, CubeManager> = new WeakMap();
         cubes: CubeMeta[] = [];
         maxCubes = 8;
         lastPatternSwitch = 0;
         private constructor(private scene: BABYLON.Scene) {}
         static get(scene: BABYLON.Scene) {
-            if (!CubeManager._instance) CubeManager._instance = new CubeManager(scene);
-            return CubeManager._instance;
+            let inst = CubeManager._instances.get(scene);
+            if (!inst) {
+                inst = new CubeManager(scene);
+                CubeManager._instances.set(scene, inst);
+            }
+            return inst;
+        }
+
+        // Remove any instance for a scene (call during scene/engine cleanup)
+        static clear(scene: BABYLON.Scene) {
+            try { CubeManager._instances.delete(scene); } catch (e) { /* ignore */ }
         }
         spawn(position: BABYLON.Vector3) {
             if (this.cubes.length >= this.maxCubes) return null;
@@ -144,146 +222,111 @@ export default function BabylonHydraCanvas() {
         }
         private applyFaceMaterials(c: BABYLON.Mesh) {
             const mats: BABYLON.StandardMaterial[] = [];
-            const faceDefs: Array<[string,string]> = [
+            const faceDefs: Array<[string, string]> = [
                 ['...', RED_CHANNEL], ['...', RED_CHANNEL],
                 ['...', GREEN_CHANNEL], ['...', GREEN_CHANNEL],
                 ['...', BLUE_CHANNEL], ['...', BLUE_CHANNEL]
             ];
-            faceDefs.forEach(([letter, col], idx) => {
+
+            for (let idx = 0; idx < 6; idx++) {
+                const [letter, col] = faceDefs[idx];
                 const m = new BABYLON.StandardMaterial(`mat-${c.name}-${idx}`, this.scene);
-                m.backFaceCulling = true;
-                // Ensure material is fully opaque and visible
+                m.backFaceCulling = false;
                 m.alpha = 1;
-                m.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+                // Allow emissive textures with transparency to composite correctly
+                m.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+                // Depth pre-pass helps prevent z-fighting when multiple transparent materials overlap
+                try { (m as any).needDepthPrePass = true; } catch {}
                 m.emissiveColor = new BABYLON.Color3(1, 1, 1);
-                m.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Add some diffuse so faces are visible
-                
-                if (idx === 2 && hydraCanvasRef.current) {
-                    // Show the Hydra/video canvas on one face (e.g., face 2)
-                    m.emissiveTexture = new BABYLON.DynamicTexture(
-                        `hydra-face-${c.name}`,
-                        hydraCanvasRef.current,
-                        this.scene,
-                        false
-                    );
-                } else {
-                    const letterDT = makeLetterOverlay(this.scene, letter, col);
-                    m.emissiveTexture = letterDT;
+                m.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+
+                // Always use the deterministic letter overlay as the emissive layer
+                // The shared Hydra dynamic texture will be applied as the diffuse layer later
+                try {
+                    m.emissiveTexture = makeLetterOverlay(this.scene, letter, col);
+                    try { (m.emissiveTexture as any).wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE; } catch {}
+                    try { (m.emissiveTexture as any).wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE; } catch {}
+                } catch (e) {
+                    console.warn(`[CubeManager] Failed to create letter overlay for ${c.name} face ${idx}`, e);
                 }
-                
-                // Ensure texture is set and material is ready
-                if (!m.emissiveTexture) {
-                    console.warn(`[CubeManager] Face ${idx} material missing emissiveTexture for ${c.name}`);
-                }
-                
+
+                if (!m.emissiveTexture) console.warn(`[CubeManager] Face ${idx} material missing emissiveTexture for ${c.name}`);
                 mats.push(m);
-            });
+            }
+
             const mm = new BABYLON.MultiMaterial(`${c.name}-mm`, this.scene);
             mm.subMaterials.push(...mats);
             c.material = mm;
-            
-            // Babylon.js CreateBox auto-creates 12 subMeshes when MultiMaterial is set
-            // We need to work with these 12 subMeshes and map pairs to our 6 materials
-            // After setting material, Babylon.js will have created 12 subMeshes
-            // Map them: subMeshes 0,1 -> material 0; 2,3 -> 1; 4,5 -> 2; 6,7 -> 3; 8,9 -> 4; 10,11 -> 5
-            
-            // Wait a frame for Babylon.js to finish creating subMeshes, then map them
-            // Actually, let's just map whatever subMeshes exist
-            if (c.subMeshes.length === 12) {
-                // Perfect - map pairs to materials
-                for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-                    const subMesh1 = c.subMeshes[faceIndex * 2];
-                    const subMesh2 = c.subMeshes[faceIndex * 2 + 1];
-                    if (subMesh1) subMesh1.materialIndex = faceIndex;
-                    if (subMesh2) subMesh2.materialIndex = faceIndex;
-                }
-            } else if (c.subMeshes.length > 0) {
-                // Unexpected count - try to map what we have
-                console.warn(`[CubeManager] ${c.name}: Unexpected subMesh count ${c.subMeshes.length}, attempting to map`);
-                // Clear and create 6 manually
-                c.subMeshes = [];
-                const indices = c.getIndices();
-                const verticesCount = c.getTotalVertices();
-                for (let i = 0; i < 6; i++) {
-                    const indexStart = i * 6;
-                    const subMesh = new BABYLON.SubMesh(i, 0, verticesCount || 24, indexStart, 6, c);
-                    c.subMeshes.push(subMesh);
+
+            // Map subMeshes to the 6 face materials where possible
+            const smCount = c.subMeshes ? c.subMeshes.length : 0;
+            if (smCount >= 6) {
+                if (smCount === 12) {
+                    for (let i = 0; i < 6; i++) {
+                        if (c.subMeshes[i * 2]) c.subMeshes[i * 2].materialIndex = i;
+                        if (c.subMeshes[i * 2 + 1]) c.subMeshes[i * 2 + 1].materialIndex = i;
+                    }
+                } else {
+                    // Distribute subMeshes across 6 materials (best-effort)
+                    for (let i = 0; i < smCount; i++) {
+                        const materialIndex = Math.min(5, Math.floor(i * 6 / smCount));
+                        if (c.subMeshes[i]) c.subMeshes[i].materialIndex = materialIndex;
+                    }
                 }
             } else {
-                // No subMeshes - create 6
-                const indices = c.getIndices();
-                const verticesCount = c.getTotalVertices();
-                for (let i = 0; i < 6; i++) {
-                    const indexStart = i * 6;
-                    const subMesh = new BABYLON.SubMesh(i, 0, verticesCount || 24, indexStart, 6, c);
-                    c.subMeshes.push(subMesh);
+                // Deterministic fallback: create 6 child planes parented to the box
+                try {
+                    const half = 0.5;
+                    const planeDefs: Array<{ pos: BABYLON.Vector3; rot: BABYLON.Vector3 }> = [
+                        { pos: new BABYLON.Vector3(half, 0, 0), rot: new BABYLON.Vector3(0, Math.PI / 2, 0) }, // +X
+                        { pos: new BABYLON.Vector3(-half, 0, 0), rot: new BABYLON.Vector3(0, -Math.PI / 2, 0) }, // -X
+                        { pos: new BABYLON.Vector3(0, half, 0), rot: new BABYLON.Vector3(-Math.PI / 2, 0, 0) }, // +Y
+                        { pos: new BABYLON.Vector3(0, -half, 0), rot: new BABYLON.Vector3(Math.PI / 2, 0, 0) }, // -Y
+                        { pos: new BABYLON.Vector3(0, 0, half), rot: new BABYLON.Vector3(0, 0, 0) }, // +Z
+                        { pos: new BABYLON.Vector3(0, 0, -half), rot: new BABYLON.Vector3(0, Math.PI, 0) } // -Z
+                    ];
+
+                    // tiny outset to avoid z-fighting with the underlying box face
+                    const OUTSET = 0.006; // small but measurable in world units
+                    const PLANE_MARGIN = 0.014; // small expansion so planes slightly overlap faces and avoid gaps
+                    for (let i = 0; i < 6; i++) {
+                        const pd = planeDefs[i];
+                        const plane = BABYLON.MeshBuilder.CreatePlane(`${c.name}-faceplane-${i}`, { width: 1 + PLANE_MARGIN, height: 1 + PLANE_MARGIN, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
+                        plane.parent = c;
+                        // move the plane slightly outward along its normal to avoid overlapping exactly with the box face
+                        try { plane.position.copyFrom(pd.pos.scale(1 + OUTSET)); } catch { plane.position.copyFrom(pd.pos); }
+                        plane.rotation.copyFrom(pd.rot);
+                        plane.isPickable = true;
+                        plane.receiveShadows = false;
+                        plane.material = mats[i];
+                        // ensure planes render after default geometry to reduce transparency sorting issues
+                        try { plane.renderingGroupId = 1; } catch {}
+                    }
+                    try { c.isPickable = false; } catch {}
+                    (c as any).__facePlaneFallback = true;
+                } catch (e) {
+                    console.warn(`[CubeManager] ${c.name}: fallback face-plane creation failed`, e);
                 }
             }
-            
-            c.refreshBoundingInfo();
-            
-            // Ensure all materials are opaque and visible
-            mats.forEach((mat, idx) => {
-                mat.alpha = 1;
-                mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
-                mat.backFaceCulling = true;
-                // Ensure emissive color is set so faces are visible
-                if (!mat.emissiveColor) {
-                    mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-                }
-                // Ensure diffuse color is set
-                if (!mat.diffuseColor) {
-                    mat.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-                }
-                // Debug: log if any material is missing texture
-                if (!mat.emissiveTexture) {
-                    console.warn(`[CubeManager] Material ${idx} for ${c.name} is missing emissiveTexture`);
-                }
+
+            // Common finalization
+            try { c.refreshBoundingInfo(); } catch {}
+            mats.forEach((mat) => {
+                try {
+                    mat.alpha = 1;
+                    // Preserve per-material transparency mode (we prefer ALPHABLEND when textures have alpha)
+                    // Keep backFaceCulling disabled so faces are visible when camera is inside the sphere
+                    mat.backFaceCulling = false;
+                    try { (mat as any).needDepthPrePass = true; } catch {}
+                } catch (e) { /* ignore per-material errors */ }
             });
-            
-            // Force refresh to ensure subMeshes are properly applied
-            c.refreshBoundingInfo();
-            
-            // Final verification and fix: ensure we have exactly 6 subMeshes
-            // Babylon.js may auto-create 12 subMeshes, so we force it to 6
-            if (c.subMeshes.length !== 6) {
-                console.warn(`[CubeManager] ${c.name}: ${c.subMeshes.length} subMeshes but expected 6 - force fixing`);
-                // Force clear and recreate exactly 6
-                c.subMeshes = [];
-                const vCount = c.getTotalVertices();
-                const idx = c.getIndices();
-                for (let i = 0; i < 6; i++) {
-                    const indexStart = i * 6;
-                    const subMesh = new BABYLON.SubMesh(i, 0, vCount || 24, indexStart, 6, c);
-                    c.subMeshes.push(subMesh);
+
+            // Validate final mapping
+            if (!(c as any).__facePlaneFallback) {
+                const finalSm = c.subMeshes ? c.subMeshes.length : 0;
+                if (!((finalSm === 12 && mm.subMaterials.length === 6) || (finalSm === 6 && mm.subMaterials.length === 6))) {
+                    console.error(`[CubeManager] ${c.name}: Final state mismatch - ${finalSm} subMeshes, ${mm.subMaterials.length} materials`);
                 }
-                c.refreshBoundingInfo();
-            }
-            
-            // Verify final state
-            // Note: Having 12 subMeshes with 6 materials is actually OK - pairs share materials
-            // But we prefer 6 subMeshes for simplicity
-            if (c.subMeshes.length === 12 && mm.subMaterials.length === 6) {
-                // This is fine - 12 subMeshes mapped to 6 materials (2 per face)
-                // Verify mapping is correct
-                let mappingOk = true;
-                for (let i = 0; i < 6; i++) {
-                    const sm1 = c.subMeshes[i * 2];
-                    const sm2 = c.subMeshes[i * 2 + 1];
-                    if (!sm1 || !sm2 || sm1.materialIndex !== i || sm2.materialIndex !== i) {
-                        mappingOk = false;
-                        break;
-                    }
-                }
-                if (!mappingOk) {
-                    console.warn(`[CubeManager] ${c.name}: 12 subMeshes but mapping incorrect - fixing`);
-                    for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-                        if (c.subMeshes[faceIndex * 2]) c.subMeshes[faceIndex * 2].materialIndex = faceIndex;
-                        if (c.subMeshes[faceIndex * 2 + 1]) c.subMeshes[faceIndex * 2 + 1].materialIndex = faceIndex;
-                    }
-                }
-            } else if (c.subMeshes.length !== 6 || mm.subMaterials.length !== 6) {
-                console.error(`[CubeManager] ${c.name}: Final state mismatch - ${c.subMeshes.length} subMeshes, ${mm.subMaterials.length} materials`);
             }
         }
         getAverageChannels() {
@@ -317,6 +360,381 @@ export default function BabylonHydraCanvas() {
             const hydra = new Hydra({ canvas: hydraCanvas, detectAudio: false, makeGlobal: true });
 
             console.log("WHAT IS HYDRA? ", hydra);
+
+            // Runtime shim: wrap s0.initVideo to be tolerant of MediaStream / VideoElement inputs.
+            // Some hydra internals may treat a non-string argument as a URL (causing "[object HTMLVideoElement]" fetches).
+            // By wrapping initVideo we ensure callers always receive a proper DOM-attached <video> or the original behavior.
+            const patchS0InitVideo = (s0obj: any) => {
+                try {
+                    if (!s0obj) return;
+                    if ((s0obj as any).__initVideoPatched) return;
+                    const _orig = (s0obj as any).initVideo && (s0obj as any).initVideo.bind(s0obj);
+                    if (typeof _orig !== 'function') return;
+                    (s0obj as any).initVideo = (arg: any, params?: any) => {
+                        try {
+                            // If it's already a video element, initialize the Hydra source with it directly
+                            if (arg && (arg.tagName === 'VIDEO' || arg instanceof HTMLVideoElement)) {
+                                try {
+                                    // Use the generic init path which accepts { src }
+                                    (s0obj as any).init({ src: arg }, params || {});
+                                    return arg;
+                                } catch (e) {
+                                    // fallback to original initVideo only if direct init fails
+                                    return _orig(arg as any);
+                                }
+                            }
+                            // If it's a MediaStream, create a hidden video element and initialize with that
+                            if (arg && (arg instanceof MediaStream || (arg.constructor && arg.constructor.name === 'MediaStream'))) {
+                                const v = document.createElement('video');
+                                v.autoplay = true;
+                                v.muted = true;
+                                (v as any).playsInline = true;
+                                v.loop = true;
+                                try { v.srcObject = arg; } catch (e) {}
+                                try {
+                                    v.style.position = 'fixed';
+                                    v.style.width = '1px';
+                                    v.style.height = '1px';
+                                    v.style.left = '-10000px';
+                                    document.body && document.body.appendChild(v);
+                                } catch (e) {}
+                                try { v.play().catch(() => {}); } catch (e) {}
+                                try {
+                                    (s0obj as any).init({ src: v }, params || {});
+                                    return v;
+                                } catch (e) {
+                                    return _orig(v as any);
+                                }
+                            }
+                            // If an object with a .video or .el property is passed, prefer that
+                            if (arg && typeof arg === 'object') {
+                                const candidate = arg.video || arg.el || arg.element || null;
+                                if (candidate && (candidate.tagName === 'VIDEO' || candidate instanceof HTMLVideoElement)) {
+                                    try {
+                                        (s0obj as any).init({ src: candidate }, params || {});
+                                        return candidate;
+                                    } catch (e) {
+                                        return _orig(candidate as any);
+                                    }
+                                }
+                                // If candidate has a srcObject (MediaStream), attach and pass
+                                if (candidate && candidate.srcObject instanceof MediaStream) {
+                                    try {
+                                        (s0obj as any).init({ src: candidate }, params || {});
+                                        return candidate;
+                                    } catch (e) {
+                                        try { return _orig(candidate); } catch (ee) {}
+                                    }
+                                }
+                            }
+                            // Fallback: call original with whatever was provided
+                            return _orig(arg as any);
+                        } catch (e) {
+                            console.warn('[Hydra] initVideo wrapper failed', e);
+                            try { return _orig(arg as any); } catch (ee) { console.warn('[Hydra] original initVideo also failed', ee); }
+                        }
+                    };
+                    try { (s0obj as any).__initVideoPatched = true; } catch (e) {}
+                } catch (e) {
+                    console.warn('[Hydra] patchS0InitVideo failed', e);
+                }
+            };
+
+            try { patchS0InitVideo((hydra as any).s0); } catch (e) {}
+            try { patchS0InitVideo((globalThis as any).s0); } catch (e) {}
+            try { patchS0InitVideo(((globalThis as any).hydra as any)?.s0); } catch (e) {}
+
+            // Helper: ensure Hydra video elements default to loop + muted and expose toggle helpers
+            const processHydraVideoEl = (v: any) => {
+                try {
+                    if (!v) return;
+                    // Some hydra paths return a video element or an object wrapping it
+                    const videoEl: HTMLVideoElement | null = (v && (v.tagName === 'VIDEO' ? v : (v.nodeName === 'VIDEO' ? v : (v instanceof HTMLVideoElement ? v : null)))) as any || null;
+                    if (videoEl) {
+                        // default behavior: muted + loop
+                        try { videoEl.loop = true; } catch {}
+                        try { videoEl.muted = true; } catch {}
+                        try { videoEl.playsInline = true; } catch {}
+                        try { videoEl.play().catch(() => {}); } catch {}
+                        // Expose a global reference for toggle from UI
+                        try { (window as any).__hydraVideoEl = videoEl; } catch {}
+                        try { (window as any).__hydraVideoMuted = !!videoEl.muted; } catch {}
+                    } else {
+                        // If hydra returned a wrapper object, attempt to find .video or .el
+                        try {
+                            const candidate = v?.video || v?.el || v?.element || null;
+                            if (candidate && candidate.tagName === 'VIDEO') {
+                                processHydraVideoEl(candidate);
+                            }
+                        } catch {}
+                    }
+                } catch (e) {
+                    // swallow errors
+                }
+            };
+
+            // Global helper to toggle hydra video mute from UI
+            try {
+                (window as any).toggleHydraVideoMute = () => {
+                    try {
+                        const hv = (window as any).__hydraVideoEl as HTMLVideoElement | undefined;
+                        if (!hv) return false;
+                        hv.muted = !hv.muted;
+                        (window as any).__hydraVideoMuted = !!hv.muted;
+                        return hv.muted;
+                    } catch (e) { return false; }
+                };
+                (window as any).isHydraVideoMuted = () => {
+                    try { return !!(window as any).__hydraVideoEl?.muted; } catch { return true; }
+                };
+            } catch (e) {}
+
+            // --- initCam support: allow UI to request the webcam be connected to hydra's s0 ---
+            // These variables live inside the hydra setup scope and are cleaned up in disposer below.
+            let __hydra_camStream: MediaStream | null = null;
+            let __hydra_camVideo: HTMLVideoElement | null = null;
+
+            const hydraInitCamHandler = async (ev?: any) => {
+                try {
+                    // If an event provided a stream, prefer that
+                    const detail = ev && ev.detail ? ev.detail : null;
+                    const detailStream = detail ? detail.stream : null;
+
+                    // First, try to reuse any existing MediaStream exposed on window to avoid re-prompting
+                    const existingStream = (window as any).__cameraStream || (window as any).__mediaStream || (window as any).__localStream || null;
+                    let stream: MediaStream | null = detailStream || existingStream;
+
+                    // If an app-level helper exists (exposed by ChuckSetup), use it so permission requests remain centralized
+                    const wAny: any = window as any;
+                    if (!stream && typeof wAny.ensureSharedMedia === 'function') {
+                        try {
+                            // Prefer the merged helper; request video only to avoid enabling audio unintentionally
+                            stream = await wAny.ensureSharedMedia({ video: true, audio: false });
+                            console.log('[Hydra] initCam: obtained stream from ensureSharedMedia');
+                        } catch (e) {
+                            console.warn('[Hydra] initCam: ensureSharedMedia failed', e);
+                        }
+                    } else if (!stream && typeof wAny.ensureSharedCamera === 'function') {
+                        try {
+                            stream = await wAny.ensureSharedCamera();
+                            console.log('[Hydra] initCam: obtained stream from ensureSharedCamera');
+                        } catch (e) {
+                            console.warn('[Hydra] initCam: ensureSharedCamera failed', e);
+                        }
+                    }
+
+                    if (!stream) {
+                        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                            console.warn('[Hydra] initCam: getUserMedia not available');
+                            return;
+                        }
+                        // stop any previous camera we created earlier
+                        try { __hydra_camStream?.getTracks().forEach(t => t.stop()); } catch {}
+                        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                        // expose for other parts of the app that may check for existing stream
+                        try { (window as any).__cameraStream = stream; } catch {}
+                    }
+
+                    if (!stream) {
+                        console.warn('[Hydra] initCam: no camera stream available');
+                        return;
+                    }
+
+                    // Stop any previous hydra video element so the new camera will overwrite default mp4/video
+                    try {
+                        if (hydraVideoEl && (hydraVideoEl as any).srcObject) {
+                            // pause and clear previous element
+                            hydraVideoEl.pause();
+                            try { (hydraVideoEl as any).srcObject = null; } catch {}
+                        }
+                    } catch (e) {}
+
+
+                    __hydra_camStream = stream;
+
+                    const video = document.createElement('video');
+                    video.autoplay = true;
+                    video.muted = true; // allow autoplay in browsers
+                    (video as any).playsInline = true;
+                    video.loop = true;
+                    video.srcObject = stream;
+                    video.addEventListener('ended', () => { try { video.play().catch(() => {}); } catch {} });
+                    // Attach the video to DOM (hidden) — some Hydra implementations require an attached element
+                    try {
+                        video.style.position = 'fixed';
+                        video.style.width = '1px';
+                        video.style.height = '1px';
+                        video.style.left = '-10000px';
+                        video.style.top = '0';
+                        video.id = 'hydra-camera-video';
+                        document.body && document.body.appendChild(video);
+                    } catch (e) {}
+                    try { await video.play(); } catch (e) { /* ignore - may need user gesture */ }
+                    __hydra_camVideo = video;
+                    // Also update any global hydra video reference so other UI (mute toggle) sees the new element
+                    try { (window as any).__hydraVideoEl = video; } catch (e) {}
+
+                    // Mark camera state in HUD store (if available)
+                    try { useHudStore.getState().setIsCameraOn(true); } catch {}
+
+                    // Pass to hydra s0 if available (hydra was created above)
+                    try {
+                        if (hydra && hydra.s0 && typeof hydra.s0.initVideo === 'function') {
+                                try {
+                                    const maybe = hydra.s0.initVideo(video);
+                                    // ensure defaults on the passed video element
+                                    processHydraVideoEl(video);
+                                    console.log('[Hydra] initCam: camera video handed to s0');
+                                    try { (window as any).__hydraCameraActive = true; } catch (e) {}
+                                    try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: true, message: 'Camera routed to Hydra' } })); } catch (e) {}
+                                    // If initVideo returned a video element, process that too
+                                    try { if (maybe) processHydraVideoEl(maybe); } catch {}
+                                } catch (e) {
+                                    console.warn('[Hydra] initCam: s0.initVideo threw', e);
+                                }
+                            } else {
+                                console.warn('[Hydra] initCam: hydra.s0.initVideo not available');
+                                try {
+                                    // Store pending stream so it can be applied when hydra is ready
+                                    (window as any).__pendingHydraCamStream = stream;
+                                    console.log('[Hydra] initCam: stored pending camera stream for later routing');
+                                    try { startPendingWatcher(); } catch (e) {}
+                                    // Try a global fallback: sometimes hydra globals exist on globalThis even if local `hydra` closure isn't ready.
+                                    try {
+                                        const gAny: any = globalThis as any;
+                                        if (gAny && gAny.s0 && typeof gAny.s0.initVideo === 'function') {
+                                            const camVideoFb = document.createElement('video');
+                                            camVideoFb.autoplay = true;
+                                            camVideoFb.muted = true;
+                                            (camVideoFb as any).playsInline = true;
+                                            camVideoFb.loop = true;
+                                            camVideoFb.srcObject = stream;
+                                            // attach to DOM
+                                            try {
+                                                camVideoFb.style.position = 'fixed';
+                                                camVideoFb.style.width = '1px';
+                                                camVideoFb.style.height = '1px';
+                                                camVideoFb.style.left = '-10000px';
+                                                camVideoFb.id = 'hydra-camera-video-global';
+                                                document.body && document.body.appendChild(camVideoFb);
+                                            } catch (e) {}
+                                            try { await camVideoFb.play(); } catch (e) {}
+                                            try {
+                                                let maybeFb: any = null;
+                                                try {
+                                                    maybeFb = gAny.s0.initVideo(camVideoFb);
+                                                } catch (err) {
+                                                    console.warn('[Hydra] initCam: gAny.s0.initVideo(camVideo) threw', err);
+                                                }
+                                                processHydraVideoEl(camVideoFb);
+                                                try { if (maybeFb) processHydraVideoEl(maybeFb); } catch (e) {}
+                                                (window as any).__hydraVideoEl = camVideoFb;
+                                                (window as any).__hydraCameraActive = true;
+                                                (window as any).__pendingHydraCamStream = null;
+                                                console.log('[Hydra] initCam: routed camera to global s0 fallback');
+                                                try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: true, message: 'Camera routed via global s0 fallback' } })); } catch (e) {}
+                                                return;
+                                            } catch (e) {
+                                                console.warn('[Hydra] initCam: global s0.initVideo threw', e);
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // ignore fallback errors
+                                    }
+                                    try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: false, message: 'Camera granted but Hydra not ready; will route when ready' } })); } catch (e) {}
+                                } catch (e) {}
+                            }
+                    } catch (err) {
+                        console.warn('[Hydra] initCam: error calling s0.initVideo', err);
+                    }
+                } catch (err) {
+                    console.warn('[Hydra] initCam failed', err);
+                }
+            };
+
+            // Watcher + helper to apply any pending camera stream to hydra when s0.initVideo becomes available
+            let __pendingWatcher: any = null;
+            const applyPendingStream = async (stream: MediaStream | null) => {
+                if (!stream) return false;
+                try {
+                    const gAny: any = globalThis as any;
+                    if (!(gAny && gAny.s0 && typeof gAny.s0.initVideo === 'function')) return false;
+                    const camVideo = document.createElement('video');
+                    camVideo.autoplay = true;
+                    camVideo.muted = true;
+                    (camVideo as any).playsInline = true;
+                    camVideo.loop = true;
+                    camVideo.srcObject = stream;
+                    try {
+                        camVideo.style.position = 'fixed';
+                        camVideo.style.width = '1px';
+                        camVideo.style.height = '1px';
+                        camVideo.style.left = '-10000px';
+                        camVideo.id = 'hydra-camera-video-pending';
+                        document.body && document.body.appendChild(camVideo);
+                    } catch (e) {}
+                    try { await camVideo.play(); } catch (e) {}
+                    let maybe: any = null;
+                    try {
+                        maybe = gAny.s0.initVideo(camVideo);
+                    } catch (err) {
+                        console.warn('[Hydra] applyPendingStream: s0.initVideo threw', err);
+                    }
+                    try { processHydraVideoEl(camVideo); } catch (e) {}
+                    try { if (maybe) processHydraVideoEl(maybe); } catch (e) {}
+                    (window as any).__hydraVideoEl = camVideo;
+                    (window as any).__hydraCameraActive = true;
+                    try { (window as any).__pendingHydraCamStream = null; } catch (e) {}
+                    console.log('[Hydra] applyPendingStream: applied camera stream to s0');
+                    try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: true, message: 'Pending camera stream applied to Hydra' } })); } catch (e) {}
+                    return true;
+                } catch (e) {
+                    console.warn('[Hydra] applyPendingStream failed', e);
+                    try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: false, message: 'Failed to apply pending camera stream' } })); } catch (e) {}
+                    return false;
+                }
+            };
+
+            const startPendingWatcher = () => {
+                if (__pendingWatcher) return;
+                __pendingWatcher = setInterval(async () => {
+                    try {
+                        const pending: any = (window as any).__pendingHydraCamStream || null;
+                        const gAny: any = globalThis as any;
+                        if (pending && gAny && typeof gAny.s0?.initVideo === 'function') {
+                            await applyPendingStream(pending);
+                        }
+                        if (!(window as any).__pendingHydraCamStream) {
+                            clearInterval(__pendingWatcher);
+                            __pendingWatcher = null;
+                        }
+                    } catch (e) {
+                        // ignore errors in watcher
+                    }
+                }, 300);
+            };
+
+            window.addEventListener('hydra-init-cam', hydraInitCamHandler as EventListener);
+            const sharedMediaHandler = (ev: any) => {
+                try {
+                    const detail = ev && ev.detail ? ev.detail : null;
+                    const stream = detail ? detail.stream : null;
+                    if (!stream) {
+                        // shared media disconnected — stop local camera video and clear refs
+                        try { __hydra_camStream?.getTracks().forEach((t: any) => t.stop()); } catch {}
+                        try { if (__hydra_camVideo) { __hydra_camVideo.pause(); (__hydra_camVideo as any).srcObject = null; } } catch {}
+                        __hydra_camStream = null;
+                        __hydra_camVideo = null;
+                        try { (window as any).__hydraCameraActive = false; } catch (e) {}
+                        try { useHudStore.getState().setIsCameraOn(false); } catch {}
+                    } else {
+                        try { useHudStore.getState().setIsCameraOn(true); } catch {}
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            };
+            window.addEventListener('shared-media-updated', sharedMediaHandler as EventListener);
 
             const { osc, noise } = hydra.synth;
             // Mutable live average reference so Hydra param functions see updates every frame.
@@ -404,9 +822,56 @@ export default function BabylonHydraCanvas() {
             };
             
             // Subscribe to Hydra controls store changes and rebuild pipeline
+            let lastUserVideoUrl: string | null = null;
             const unsubscribeHydraControls = useHydraControlsStore.subscribe(() => {
+                const state = useHydraControlsStore.getState();
+                
+                // Check if userVideoUrl changed and reinitialize video if needed
+                if (state.userVideoUrl !== lastUserVideoUrl && typeof g.s0?.initVideo === 'function') {
+                    lastUserVideoUrl = state.userVideoUrl || null;
+                    if (state.userVideoUrl) {
+                        // If a camera stream has been routed to Hydra, prefer it over user-uploaded mp4
+                        try {
+                            if ((window as any).__hydraCameraActive) {
+                                console.log('[Hydra] Skipping userVideoUrl because camera is active');
+                                // don't overwrite the camera with an mp4
+                                return;
+                            }
+                        } catch (e) {}
+                        // Reinitialize video with new URL
+                        (async () => {
+                            const videoUrl = state.userVideoUrl!;
+                            const isBlobUrl = videoUrl.startsWith('blob:');
+                            
+                            try {
+                                if (isBlobUrl) {
+                                    hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                    console.log('[Hydra] Video reloaded from blob URL');
+                                } else {
+                                    const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
+                                    try {
+                                        hydraVideoEl = await g.s0.initVideo(proxyUrl);
+                                        console.log('[Hydra] Video reloaded via proxy');
+                                    } catch (proxyErr: any) {
+                                        hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                        console.log('[Hydra] Video reloaded directly');
+                                    }
+                                }
+                                // Post-process hydra video element to enforce defaults
+                                try { processHydraVideoEl(hydraVideoEl); } catch {}
+                                videoStartMs = performance.now();
+                                hydraCamReady = hydraVideoEl !== null;
+                            } catch (err: any) {
+                                console.error('[Hydra] Video reload failed:', err);
+                                hydraVideoEl = null;
+                                hydraCamReady = false;
+                            }
+                        })();
+                    }
+                }
+                
                 // Invalidate cache when chains change
-                const currentChains = useHydraControlsStore.getState().chains;
+                const currentChains = state.chains;
                 const currentHash = JSON.stringify(currentChains.map(c => ({ id: c.id, enabled: c.enabled, parentId: c.parentId, innerSourceId: c.innerSourceId, order: c.order })));
                 if (currentHash !== lastChainHash) {
                     chainCache.clear();
@@ -683,6 +1148,12 @@ export default function BabylonHydraCanvas() {
             };
             function buildHydraPipeline(pattern: number) {
                 hydraState.pattern = pattern;
+                try {
+                    const debugChains = useHydraControlsStore.getState().chains || [];
+                    console.log('[Hydra] buildHydraPipeline start', { pattern, chains: debugChains.length });
+                } catch (e) {
+                    console.warn('[Hydra] buildHydraPipeline: could not read chain count', e);
+                }
                 const gAny: any = globalThis as any;
                 const amp = getAudioAmp();
                 // color with optional target bias mixing
@@ -868,6 +1339,7 @@ export default function BabylonHydraCanvas() {
                             visited: Set<string> = new Set(),
                             cacheKey?: string
                         ): any {
+                            console.log('[Hydra] buildChainFromNested called', { parentId, hasBase: !!baseChain, cacheKey });
                             // Create cache key for this specific build
                             const key = cacheKey || `chain_${parentId || 'root'}_${baseChain ? 'withBase' : 'noBase'}`;
                             
@@ -914,6 +1386,50 @@ export default function BabylonHydraCanvas() {
                                             visited.delete(chain.id);
                                             continue;
                                         }
+
+                                        // FALLBACK: if the recursive build returned falsy (no explicit child source),
+                                        // create a source from this chain's operation itself and attach its children.
+                                        // This handles cases where a `shape` (or other source) is un-nested from `src`
+                                        // but still should be incorporated into the video/base chain.
+                                        let fallbackSource: any = null;
+                                        switch (chain.operation) {
+                                            case 'osc':
+                                                fallbackSource = gAny.osc(
+                                                    () => getParamValue('freq'),
+                                                    () => getParamValue('sync'),
+                                                    () => getParamValue('offset')
+                                                );
+                                                break;
+                                            case 'noise':
+                                                fallbackSource = gAny.noise(() => getParamValue('scale'));
+                                                break;
+                                            case 'shape':
+                                                fallbackSource = gAny.shape(
+                                                    () => getParamValue('sides'),
+                                                    () => getParamValue('radius')
+                                                );
+                                                break;
+                                            case 'gradient':
+                                                fallbackSource = gAny.gradient(() => getParamValue('speed') ?? 1);
+                                                break;
+                                            case 'voronoi':
+                                                fallbackSource = gAny.voronoi(
+                                                    () => getParamValue('scale'),
+                                                    () => getParamValue('speed')
+                                                );
+                                                break;
+                                            case 'src':
+                                                if (gAny.s0) fallbackSource = gAny.src(gAny.s0);
+                                                break;
+                                        }
+
+                                        if (fallbackSource) {
+                                            // Attach any children under this source and then add to base
+                                            const built = buildChainFromNested(chains, chain.id, fallbackSource, new Set(visited), `nested_source_fallback_${chain.id}`);
+                                            result = baseChain.add(built || fallbackSource);
+                                            visited.delete(chain.id);
+                                            continue;
+                                        }
                                     }
                                     
                                     // If no baseChain, create a new source chain (root level or inner source)
@@ -930,6 +1446,7 @@ export default function BabylonHydraCanvas() {
                                         
                                         switch (chain.operation) {
                                             case 'osc':
+                                                console.log('[Hydra] creating osc source', { id: chain.id });
                                                 // osc(freq, sync, offset) - all can be dynamic
                                                 sourceChain = gAny.osc(
                                                     () => getParamValue('freq'),
@@ -938,20 +1455,24 @@ export default function BabylonHydraCanvas() {
                                                 );
                                                 break;
                                             case 'noise':
+                                                console.log('[Hydra] creating noise source', { id: chain.id });
                                                 sourceChain = gAny.noise(() => getParamValue('scale'));
                                                 break;
                                             case 'shape':
+                                                console.log('[Hydra] creating shape source', { id: chain.id });
                                                 sourceChain = gAny.shape(
                                                     () => getParamValue('sides'),
                                                     () => getParamValue('radius')
                                                 );
                                                 break;
                                             case 'gradient':
+                                                console.log('[Hydra] creating gradient source', { id: chain.id });
                                                 // gradient() can take a speed parameter
                                                 const gradSpeed = getParamValue('speed') ?? 1;
                                                 sourceChain = gAny.gradient(() => gradSpeed);
                                                 break;
                                             case 'voronoi':
+                                                console.log('[Hydra] creating voronoi source', { id: chain.id });
                                                 // voronoi(scale, speed)
                                                 sourceChain = gAny.voronoi(
                                                     () => getParamValue('scale'),
@@ -959,6 +1480,7 @@ export default function BabylonHydraCanvas() {
                                                 );
                                                 break;
                                             case 'src':
+                                                console.log('[Hydra] creating src source', { id: chain.id });
                                                 // src() references the video source (s0)
                                                 // Ensure s0 exists and has video
                                                 if (gAny.s0) {
@@ -978,8 +1500,15 @@ export default function BabylonHydraCanvas() {
                                         
                                         if (sourceChain) {
                                             // Recursively build children of this source
-                                            result = buildChainFromNested(chains, chain.id, sourceChain, new Set(visited), sourceCacheKey);
-                                            // Cache the source chain
+                                            const recursiveResult = buildChainFromNested(chains, chain.id, sourceChain, new Set(visited), sourceCacheKey);
+                                            // If recursion returned falsy (no children built), fall back to the sourceChain itself
+                                            if (!recursiveResult) {
+                                                console.log('[Hydra] recursive build returned falsy for sourceChain, using sourceChain as result', { id: chain.id, sourceCacheKey });
+                                                result = sourceChain;
+                                            } else {
+                                                result = recursiveResult;
+                                            }
+                                            // Cache the source chain result
                                             chainCache.set(sourceCacheKey, result);
                                         }
                                     }
@@ -1151,6 +1680,9 @@ export default function BabylonHydraCanvas() {
                             // Cache the final result
                             if (result && result !== baseChain) {
                                 chainCache.set(key, result);
+                                console.log('[Hydra] buildChainFromNested result cached', { key });
+                            } else {
+                                console.log('[Hydra] buildChainFromNested result empty or same as base', { key, result: !!result });
                             }
                             
                             return result;
@@ -1160,47 +1692,59 @@ export default function BabylonHydraCanvas() {
                         // Use chains directly from store instead of getChainTree() to avoid creating new arrays
                         const allChains = hydraControls.chains;
                         const rootChains = allChains.filter(c => !c.parentId && c.enabled).sort((a, b) => a.order - b.order);
-                        
+
                         let finalChain: any = null;
-                        
-                        // If chains exist, use them; otherwise use legacy system
+
                         if (rootChains.length > 0) {
                             // Separate root chains by type
                             const rootSources = rootChains.filter(c => c.type === 'source').sort((a, b) => a.order - b.order);
                             const rootTransforms = rootChains.filter(c => c.type === 'transform').sort((a, b) => a.order - b.order);
                             const rootCompositors = rootChains.filter(c => c.type === 'compositor').sort((a, b) => a.order - b.order);
-                            
-                            // ALWAYS start with video as base - it should never disappear
-                            // Video is the foundation, procedural sources enhance it
-                            // Check if s0 exists, if not create a fallback
-                            if (gAny.s0) {
-                                finalChain = gAny.src(gAny.s0).color(1, 1, 1);
-                            } else {
-                                // Fallback: use solid color if video not ready
-                                console.warn('[Hydra] s0 not available, using solid fallback');
-                                finalChain = gAny.solid(0.1, 0.1, 0.1);
-                            }
-                            
+
                             // Find video node (src) - it may be root or have children nested under it
                             const videoNode = rootSources.find(s => s.operation === 'src');
-                            
+
+                            // If video node exists and s0 available, use video as base and build its nested children
                             if (videoNode) {
-                                // Build video node with all its nested children (sources, transforms, compositors)
-                                // This handles the case where sources are nested under video
+                                if (gAny.s0) {
+                                    finalChain = gAny.src(gAny.s0).color(1, 1, 1);
+                                } else {
+                                    console.warn('[Hydra] s0 not available for video node, using solid fallback');
+                                    finalChain = gAny.solid(0.1, 0.1, 0.1);
+                                }
                                 finalChain = buildChainFromNested(allChains, videoNode.id, finalChain);
+                            } else if (rootSources.length > 0) {
+                                // No video node: start from the first procedural root source as the base
+                                const first = rootSources[0];
+                                const sourceChain = buildChainFromNested(allChains, first.id, null);
+                                if (sourceChain) {
+                                    finalChain = sourceChain;
+                                    // If there are additional root sources, append them
+                                    for (const source of rootSources.slice(1)) {
+                                        if (source.operation !== 'src' && source.enabled) {
+                                            const sc = buildChainFromNested(allChains, source.id, null);
+                                            if (sc) {
+                                                console.log(`[Hydra] Appending root-level ${source.operation}() source to base`);
+                                                finalChain = finalChain.add(sc);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No sources: fall back to video or solid
+                                if (gAny.s0) {
+                                    finalChain = gAny.src(gAny.s0).color(1, 1, 1);
+                                } else {
+                                    console.warn('[Hydra] no root sources and no s0 available, using solid fallback');
+                                    finalChain = gAny.solid(0.1, 0.1, 0.1);
+                                }
                             }
                             
-                            // Also handle any procedural sources that are still at root level (for backward compatibility)
-                            // But prefer nested sources under video node
-                            for (const source of rootSources) {
-                                if (source.operation !== 'src' && source.enabled && !videoNode) {
-                                    // Only process root-level sources if there's no video node
-                                    // (video node children are already processed above)
-                                    const sourceChain = buildChainFromNested(allChains, source.id, null);
-                                    if (sourceChain) {
-                                        console.log(`[Hydra] Adding root-level ${source.operation}() source to video`);
-                                        finalChain = finalChain.add(sourceChain);
-                                    }
+                            // Apply root-level transforms to video (if not already applied via video node)
+                            if (!rootSources.find(s => s.operation === 'src')) {
+                                for (const transform of rootTransforms) {
+                                    finalChain = applyRootChainOperation(finalChain, transform, allChains, hydraControls, meydaData);
+                                    finalChain = buildChainFromNested(allChains, transform.id, finalChain);
                                 }
                             }
                             
@@ -1220,9 +1764,19 @@ export default function BabylonHydraCanvas() {
                             
                             // Output the final chain
                             if (finalChain) {
-                                finalChain.out();
+                                try {
+                                    console.log('[Hydra] finalChain ready, calling out()');
+                                    finalChain.out();
+                                } catch (err) {
+                                    console.error('[Hydra] error calling finalChain.out()', err);
+                                }
                             } else {
-                                base.out();
+                                try {
+                                    console.log('[Hydra] finalChain missing, falling back to base.out()');
+                                    base.out();
+                                } catch (err) {
+                                    console.error('[Hydra] error calling base.out()', err);
+                                }
                             }
                         } else {
                             // Legacy system: apply effects to camera
@@ -1267,52 +1821,142 @@ export default function BabylonHydraCanvas() {
             // Use webcam via global s0 instead of indexing hydra internals which may not yet exist.
             // Guard in case globals were not created for some reason.
             const g: any = globalThis as any;
-            if (typeof g.s0?.initCam === 'function') {
+            
+            // Wait for s0 to be available (retry up to 10 times with 100ms delay)
+            let retries = 0;
+            const maxRetries = 10;
+            while (retries < maxRetries && typeof g.s0?.initVideo !== 'function') {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                retries++;
+            }
+            
+            // Check for initVideo function (not initCam) since we're loading video, not camera
+            if (typeof g.s0?.initVideo === 'function') {
                 try {
-                    // await g.s0.initCam();
-                   
-                    // if (!isCameraOn) {
-                    // Load video - use proxy directly (more reliable for CORS)
-                    const videoUrl = "https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4";
-                    const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
-                    
+                    // Load video - check userVideoUrl first, then fallback to default
+                    const hydraControls = useHydraControlsStore.getState();
+                    const userVideoUrl = hydraControls.userVideoUrl;
+                    const videoUrl = userVideoUrl || "https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4";
+
+                    // If a camera has already been routed to Hydra, skip initializing mp4/video sources
                     try {
-                        // Use proxy first (handles CORS properly)
-                        hydraVideoEl = await g.s0.initVideo(proxyUrl);
-                        console.log('[Hydra] Video loaded via proxy');
-                    } catch (proxyErr: any) {
-                        // If proxy fails, try direct (might work in some browsers)
-                        try {
-                            console.log('[Hydra] Proxy failed, trying direct load...');
-                            hydraVideoEl = await g.s0.initVideo(videoUrl);
-                            console.log('[Hydra] Video loaded directly');
-                        } catch (directErr: any) {
-                            console.error('[Hydra] Both proxy and direct load failed:', directErr);
-                            hydraVideoEl = null;
+                        if ((window as any).__hydraCameraActive) {
+                            console.log('[Hydra] Camera active — skipping default/user video init');
+                            hydraCamReady = true;
+                            // build pipeline with camera already active
+                            buildHydraPipeline(hydraState.pattern);
+                            // skip the rest of video init
+                            throw new Error('HYDRA_SKIP_VIDEO_INIT_CAMERA_ACTIVE');
+                        }
+                    } catch (e) {
+                        if (e && (e as any).message === 'HYDRA_SKIP_VIDEO_INIT_CAMERA_ACTIVE') {
+                            // intentionally skip
+                        } else {
+                            // continue normally on unexpected errors
                         }
                     }
-                    // } else {
-                        // StateVideoEl = await g.s0.initCam();
-                    // } 
+                    
+                    // Blob URLs (user uploads) can be used directly, no proxy needed
+                    const isBlobUrl = videoUrl.startsWith('blob:');
+                    
+                    try {
+                        if (isBlobUrl) {
+                            // Use blob URL directly
+                            hydraVideoEl = await g.s0.initVideo(videoUrl);
+                            console.log('[Hydra] Video loaded from blob URL');
+                        } else {
+                            // For external URLs, use proxy first (handles CORS properly)
+                            const proxyUrl = `/api/video-proxy?url=${encodeURIComponent(videoUrl)}`;
+                            try {
+                                hydraVideoEl = await g.s0.initVideo(proxyUrl);
+                                console.log('[Hydra] Video loaded via proxy');
+                            } catch (proxyErr: any) {
+                                // If proxy fails, try direct (might work in some browsers)
+                                console.log('[Hydra] Proxy failed, trying direct load...');
+                                hydraVideoEl = await g.s0.initVideo(videoUrl);
+                                console.log('[Hydra] Video loaded directly');
+                            }
+                        }
+                        
+                        // Ensure defaults on the returned element before waiting for metadata
+                        try { processHydraVideoEl(hydraVideoEl); } catch {}
+
+                        // Wait for video metadata to load before setting currentTime
+                        if (hydraVideoEl) {
+                            await new Promise<void>((resolve, reject) => {
+                                const timeout = setTimeout(() => {
+                                    reject(new Error('Video metadata load timeout'));
+                                }, 10000); // 10 second timeout
+                                
+                                const onLoadedMetadata = () => {
+                                    clearTimeout(timeout);
+                                    hydraVideoEl!.removeEventListener('loadedmetadata', onLoadedMetadata);
+                                    hydraVideoEl!.removeEventListener('error', onError);
+                                    resolve();
+                                };
+                                
+                                const onError = (e: Event) => {
+                                    clearTimeout(timeout);
+                                    hydraVideoEl!.removeEventListener('loadedmetadata', onLoadedMetadata);
+                                    hydraVideoEl!.removeEventListener('error', onError);
+                                    reject(e);
+                                };
+                                
+                                if (hydraVideoEl && hydraVideoEl.readyState >= 1) {
+                                    // Metadata already loaded
+                                    clearTimeout(timeout);
+                                    resolve();
+                                } else {
+                                    hydraVideoEl && hydraVideoEl.addEventListener('loadedmetadata', onLoadedMetadata);
+                                    hydraVideoEl && hydraVideoEl.addEventListener('error', onError);
+                                }
+                            });
+                            
+                            // Skip first 22 seconds
+                            if (hydraVideoEl.duration >= 22) {
+                                hydraVideoEl.currentTime = 22;
+                                console.log('[Hydra] Video set to start at 22 seconds');
+                            }
+                            
+                            // Improve autoplay chances
+                            hydraVideoEl.muted = true;
+                            hydraVideoEl.volume = 0;
+                            
+                            // Ensure video is ready to play
+                            if (hydraVideoEl.readyState < 2) {
+                                await new Promise<void>((resolve) => {
+                                    const onCanPlay = () => {
+                                        hydraVideoEl!.removeEventListener('canplay', onCanPlay);
+                                        resolve();
+                                    };
+                                    hydraVideoEl && hydraVideoEl.addEventListener('canplay', onCanPlay);
+                                });
+                            }
+                            
+                            await hydraVideoEl.play();
+                            console.log('[Hydra] Video playback started at', hydraVideoEl.currentTime, 'seconds');
+                        }
+                    } catch (err: any) {
+                        console.error('[Hydra] Video load failed:', err);
+                        hydraVideoEl = null;
+                    }
+                    
                     videoStartMs = performance.now();
                     hydraCamReady = hydraVideoEl !== null;
                     console.log('Hydra webcam started --> now for Audio');
-                    try {
-                        if (hydraVideoEl) {
-                            // Improve autoplay chances
-                            hydraVideoEl.muted = true;
-                             hydraVideoEl.volume = 0;
-                            await hydraVideoEl.play();
-                        }
-                    } catch {}
                     // Build pipeline now that camera/video is ready
                     buildHydraPipeline(hydraState.pattern);
-                    // tryGetAudio();
                 } catch (err) {
-                    console.warn('Failed to init cam on s0:', err);
+                    console.warn('Failed to init video on s0:', err);
+                    hydraCamReady = false;
                 }
             } else {
-                console.warn('s0 global source not available yet; skipping webcam init');
+                console.warn('s0.initVideo not available after retries; skipping video init. Available:', { 
+                    hasS0: !!g.s0, 
+                    hasInitVideo: typeof g.s0?.initVideo === 'function',
+                    hasInitCam: typeof g.s0?.initCam === 'function',
+                    retries
+                });
             }
 
             // If Hydra globals exist but no camera yet, rely on our pipeline's osc base; else fall back to a faint osc.
@@ -1322,9 +1966,50 @@ export default function BabylonHydraCanvas() {
 
             console.log('Hydra instance ready (globals?):', { s0: g.s0, srcFn: typeof g.src });
 
+            // If a camera stream was requested earlier before hydra was ready, try to apply it now.
+            try {
+                const pending: any = (window as any).__pendingHydraCamStream || null;
+                if (pending) {
+                    if (g.s0 && typeof g.s0.initVideo === 'function') {
+                        try {
+                            await applyPendingStream(pending);
+                        } catch (e) {
+                            console.warn('[Hydra] applyPendingStream threw', e);
+                        }
+                    } else {
+                        // start watcher which will attempt to apply when s0 becomes available
+                        try { startPendingWatcher(); } catch (e) {}
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+
 
             // initial pipeline build with zeroed averages
             buildHydraPipeline(0);
+
+            // Dev-only test: optionally simulate a no-src root (for debugging only)
+            try {
+                if (typeof window !== 'undefined' && (window as any).__hydra_dev_test) {
+                    console.log('[Hydra][DEVTEST] Simulating no-src root scenario');
+                    const hydraStore = useHydraControlsStore.getState();
+                    // Remove any existing src() root chains temporarily
+                    const srcChains = hydraStore.chains.filter((c: any) => c.operation === 'src');
+                    for (const sc of srcChains) {
+                        hydraStore.removeChain(sc.id);
+                    }
+                    // Add a procedural shape as root
+                    const newId = hydraStore.addChain('source', 'shape', undefined as any, undefined);
+                    hydraStore.setChainParamValue(newId, 'sides', 5);
+                    hydraStore.setChainEnabled(newId, true);
+                    // Rebuild pipeline after modifications
+                    buildHydraPipeline(hydraState.pattern);
+                    console.log('[Hydra][DEVTEST] No-src simulation complete');
+                }
+            } catch (e) {
+                console.warn('[Hydra][DEVTEST] Error running no-src simulation', e);
+            }
 
             // Minimal keyboard toggles for demo:
             // const onKey = (e: KeyboardEvent) => {
@@ -1364,11 +2049,25 @@ export default function BabylonHydraCanvas() {
                     console.error('Canvas ref is not available for Babylon.js');
                     return;
                 }
-                
+                // If a previous engine exists on window, dispose it first to avoid multiple active engines
+                try {
+                    const prev = (window as any).__babylonEngine;
+                    if (prev && typeof prev.dispose === 'function') {
+                        console.log('[BabylonCanvas] Disposing previous global engine to avoid duplicates');
+                        try { prev.stopRenderLoop(); } catch {}
+                        try { prev.dispose(); } catch {}
+                        (window as any).__babylonEngine = undefined;
+                    }
+                } catch (e) {
+                    console.warn('[BabylonCanvas] Could not dispose previous engine', e);
+                }
+
                 engine = new BABYLON.Engine(canvasRef.current, true, {
                     preserveDrawingBuffer: true,
                     stencil: true,
                 });
+                // store globally so future mounts can avoid duplicates
+                try { (window as any).__babylonEngine = engine; } catch {}
                 
                 // Ensure engine is ready before creating scene
                 if (!engine || !engine.getCaps) {
@@ -1428,21 +2127,36 @@ export default function BabylonHydraCanvas() {
 
             new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0, 1, 0), scene);
 
-            // Dynamic texture from Hydra - ensure it matches canvas size exactly
+            // Dynamic texture from Hydra - back with a power-of-two canvas so WRAP addressing works
+            const nextPow2 = (n: number) => {
+                if (n <= 0) return 1;
+                let p = 1;
+                while (p < n) p <<= 1;
+                return p;
+            };
+
+            const canvasW = hydraCanvas.width || window.innerWidth;
+            const canvasH = hydraCanvas.height || window.innerHeight;
+            const potW = nextPow2(canvasW);
+            const potH = nextPow2(canvasH);
+
+            // Create dynamic texture using POT backing to allow WRAP without NPOT artifacts.
             const dynamicTexture = new BABYLON.DynamicTexture(
                 'hydraTex',
-                { width: hydraCanvas.width, height: hydraCanvas.height },
+                { width: potW, height: potH },
                 scene,
                 false
             );
-            // Ensure texture size matches canvas initially
-            dynamicTexture.scaleTo(hydraCanvas.width, hydraCanvas.height);
+            // Ensure texture size matches POT backing
+            dynamicTexture.scaleTo(potW, potH);
             const hydraMat = new BABYLON.StandardMaterial('hydraMat', scene);
             hydraMat.diffuseTexture = dynamicTexture;
             hydraMat.backFaceCulling = false;
-            // Use WRAP so the texture maps naturally around the sphere and avoids the "zoomed" CLAMP effect
-            (hydraMat.diffuseTexture as BABYLON.Texture).wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
-            (hydraMat.diffuseTexture as BABYLON.Texture).wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+            // We use POT backing for the dynamic texture; choose wrap mode accordingly
+            const useWrap = true; // POT backing (potW,potH) allows wrap
+            const wrapMode = useWrap ? BABYLON.Texture.WRAP_ADDRESSMODE : BABYLON.Texture.CLAMP_ADDRESSMODE;
+            try { (hydraMat.diffuseTexture as BABYLON.Texture).wrapU = wrapMode; } catch {}
+            try { (hydraMat.diffuseTexture as BABYLON.Texture).wrapV = wrapMode; } catch {}
             // Flip only V to correct upside-down orientation on inside sphere (BACKSIDE)
             // Keep U at 1 to prevent text from reading backwards
             (hydraMat.diffuseTexture as BABYLON.Texture).uScale = 1;
@@ -1478,9 +2192,16 @@ export default function BabylonHydraCanvas() {
             // ------------------------------
             // CubeManager-based multi cube layout
             function incrementChannel(meta: CubeMeta, faceIndex: number) {
-                // Map faces: 0/1 -> R, 2/3 -> G, 4/5 -> B
-                const primary = (faceIndex === (0 * cubeCount) || faceIndex === (1 * cubeCount)) ? 'r' : (faceIndex === (2 * cubeCount) || faceIndex === (3 * cubeCount)) ? 'g' : 'b';
+                // Map faces deterministically: 0/1 -> R, 2/3 -> G, 4/5 -> B
+                // (Avoid multiplying by cubeCount which produced incorrect indices)
+                let primary: 'r'|'g'|'b' = 'b';
+                if (faceIndex === 0 || faceIndex === 1) primary = 'r';
+                else if (faceIndex === 2 || faceIndex === 3) primary = 'g';
+                else primary = 'b';
+                // Debug: log mapping and channel values before change
+                try { console.log('[incrementChannel] faceIndex=', faceIndex, '->', primary, 'channelsBefore=', { ...meta.channels }); } catch {}
                 meta.channels[primary] += INCREMENT;
+                try { console.log('[incrementChannel] channelsAfter=', { ...meta.channels }); } catch {}
                 meta.pulse = Math.min(1, meta.pulse + 0.5); // slightly reduced pulse on click
                 hydraState.impact = Math.min(1.1, hydraState.impact + INCREMENT * 0.9); // reduced uniform impact increment
                 backgroundState.pulse = Math.min(1, backgroundState.pulse + 0.35);
@@ -1506,14 +2227,31 @@ export default function BabylonHydraCanvas() {
             // Reposition cubes in front of the sphere so they are visible even when the sphere is small
             manager.spawn(new BABYLON.Vector3(-1.5, 0, 3));
             manager.spawn(new BABYLON.Vector3(1.5, 0, 3));
-            // After spawn, assign hydra dynamic texture as diffuse for every face material
+            // After spawn, assign the shared hydra dynamic texture as the diffuse layer for every face material
+            // Use WRAP addressing and flip V to match the environment sphere so visuals are stable
+            
             manager.cubes.forEach(meta => {
                 const c = meta.mesh;
                 const mm = c.material as BABYLON.MultiMaterial;
-                mm.subMaterials?.forEach(sm => {
+                mm.subMaterials?.forEach((sm, idx) => {
                     if (sm instanceof BABYLON.StandardMaterial) {
-                        sm.diffuseTexture = dynamicTexture; // shared hydra layer under letters
-                        sm.disableLighting = true; // hydra vivid
+                        try {
+                            sm.diffuseTexture = dynamicTexture; // shared hydra layer under letters
+                            // Prefer wrap addressing so the texture tiles naturally across faces
+                            try { (sm.diffuseTexture as any).wrapU = BABYLON.Texture.WRAP_ADDRESSMODE; } catch {}
+                            try { (sm.diffuseTexture as any).wrapV = BABYLON.Texture.WRAP_ADDRESSMODE; } catch {}
+                            try { (sm.diffuseTexture as any).uScale = 1; } catch {}
+                            try { (sm.diffuseTexture as any).vScale = -1; } catch {}
+                            // Reduce diffuse level slightly so emissive overlays dominate and reduce color-bleed/flicker
+                            try { (sm.diffuseTexture as any).level = 0.82; } catch {}
+                            // Preserve original diffuse color and avoid per-face tinting
+                            // Keep lighting disabled for vivid hydra visuals but preserve emissive overlays
+                            sm.disableLighting = true;
+                            // Ensure emissive textures with alpha are respected
+                            try { if ((sm.emissiveTexture as any)?.hasAlpha) { sm.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND; (sm as any).needDepthPrePass = true; } } catch {}
+                        } catch (e) {
+                            console.warn('[CubeManager] failed to assign hydra dynamicTexture to cube material', e);
+                        }
                     }
                 });
             });
@@ -1540,15 +2278,50 @@ export default function BabylonHydraCanvas() {
                     sphereClickCount += 1;
                     return;
                 }
-                const meta = manager.cubes.find(m=>m.mesh === mesh);
+                // Resolve meta: picked mesh may be the cube itself or a child face-plane.
+                let meta = manager.cubes.find(m=>m.mesh === mesh || m.mesh === mesh.parent);
                 if (!meta) return;
-                // Prefer subMeshId; if missing, derive face index from triangle faceId (2 triangles per cube face)
-                let faceIndex = pick.subMeshId as number | undefined;
-                if (faceIndex == null) {
-                    const tri = typeof pick.faceId === 'number' ? pick.faceId : -1;
-                    if (tri >= 0) {
-                        faceIndex = Math.min(5, Math.floor(tri / 2));
+
+                // Diagnostic info
+                const pickedName = pick.pickedMesh?.name;
+                const parentName = mesh.parent?.name;
+
+                // Resolve faceIndex robustly:
+                // 1) If user clicked a fallback face-plane, its name encodes the face index (e.g., 'rgbCube0-faceplane-3').
+                // 2) Else, if the mesh has >=6 subMeshes, use subMeshId (and map pairs of submeshes to faces if needed).
+                // 3) Else, if faceId is available, derive face = floor(faceId/2).
+                // 4) Fallback to subMeshId if present.
+                let faceIndex: number | undefined = undefined;
+                try {
+                    // 1) face-plane name
+                    if (typeof pickedName === 'string') {
+                        const m = pickedName.match(/-faceplane-(\d+)$/);
+                        if (m && m[1]) {
+                            faceIndex = Number(m[1]);
+                        }
                     }
+                    // 2) use subMeshes when they represent face groups
+                    if (faceIndex == null) {
+                        const smCount = meta.mesh.subMeshes ? meta.mesh.subMeshes.length : 0;
+                        if (smCount >= 6 && typeof pick.subMeshId === 'number') {
+                            // if there are 12 subMeshes (2 triangles per face), map pairs to 0..5
+                            if (smCount === 12) faceIndex = Math.min(5, Math.floor((pick.subMeshId as number) / 2));
+                            else faceIndex = Math.min(5, pick.subMeshId as number);
+                        }
+                    }
+                    // 3) use faceId fallback
+                    if (faceIndex == null && typeof pick.faceId === 'number' && pick.faceId >= 0) {
+                        faceIndex = Math.min(5, Math.floor(pick.faceId / 2));
+                    }
+                    // 4) last-resort: use subMeshId
+                    if (faceIndex == null && typeof pick.subMeshId === 'number') faceIndex = pick.subMeshId as number;
+
+                    const mm = (meta && meta.mesh && (meta.mesh.material as BABYLON.MultiMaterial)) || null;
+                    const subCount = (meta && meta.mesh && meta.mesh.subMeshes) ? meta.mesh.subMeshes.length : 0;
+                    console.log('[pointer] pickedMesh=', pickedName, 'parent=', parentName, 'pick.subMeshId=', pick.subMeshId, 'pick.faceId=', pick.faceId, 'subMeshCount=', subCount, 'materials=', mm ? mm.subMaterials?.length : null);
+                    console.log('[pointer] resolved faceIndex=', faceIndex);
+                } catch (e) {
+                    console.log('[pointer] resolving faceIndex failed', e);
                 }
                 if (faceIndex == null || faceIndex < 0) return;
                 registerUserClick();
@@ -1599,7 +2372,8 @@ export default function BabylonHydraCanvas() {
                         
                         if (sm instanceof BABYLON.StandardMaterial) {
                             // Baseline emissive hint so cube faces invite clicks
-                            const baseGlow = 0.08;
+                            // Slightly stronger base glow so emissive letters are more visually dominant
+                            const baseGlow = 0.12;
                             let er = baseGlow, eg = baseGlow, eb = baseGlow;
                             if (faceIdx === 0 || faceIdx === 1) { er = Math.min(1, baseGlow + r * 1.2); }
                             else if (faceIdx === 2 || faceIdx === 3 ) { eg = Math.min(1, baseGlow + g * 1.2); }
@@ -1833,7 +2607,48 @@ export default function BabylonHydraCanvas() {
                 }
             };
             
-            engine.runRenderLoop(renderLoop);
+            // Setup one-time user-gesture resume to satisfy autoplay policies (video/audio)
+            try {
+                if (typeof window !== 'undefined') {
+                    const resumeOnGesture = () => {
+                        try { (window as any).__userGestureSeen = true; } catch {}
+                        try { if (hydraVideoEl && hydraVideoEl.paused) hydraVideoEl.play().catch(()=>{}); } catch {}
+                        try { (window as any).__resumeChuck?.(); } catch {}
+                        try { if (previewCtxRef.current && previewCtxRef.current.state === 'suspended' && (window as any).__userGestureSeen) previewCtxRef.current.resume().catch(()=>{}); } catch {}
+                        try { const ac = (window as any).__audioCtx; if (ac && typeof ac.resume === 'function' && ac.state === 'suspended' && (window as any).__userGestureSeen) ac.resume().catch(()=>{}); } catch {}
+                        try { window.removeEventListener('pointerdown', resumeOnGesture); } catch {}
+                    };
+                    window.addEventListener('pointerdown', resumeOnGesture, { once: true });
+                }
+            } catch (e) {
+                console.warn('[BabylonCanvas] Failed to attach resume-on-gesture handler', e);
+            }
+
+            // Bind the render loop only once per-engine. This prevents duplicate render-loops
+            // when React Strict Mode mounts/unmounts components during development
+            try {
+                if (!RUN_LOOP_BOUND.has(engine)) {
+                    RUN_LOOP_BOUND.add(engine);
+                    // Wrap the renderLoop in a safe caller to avoid passing a non-function
+                    // into requestAnimationFrame (some runtime states or HMR can corrupt bindings).
+                    const safeRunner = () => {
+                        try {
+                            if (typeof renderLoop === 'function') {
+                                renderLoop();
+                            } else {
+                                console.warn('[BabylonCanvas] renderLoop is not a function', { renderLoop });
+                            }
+                        } catch (err) {
+                            console.error('[BabylonCanvas] error during renderLoop execution', err);
+                        }
+                    };
+                    engine.runRenderLoop(safeRunner as any);
+                } else {
+                    console.log('[BabylonCanvas] render loop already bound for this engine — skipping bind');
+                }
+            } catch (e) {
+                console.warn('[BabylonCanvas] Failed to bind render loop', e);
+            }
 
             const handleResize = () => {
                 hydraCanvas.width = window.innerWidth;
@@ -1849,6 +2664,10 @@ export default function BabylonHydraCanvas() {
             disposer = () => {
                 renderLoopRunning = false; // Stop render loop
                 window.removeEventListener('resize', handleResize);
+                try { window.removeEventListener('hydra-init-cam', hydraInitCamHandler as EventListener); } catch {}
+                try { window.removeEventListener('shared-media-updated', sharedMediaHandler as EventListener); } catch {}
+                try { __hydra_camStream?.getTracks().forEach(t => t.stop()); } catch {}
+                try { if (__hydra_camVideo) { (__hydra_camVideo as HTMLVideoElement).pause(); (__hydra_camVideo as HTMLVideoElement).srcObject = null; } } catch {}
                 // window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
                 try { unsubscribeHydraControls(); } catch {}
@@ -1864,11 +2683,16 @@ export default function BabylonHydraCanvas() {
                     } catch {}
                 }
                 if (engine) {
-                    try { 
-                        engine.stopRenderLoop();
-                        engine.dispose(); 
+                    try {
+                        // Only stop the render loop if we previously bound it here
+                        if (RUN_LOOP_BOUND.has(engine)) {
+                            try { engine.stopRenderLoop(); } catch {}
+                            try { RUN_LOOP_BOUND.delete(engine); } catch {}
+                        }
+                        engine.dispose();
                     } catch {}
                 }
+                try { CubeManager.clear(scene); } catch {}
             };
         })();
         return () => { if (typeof disposer === 'function') disposer(); };
@@ -2048,6 +2872,15 @@ export default function BabylonHydraCanvas() {
             const noteNameFormatted = noteName.replace(/([A-G][#b]?)(\d+)/, '$1-$2');
             console.log('[HexTileClick] Formatted note name:', noteNameFormatted);
 
+            // Add note to selection dropdown if callback exists
+            if ((window as any).__addNoteToSelection) {
+                try {
+                    (window as any).__addNoteToSelection(noteNameFormatted);
+                } catch (err) {
+                    console.warn('[HexTileClick] Failed to add note to selection:', err);
+                }
+            }
+
             // Update beat grid store if a cell is currently selected AND isEditing is on
             const beatGridState = useBeatGridStore.getState();
             const selectedCell = beatGridState.currentSelectedCell;
@@ -2098,7 +2931,7 @@ export default function BabylonHydraCanvas() {
                     if (typeof window !== 'undefined') {
                         if (!previewCtxRef.current) previewCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
                         const ctx = previewCtxRef.current!;
-                        if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
+                        if (ctx.state === 'suspended' && (window as any).__userGestureSeen) ctx.resume().catch(()=>{});
                         const osc = ctx.createOscillator();
                         const gain = ctx.createGain();
                         osc.type = 'sine';
@@ -2115,7 +2948,7 @@ export default function BabylonHydraCanvas() {
                 // Fallback to WebAudio preview if ChucK not available
                 if (!previewCtxRef.current) previewCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
                 const ctx = previewCtxRef.current!;
-                if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
+                if (ctx.state === 'suspended' && (window as any).__userGestureSeen) ctx.resume().catch(()=>{});
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();
                 osc.type = 'sine';
@@ -2194,7 +3027,12 @@ export default function BabylonHydraCanvas() {
             const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
             ctx = (window as any).__audioCtx ?? new AC();
             (window as any).__audioCtx = ctx;
-            try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
+            // Do NOT call resume() here — defer resume to a user gesture to satisfy
+            // autoplay policies. We attach a one-time pointer handler elsewhere to resume.
+            // Keep the audio context available on window for manual resume by gesture.
+            try {
+                // avoid calling resume() here to prevent autoplay warnings
+            } catch {}
 
             const { default: MeydaNode } = await import('../audio/AudioAnalysisNode.js');
             await MeydaNode.ensureModule(ctx, '/audio/meyda-audio-processor.js');
@@ -2235,7 +3073,10 @@ export default function BabylonHydraCanvas() {
             const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
             ctx = (window as any).__audioCtx ?? new AC();
             (window as any).__audioCtx = ctx;
-            try { if (ctx && ctx.state === 'suspended') await ctx.resume(); } catch {}
+            try {
+                // Only resume on user gesture. The one-time pointer handler sets window.__userGestureSeen.
+                if (ctx && ctx.state === 'suspended' && (window as any).__userGestureSeen) await ctx.resume();
+            } catch {}
 
             const { default: MidiAudioNode } = await import('../audio/MidiAudioNode.js');
             await MidiAudioNode.ensureModule(ctx, '/audio/midi-audio-processor.js'); // public/audio/...
@@ -2270,8 +3111,9 @@ export default function BabylonHydraCanvas() {
                     bottom: 0,
                     // width: 350 * (16/9), //512
                     // height: 350, //512
-                    width: 400,
-                    height: 400 * (9/16),
+                    width: 494,
+                    height: 252,
+                    // height: 400 * (9/16),
                     zIndex: 5,
                     overflow: 'auto',
                     pointerEvents: 'none',
@@ -2327,6 +3169,7 @@ export default function BabylonHydraCanvas() {
             <canvas
                 ref={canvasRef}
                 id="babylonCanvas"
+                tabIndex={0}
                 style={{
                     position: 'fixed',
                     top: 0,
@@ -2336,6 +3179,40 @@ export default function BabylonHydraCanvas() {
                     display: 'block',
                     zIndex: 1,
                     pointerEvents: 'auto',
+                    outline: 'none', // Remove focus outline
+                }}
+                onClick={(e) => {
+                    // Focus canvas when clicked to enable HID keyboard
+                    e.currentTarget.focus();
+                }}
+                onPointerDown={(e) => {
+                    // Also focus on pointer down (for touch devices)
+                    e.currentTarget.focus();
+                }}
+                onFocus={(e) => {
+                    // Notify HID manager that canvas is focused
+                    if ((window as any).__keyboardHIDManager) {
+                        (window as any).__keyboardHIDManager.setEnabled(true);
+                        console.log('[BabylonCanvas] Canvas focused - HID enabled');
+                    }
+                }}
+                onBlur={(e) => {
+                    // Check if focus moved to a UI element
+                    const activeElement = document.activeElement as HTMLElement | null;
+                    if (activeElement && (
+                        activeElement.tagName === 'INPUT' ||
+                        activeElement.tagName === 'TEXTAREA' ||
+                        activeElement.tagName === 'SELECT' ||
+                        activeElement.tagName === 'BUTTON' ||
+                        activeElement.closest('[role="dialog"]') ||
+                        activeElement.closest('.MuiModal-root')
+                    )) {
+                        // Focus moved to UI element, disable HID
+                        if ((window as any).__keyboardHIDManager) {
+                            (window as any).__keyboardHIDManager.setEnabled(false);
+                            console.log('[BabylonCanvas] Canvas blurred, UI element focused - HID disabled');
+                        }
+                    }
                 }}
             />
             {/* Top-left controls arranged to avoid overlap */}

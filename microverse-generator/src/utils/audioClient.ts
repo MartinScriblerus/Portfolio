@@ -46,13 +46,32 @@ const chugins = [
     "WPKorg35.chug.wasm",
     "Wavetable.chug.wasm",
     "WinFuncEnv.chug.wasm",
-    "XML.chug.wasm",
+    // Note: XML chugin is skipped to avoid optional network fetch and
+    // increasing deployed asset size for small/free hosting tiers.
+    // "XML.chug.wasm",
 ];
 
 export function loadWebChugins(): string[] {
-    return chugins.map((chuginName) => {
-        return WEBCHUGIN_URL + chuginName;
-    });
+  // Loading the full set of remote webchugins can cause long blocking
+  // fetches during `Chuck.init()` (the webchuck runtime preloads the
+  // registered chugins). Default to NOT loading remote webchugins to
+  // avoid network timeouts and long startup stalls in development and
+  // small/free hosting environments.
+  //
+  // Opt-in controls:
+  // - Set `NEXT_PUBLIC_LOAD_WEBCHUGINS=1` in your env to enable on build
+  // - Or set `window.__LOAD_WEBCHUGINS = true` at runtime for local testing
+  const enabled = (typeof window !== 'undefined' && (window as any).__LOAD_WEBCHUGINS) ||
+    process.env.NEXT_PUBLIC_LOAD_WEBCHUGINS === '1';
+
+  if (!enabled) {
+    // Return empty list to avoid calling `Chuck.loadChugin()` by default.
+    return [];
+  }
+
+  return chugins.map((chuginName) => {
+    return WEBCHUGIN_URL + chuginName;
+  });
 }
 
 let displayDigits: number = 0; // e.g. 5 in 44100

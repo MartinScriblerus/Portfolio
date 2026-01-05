@@ -13,7 +13,7 @@ import ClientWrapper from '../src/components/ClientWrapper';
 
 export default function Page() {
   return <>
-    <BabylonCanvas />
+    {/* <BabylonCanvas /> */}
     {/* <IntroDetails/> */}
     <ClientWrapper />
     {/* {process.env.NODE_ENV === 'development' && <DevtoolsHider />}

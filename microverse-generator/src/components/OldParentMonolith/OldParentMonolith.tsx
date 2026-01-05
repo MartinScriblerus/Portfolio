@@ -7,7 +7,7 @@ import { deriveGridParams } from '../../utils/siteHelpers';
 import { WaveformCanvas } from '../WaveformCanvas';
 // import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import dynamic from 'next/dynamic';
-import EffectDropdown from '../EffectsDropdown';
+import EffectsDropdown from '../EffectsDropdown';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Box, Select, Button, Typography, ButtonGroup } from '@mui/material';
 import { ACCESSIBLE_COLORS } from '../../utils/accessibilityColors';
@@ -152,8 +152,8 @@ function RightDrawer(props: RightDrawerProps) {
   // Update CSS variable for keyboard positioning when drawer state changes
   useEffect(() => {
     if (typeof document !== 'undefined') {
-      document.documentElement.style.setProperty('--keyboard-right-offset', open ? '420px' : '0px');
-      document.documentElement.style.setProperty('--keyboard-width', open ? 'calc(100% - 560px)' : 'calc(100% - 140px)');
+      document.documentElement.style.setProperty('--keyboard-right-offset', open ? '360px' : '0px');
+      document.documentElement.style.setProperty('--keyboard-width', open ? 'calc(100% - 500px)' : 'calc(100% - 140px)');
     }
   }, [open]);
   const latestTimeDomainRef = useRef<Float32Array | null>(null);
@@ -232,6 +232,19 @@ function RightDrawer(props: RightDrawerProps) {
   const handleCheckedFXToShow = () => {};
   const [checkedEffectsListHook, setCheckedEffectsListHook] = useState<any[]>([]);
   const universalSourcesRef = props.universalSourcesRef || { current: props.universalSources || {} };
+  
+  // Ensure universalSourcesRef.current is initialized with effects if it's undefined
+  useEffect(() => {
+    if (!universalSourcesRef.current || Object.keys(universalSourcesRef.current).length === 0) {
+      // Import and initialize if not already done
+      import('../../utils/effectsInitializationHelper').then(({ initializeUniversalSources }) => {
+        if (!universalSourcesRef.current) {
+          universalSourcesRef.current = initializeUniversalSources();
+        }
+      });
+    }
+  }, [universalSourcesRef]);
+  
   const currentChain = universalSourcesRef.current?.[fxRadioValue]?.effects || {};
   const getNewFX = () => {};
   const playUploadedFile = () => {};
@@ -260,6 +273,45 @@ function RightDrawer(props: RightDrawerProps) {
     stepsPerBeat: derivedStepsPerBeat, 
     stepsPerMeasure } =
   deriveGridParams(timeSig.num, timeSig.den);
+
+  const handleFileUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/*';
+    input.onchange = async (e: any) => {
+      const files = e.target.files;
+      if (files && files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+          const f: File | null = files.item(i);
+          if (!f) continue;
+          try {
+            const arrayBuffer = await f.arrayBuffer();
+            const data = new Uint8Array(arrayBuffer);
+            try {
+              filesToProcess.current = filesToProcess.current || [];
+              filesToProcess.current.push({ filename: f.name, data, processed: false });
+            } catch (err) {
+              console.warn('filesToProcess push failed:', err);
+            }
+            try {
+              if (chuckRef && chuckRef.current) {
+                await chuckRef.current.createFile('', f.name, arrayBuffer);
+              }
+            } catch (err) {
+              console.warn('Chuck createFile failed:', err);
+            }
+            try {
+              uploadedBlob.current = new Blob([arrayBuffer], { type: f.type || 'audio/wav' });
+            } catch (err) {}
+            console.log('Files selected and processed:', f.name);
+          } catch (err) {
+            console.error('Failed to read file:', err);
+          }
+        }
+      }
+    };
+    input.click();
+  };
 
   return (
     <>
@@ -293,10 +345,10 @@ function RightDrawer(props: RightDrawerProps) {
         aria-label="Composer tools"
         style={{
           position: 'fixed',
-          right: open ? 0 : -420,
+          right: open ? 0 : -360,
           top: 0,
           bottom: 0,
-          width: 420,
+          width: 360,
           transition: 'right 180ms ease',
           background: 'rgba(10,10,14,0.98)',
           borderLeft: '2px solid #444',
@@ -304,12 +356,13 @@ function RightDrawer(props: RightDrawerProps) {
           display: 'flex',
           flexDirection: 'column',
           zIndex: 10001,
+          maxWidth: '360px',
           pointerEvents: 'auto',
           boxShadow: open ? '-4px 0 20px rgba(0,0,0,0.5)' : 'none',
         }}
       >
-        <header style={{ padding: '8px 12px', borderBottom: '1px solid #222' }}>
-          <Button sx={{
+        <header style={{ padding: '4px 4px', borderBottom: '1px solid #222' }}>
+          {/* <Button sx={{
             position: !open ? 'absolute' : 'relative',
             top:  !open ? 24 : 'auto',
             right: !open ? 24 : 'auto',
@@ -323,15 +376,30 @@ function RightDrawer(props: RightDrawerProps) {
             {
               !open ? <MenuOpenIcon sx={{ fontSize: 24, pointerEvents: 'none' }} /> : <CloseIcon sx={{ fontSize: 24, pointerEvents: 'none'}} />
             }
-          </Button>
+          </Button> */}
           <Box style={{ 
             display: 'inline-flex', 
-            gap: 8, 
-            marginLeft: 8,
+            // gap: 2, 
+            // marginLeft: 8,
             pointerEvents: 'auto',
             zIndex: 9999,
           }}
         >
+            <Button sx={{
+              position: !open ? 'absolute' : 'relative',
+              // top:  !open ? 24 : 'auto',
+              // right: !open ? 24 : 'auto',
+              zIndex: 99999,
+              pointerEvents: 'auto',
+              pointer: 'cursor',
+              background: 'rgba(0,0,0,0.5)',
+              color: '#e0e0e0',
+              border: '1px solid #444',
+            }} onClick={() => setOpen(false)} aria-label="Close panel">
+              {
+                !open ? <MenuOpenIcon sx={{ fontSize: 12, pointerEvents: 'none' }} /> : <CloseIcon sx={{ fontSize: 24, pointerEvents: 'none'}} />
+              }
+            </Button>
             <Button sx={{
               pointerEvents: 'auto',
               pointer: 'cursor',
@@ -347,6 +415,23 @@ function RightDrawer(props: RightDrawerProps) {
               pointer: 'cursor',
               zIndex: 99999,
             }} onClick={() => { setOpen(true); setTab('fx'); }} aria-pressed={tab === 'fx'} aria-label="Open effects panel">FX</Button>
+                  <Button
+                    startIcon={<FileUploadIcon />}
+                    onClick={handleFileUpload}
+                    sx={{
+                      backgroundColor: '#3f51b5',
+                      color: '#fff',
+                      minWidth: '100px',
+                      height: '36px',
+                      padding: '8px',
+                      margin: '8px 8px 8px 0px',
+                      '&:hover': {
+                        backgroundColor: '#303f9f',
+                      },
+                    }}
+                  >
+                    File
+                  </Button>
           </Box>
           <Box sx={{ maxHeight: '200px', overflowY: 'auto'}}>
             <TimingControls />
@@ -355,7 +440,7 @@ function RightDrawer(props: RightDrawerProps) {
           {/* <EditingModeToggle /> */}
           {/* <div style={{ marginTop: 8 }}> */}
           {/* Debug: always render waveform while troubleshooting */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          {tab.toLowerCase().indexOf("mixer") !== -1 && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
             <div style={{ flex: 1 }}>
               <WaveformCanvas
                 getSamples={() => latestTimeDomainRef.current}
@@ -367,14 +452,17 @@ function RightDrawer(props: RightDrawerProps) {
               <div style={{ fontWeight: 600 }}>FPS</div>
               <div>{debugFps}</div>
             </div>
-          </div>
+          </div>}
             {/* } */}
           {/* </div> */}
         </header>
 
       <main style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {tab === 'grid' && (
-          <div style={{ padding: 4, zIndex: 999999, minHeight: '100%' }}>
+          <div style={{ 
+            // padding: 4, 
+            zIndex: 999999, 
+            minHeight: '100%' }}>
             <Box sx={{ mt: 2, marginTop: 0, minHeight: 400, border: '1px solid #333', backgroundColor: 'rgba(0,0,0,0.3)' }}>
               <BeatGridPanel
                 bpm={bpm}
@@ -454,9 +542,9 @@ function RightDrawer(props: RightDrawerProps) {
                 onBpmDetected={(bpm) => props.setDetectedBpm(bpm)}
               />
             </Box>
-            <div style={{ color: '#aaa', fontSize: 12, marginTop: 8 }}>
+            {/* <div style={{ color: '#aaa', fontSize: 12, marginTop: 8 }}>
               BPM: {bpm} • {timeSig.num}/{timeSig.den} • Steps/Measure: {stepsPerMeasure}
-            </div>
+            </div> */}
           </div>
         )}
         {tab === 'mixer' && (
@@ -759,20 +847,69 @@ function RightDrawer(props: RightDrawerProps) {
 
             {/* Conditional rendering based on fxRadioValue */}
             {fxRadioValue === 'audioin' && (
-              <Box
-                id='effect-dropdown-container'
-                sx={{
-                  pointerEvents: showAudioInDropdown ? 'auto' : 'none',
-                  opacity: showAudioInDropdown ? 1 : 0.5,
-                  marginBottom: '16px',
-                }}
-              >
-                <EffectDropdown
-                  chuckRef={chuckRefForEffect}
-                  updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
-                  showAudioInDropdown={showAudioInDropdown}
-                />
-              </Box>
+              <>
+                {/* Available Effects List - shows all effects that can be added */}
+                <Box sx={{ marginBottom: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '8px', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                  <Typography variant="caption" sx={{ color: ACCESSIBLE_COLORS.subdominant.primary, mb: 1, display: 'block', fontWeight: 600 }}>
+                    Available Effects for AudioIn
+                  </Typography>
+                  {universalSourcesRef?.current?.[fxRadioValue]?.effects ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: '300px', overflowY: 'auto' }}>
+                      {Object.entries(universalSourcesRef.current[fxRadioValue].effects).map(([fxKey, fx]: [string, any]) => (
+                        <Box 
+                          key={fxKey}
+                          sx={{ 
+                            padding: '8px', 
+                            // backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.2)' : 'rgba(255,255,255,0.05)',
+                            border: `1px solid ${fx?.On ? ACCESSIBLE_COLORS.subdominant.primary : 'rgba(255,255,255,0.1)'}`,
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            '&:hover': {
+                              backgroundColor: fx?.On ? 'rgba(28, 169, 166, 0.3)' : 'rgba(255,255,255,0.1)',
+                            }
+                          }}
+                          onClick={() => {
+                            // Toggle effect on/off
+                            if (universalSourcesRef?.current?.[fxRadioValue]?.effects?.[fxKey]) {
+                              universalSourcesRef.current[fxRadioValue].effects[fxKey].On = !fx?.On;
+                              // Trigger re-render
+                              handleUpdateCheckedFXList();
+                            }
+                          }}
+                        >
+                          <Typography variant="body2" sx={{ color: fx?.On ? ACCESSIBLE_COLORS.subdominant.primary : 'rgba(255,255,255,0.7)', fontWeight: fx?.On ? 600 : 400 }}>
+                            {fx?.Type || fxKey} {fx?.On ? '✓ ON' : 'OFF'}
+                          </Typography>
+                          {fx?.VarName && (
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                              {fx.VarName}
+                            </Typography>
+                          )}
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : (
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block', fontStyle: 'italic' }}>
+                      Effects loading...
+                    </Typography>
+                  )}
+                </Box>
+
+                <Box
+                  id='effect-dropdown-container'
+                  sx={{
+                    pointerEvents: showAudioInDropdown ? 'auto' : 'none',
+                    opacity: showAudioInDropdown ? 1 : 0.5,
+                    marginBottom: '16px',
+                  }}
+                >
+                  <EffectsDropdown
+                    chuckRef={chuckRefForEffect}
+                    updateSelectedAudioInSetting={(e: any) => updateSelectedAudioInSetting(e)}
+                    showAudioInDropdown={showAudioInDropdown}
+                  />
+                </Box>
+              </>
             )}
 
             {fxRadioValue === 'stk1' && (
@@ -953,8 +1090,10 @@ export default function OldParentMonolith(
   const setClickedBegin = useOldMonolithStore(s => s.setClickedBegin);
   const [isChuckRunning, setIsChuckRunning] = useState(false);
   const [bpm, setBpm] = useState(120);
-  const [beatsNumerator, setBeatsNumerator] = useState(4);
-  const [beatsDenominator, setBeatsDenominator] = useState(4);
+  const beatsNumerator = useBeatGridStore(s => s.beatsNumerator);
+  const beatsDenominator = useBeatGridStore(s => s.beatsDenominator);
+  const setBeatsNumerator = useBeatGridStore(s => s.setBeatsNumerator);
+  const setBeatsDenominator = useBeatGridStore(s => s.setBeatsDenominator);
   const fxRadioValue = useOldMonolithStore(s => s.fxRadioValue);
   const setFxRadioValue = useOldMonolithStore(s => s.setFxRadioValue);
   const [fxKnobsCount, setFxKnobsCount] = useState(0);
@@ -974,8 +1113,8 @@ export default function OldParentMonolith(
   const [currentDenomCount] = useState(0);
   const [currentNumerCountColToDisplay] = useState(1);
   const [currentPatternCount] = useState(0);
-  const [numeratorSignature] = useState(4);
-  const [denominatorSignature] = useState(4);
+  const numeratorSignature = useBeatGridStore(s => s.beatsNumerator);
+  const denominatorSignature = useBeatGridStore(s => s.beatsDenominator);
   const [clockCounterKey] = useState('clock_0');
 
   // Shared refs
@@ -992,6 +1131,7 @@ export default function OldParentMonolith(
     moogGrandmotherEffectsRef,
     universalSourcesRef,
   });
+
   // if (fxKnobsCount !== knobCount) setFxKnobsCount(knobCount);
   useEffect(() => {
     if (fxKnobsCount !== knobCount) setFxKnobsCount(knobCount);
@@ -1024,19 +1164,55 @@ export default function OldParentMonolith(
   const [isInitializingLocal, setIsInitializingLocal] = useState(false);
 
   const onStart = async () => {
+    console.log('[onStart] Starting program...');
     setIsInitializingLocal(true);
+    // Do not mark the app as "begun" until ChucK actually initializes.
+    // Call `runChuckCode()` first; only set `clickedBegin` on success.
     try {
-      // await runChuckCode();
-    } catch (e) {
-      console.error('runChuckCode failed:', e);
-    } finally {
-      setIsInitializingLocal(false);
-      setClickedBegin(true);
+      if (typeof runChuckCode === 'function') {
+        console.log('[onStart] Calling runChuckCode...');
+        // await runChuckCode();
+        console.log('[onStart] runChuckCode completed successfully');
+        setClickedBegin(true);
+      } else {
+        console.warn('[onStart] runChuckCode is not a function:', typeof runChuckCode);
+        throw new Error(`runChuckCode is not a function: ${typeof runChuckCode}`);
+      }
+    } catch (e: any) {
+      console.error('[onStart] runChuckCode failed:', e);
+      console.error('[onStart] Error details:', {
+        name: e?.name,
+        message: e?.message,
+        stack: e?.stack,
+        errno: e?.errno,
+        code: e?.code,
+        toString: e?.toString(),
+      });
+      // Do not flip clickedBegin here; keep the UI in the pre-start state
+      // so the user can retry explicitly.
     }
+    
+    setIsInitializingLocal(false);
+    console.log('[onStart] Initialization complete');
   };
 
   const updateKeyScaleChord = () => {};
-  const handleUpdateSliderVal = () => {};
+  
+  // handleUpdateSliderVal: Updates synth parameters from knob controls
+  // Uses global function exposed by ChuckSetup if available, otherwise no-op
+  const handleUpdateSliderVal = async (source: string, knobSpec: any, value: number) => {
+    if (typeof window !== 'undefined' && (window as any).__handleUpdateSliderVal) {
+      return (window as any).__handleUpdateSliderVal(source, knobSpec, value);
+    }
+    // Fallback: update moogGrandmotherEffects ref directly if ChucK not available
+    if (knobSpec && knobSpec.name && moogGrandmotherEffectsRef.current) {
+      const paramName = knobSpec.name;
+      if (moogGrandmotherEffectsRef.current[paramName]) {
+        moogGrandmotherEffectsRef.current[paramName].value = value;
+      }
+    }
+  };
+  
   const handleViewSTK = () => {};
   const handleViewEffect = () => {};
   const handleBackToSynth = () => {};
@@ -1141,18 +1317,27 @@ export default function OldParentMonolith(
 
   // Initialize grid with default empty cells on mount
   useEffect(() => {
-    const current = useBeatGridStore.getState().masterPatternsHashHook;
-    // Only initialize if store is empty
-    if (!current || Object.keys(current).length === 0) {
-      const nCol = Number(numeratorSignature) * Number(denominatorSignature);
-      const nRow = Number(denominatorSignature);
-      const initialGrid: Record<string, Record<string, any>> = {};
-      
-      // Create default cells for each row/column
+    const current = useBeatGridStore.getState().masterPatternsHashHook || {};
+    const nCol = Number(numeratorSignature) * Number(denominatorSignature);
+    const nRow = Number(denominatorSignature);
+
+    // Determine whether we need to initialize or rebuild the grid
+    const currentRowCount = Object.keys(current).length;
+    const currentFirstRow = currentRowCount > 0 ? current[Object.keys(current)[0]] : undefined;
+    const currentColCount = currentFirstRow ? Object.keys(currentFirstRow).length : 0;
+    const needsRebuild = !current || currentRowCount === 0 || currentRowCount !== nRow || currentColCount !== nCol;
+
+    if (needsRebuild) {
+      const newGrid: Record<string, Record<string, any>> = {};
+
       for (let y = 1; y <= nRow; y++) {
-        initialGrid[String(y)] = {};
+        const yKey = String(y);
+        newGrid[yKey] = {};
         for (let x = 0; x < nCol; x++) {
-          initialGrid[String(y)][String(x)] = {
+          const xKey = String(x);
+          // Preserve existing cell if present, otherwise create a default cell
+          const existing = (current && current[yKey] && current[yKey][xKey]) ? current[yKey][xKey] : null;
+          newGrid[yKey][xKey] = existing ? { ...existing } : {
             subdivisions: 1,
             velocity: 0.5,
             length: [1],
@@ -1162,9 +1347,9 @@ export default function OldParentMonolith(
           };
         }
       }
-      
-      console.log('[OldParentMonolith] Initializing grid with', Object.keys(initialGrid).length, 'rows');
-      setMasterPatternsHashHook(initialGrid);
+
+      console.log('[OldParentMonolith] Initializing/rebuilding grid -> rows:', nRow, 'cols:', nCol);
+      setMasterPatternsHashHook(newGrid);
     }
   }, [numeratorSignature, denominatorSignature, setMasterPatternsHashHook]);
   const selectFileForAssignment = () => {};
@@ -1190,15 +1375,16 @@ export default function OldParentMonolith(
   
   const handleLatestSamples = async (fileNames: string[], x: number, y: number) => {
     // Get all available files (preloaded + uploaded) to convert names to indices
+    // Sort files alphabetically for consistent indexing
     const preloadedFiles = [
       "DR-55Snare.wav",
       "DR-55Kick.wav", 
       "DR-55Hat.wav",
       "DR-55Pop.wav",
       "Conga.wav"
-    ];
+    ].sort((a, b) => a.localeCompare(b));
     const uploadedNames = filesToProcessRef.current ? (Array.isArray(filesToProcessRef.current) ? filesToProcessRef.current.map((f: any) => f?.filename || f?.name).filter(Boolean) : []) : [];
-    const allAvailableFiles = Array.from(new Set([...preloadedFiles, ...uploadedNames]));
+    const allAvailableFiles = Array.from(new Set([...preloadedFiles, ...uploadedNames])).sort((a, b) => a.localeCompare(b));
     
     // Convert file names to indices
     const fileIndices = fileNames
@@ -1226,17 +1412,19 @@ export default function OldParentMonolith(
       cellsToAssign.push({ x, y });
     } else {
       // Pattern-based: assign to all cells that match the pattern
-      // Match the highlighting logic: ((16 * (y - 1) + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
-      const startCellIndex = 16 * (y - 1) + x;
+      // Match the highlighting logic: ((16 * y + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
+      const startCellIndex = 16 * y + x;
       const patternStep = 16 / patternValue;
       
-      for (let row = 1; row <= nRow; row++) {
+      // Grid uses 1-indexed row keys ("1", "2", "3", "4"), so convert row index
+      for (let row = 0; row < nRow; row++) {
         for (let col = 0; col < nCol; col++) {
-          const cellIndex = 16 * (row - 1) + col;
+          const cellIndex = 16 * row + col;
           const offset = cellIndex - startCellIndex;
           // Use modulo to handle wrapping, matching the highlighting logic
           if (offset % patternStep === 0) {
-            cellsToAssign.push({ x: col, y: row });
+            // Convert 0-indexed row to 1-indexed for grid keys
+            cellsToAssign.push({ x: col, y: row + 1 });
           }
         }
       }
@@ -1244,6 +1432,9 @@ export default function OldParentMonolith(
     
     // Assign files to all highlighted cells
     console.log(`[handleLatestSamples] Assigning files to ${cellsToAssign.length} cells:`, cellsToAssign);
+    // Debug: log row coverage
+    const rowsCovered = new Set(cellsToAssign.map(c => c.y));
+    console.log(`[handleLatestSamples] Rows covered: ${Array.from(rowsCovered).sort().join(', ')} (expected 1-${nRow})`);
     cellsToAssign.forEach(({ x: cellX, y: cellY }) => {
       updateCellFiles(fileIndices, cellX, cellY);
     });
@@ -1270,13 +1461,13 @@ export default function OldParentMonolith(
       cellsToAssign.push({ x, y });
     } else {
       // Pattern-based: assign to all cells that match the pattern
-      // Match the highlighting logic: ((16 * (y - 1) + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
-      const startCellIndex = 16 * (y - 1) + x;
+      // Match the highlighting logic: ((16 * y + x) - (16 * currentY + currentX)) % (16 / patternValue) === 0
+      const startCellIndex = 16 * y + x;
       const patternStep = 16 / patternValue;
       
-      for (let row = 1; row <= nRow; row++) {
+      for (let row = 0; row < nRow; row++) {
         for (let col = 0; col < nCol; col++) {
-          const cellIndex = 16 * (row - 1) + col;
+          const cellIndex = 16 * row + col;
           const offset = cellIndex - startCellIndex;
           // Use modulo to handle wrapping, matching the highlighting logic
           if (offset % patternStep === 0) {
