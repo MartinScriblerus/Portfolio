@@ -1,9 +1,13 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import VolumeMuteIcon from '@mui/icons-material/VolumeMute';
+import SignalWifiConnectedNoInternet4Icon from '@mui/icons-material/SignalWifiConnectedNoInternet4';
 import {
   Box,
   Dialog,
+  Snackbar,
   DialogTitle,
   DialogContent,
   DialogActions,
@@ -24,6 +28,7 @@ import {
   IconButton,
   Divider,
 } from '@mui/material';
+import Alert from '@mui/material/Alert';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -764,6 +769,92 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
       console.error('Failed to copy code:', err);
     }
   };
+
+  const handleInitCam = async () => {
+    try {
+      const w: any = window as any;
+      // Ensure we have a shared A+V stream (user gesture required)
+      let stream = null;
+      if (typeof w.ensureSharedMedia === 'function') {
+        try {
+          stream = await w.ensureSharedMedia({ audio: true, video: true });
+        } catch (e) {
+          // Fall back to attempting camera-only if merged request fails
+          try { stream = await w.ensureSharedCamera(); } catch (e2) { stream = null; }
+        }
+      } else if (typeof w.ensureSharedCamera === 'function') {
+        try { stream = await w.ensureSharedCamera(); } catch (e) { stream = null; }
+      }
+
+      // Dispatch hydra-init-cam with the obtained stream (if any). Babylon/Hyra canvas will route it.
+      try {
+        window.dispatchEvent(new CustomEvent('hydra-init-cam', { detail: { stream } }));
+      } catch (e) {
+        console.warn('Failed to dispatch hydra-init-cam', e);
+      }
+    } catch (e) {
+      console.warn('handleInitCam failed', e);
+    }
+  };
+
+  // Toggle hydra video mute via global helper
+  const [videoMuted, setVideoMuted] = useState<boolean>(() => {
+    try { return !!(window as any).__hydraVideoEl?.muted; } catch { return true; }
+  });
+
+  const handleToggleVideoMute = () => {
+    try {
+      const res = (window as any).toggleHydraVideoMute ? (window as any).toggleHydraVideoMute() : null;
+      // If function returned new muted state, use it; otherwise read from element
+      if (typeof res === 'boolean') setVideoMuted(res);
+      else setVideoMuted(!!(window as any).__hydraVideoEl?.muted);
+    } catch (e) {
+      console.warn('toggleHydraVideoMute failed', e);
+    }
+  };
+
+  // Camera / shared media status indicator + device labels
+  const [cameraStatus, setCameraStatus] = useState<{ hasAudio: boolean; hasVideo: boolean; audioLabels: string[]; videoLabels: string[] }>({ hasAudio: false, hasVideo: false, audioLabels: [], videoLabels: [] });
+
+  useEffect(() => {
+    const update = async () => {
+      try {
+        const w: any = window as any;
+        const stat = w.getSharedMediaStatus ? w.getSharedMediaStatus() : { hasAudio: !!w.__sharedAudioStream, hasVideo: !!w.__cameraStream };
+        const devices = w.__sharedMediaDevices || { audio: [], video: [] };
+        setCameraStatus({ hasAudio: !!stat.hasAudio, hasVideo: !!stat.hasVideo, audioLabels: devices.audio || [], videoLabels: devices.video || [] });
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    update();
+    const handler = () => update();
+    window.addEventListener('shared-media-updated', handler);
+    return () => { window.removeEventListener('shared-media-updated', handler); };
+  }, []);
+
+  // Snackbar for camera routing feedback
+  const [snackOpen, setSnackOpen] = useState(false);
+  const [snackMsg, setSnackMsg] = useState('');
+  const [snackSeverity, setSnackSeverity] = useState<'success'|'error'|'info'|'warning'>('success');
+
+  useEffect(() => {
+    const onCameraRouted = (ev: any) => {
+      try {
+        const d = ev?.detail || {};
+        const success = d.success === true;
+        const msg = d.message || (success ? 'Camera routed to Hydra' : 'Camera routing pending/failed');
+        setSnackMsg(msg);
+        setSnackSeverity(success ? 'success' : 'info');
+        setSnackOpen(true);
+      } catch (e) {
+        // ignore
+      }
+    };
+    window.addEventListener('hydra-camera-routed', onCameraRouted as EventListener);
+    return () => window.removeEventListener('hydra-camera-routed', onCameraRouted as EventListener);
+  }, []);
   
   // Get root chains (no parent) - use memoized tree
   const rootChains = chainTree.filter(c => !c.parentId);
@@ -945,6 +1036,7 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
           <div style={{
             overflow: 'auto',
+            marginLeft: '12px'
           }}>
           {/* Chain Tree */}
             {rootChains.length === 0 ? (
@@ -960,20 +1052,61 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 1.5, pt: 1, display: 'flex', justifyContent: 'space-between' }}>
-        <Button 
-          onClick={handleGenerateCode} 
-          size="small" 
-          startIcon={<CodeIcon />}
-          sx={{ 
-            fontSize: '0.8rem', 
-            color: '#ffffff',
-            '&:hover': {
-              bgcolor: 'rgba(255,255,255,0.1)',
-            },
-          }}
-        >
-          Generate Code
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1, marginLeft: '12px' }}>
+          <Button 
+            onClick={handleGenerateCode} 
+            size="small" 
+            startIcon={<CodeIcon />}
+            sx={{ 
+              fontSize: '0.8rem', 
+              color: '#ffffff',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            Generate Code
+          </Button>
+          <Button
+            onClick={handleInitCam}
+            size="small"
+            title="Request camera + microphone and route to Hydra (user gesture required)"
+            sx={{ fontSize: '0.8rem', color: '#ffffff', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+          >
+            Enable Camera
+          </Button>
+          {cameraStatus.hasVideo && <Button
+            onClick={() => { try { (window as any).disconnectSharedMedia && (window as any).disconnectSharedMedia(); } catch (e) { console.warn(e); } }}
+            size="small"
+            sx={{ fontSize: '0.8rem', color: '#ffffff', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+          >
+            {/* Disconnect */}
+            <SignalWifiConnectedNoInternet4Icon/>
+          </Button>}
+          <Button
+            onClick={handleToggleVideoMute}
+            size="small"
+            sx={{ fontSize: '0.8rem', color: '#ffffff', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+          >
+            {videoMuted ? 
+              // 'Unmute Video' 
+              // <VolumeUpIcon />
+              'Unmute'
+              : 
+              // <VolumeMuteIcon />
+              'Mute'
+              // 'Mute Video'
+              }
+          </Button>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ fontSize: '0.75rem', color: cameraStatus.hasVideo ? '#7CFC00' : '#ff6b6b', border: '1px solid rgba(255,255,255,0.06)', px: 1, py: '2px', borderRadius: 1 }}>
+            {cameraStatus.hasVideo ? 'Camera: Connected' : 'Camera: Disconnected'}
+          </Box>
+          {cameraStatus.videoLabels && cameraStatus.videoLabels.length > 0 && (
+            <Box sx={{ fontSize: '0.7rem', color: '#e0e0e0', opacity: 0.85 }}>
+              {cameraStatus.videoLabels.join(', ')}
+            </Box>
+          )}
+        </Box>
         <Button onClick={onClose} size="small" sx={{ fontSize: '0.8rem', color: '#ffffff' }}>Close</Button>
       </DialogActions>
 
@@ -1054,6 +1187,16 @@ export default function HydraControlsPopup({ open, onClose }: HydraControlsPopup
           </Button>
         </DialogActions>
       </Dialog>
+        <Snackbar
+          open={snackOpen}
+          autoHideDuration={4000}
+          onClose={() => setSnackOpen(false)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        >
+          <Alert onClose={() => setSnackOpen(false)} severity={snackSeverity} sx={{ width: '100%' }}>
+            {snackMsg}
+          </Alert>
+        </Snackbar>
     </Dialog>
   );
 }

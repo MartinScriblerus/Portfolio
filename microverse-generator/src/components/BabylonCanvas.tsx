@@ -1,3 +1,5 @@
+'use client';
+
 declare global {
     interface Window {
         __hydraDebugLastLog?: number;
@@ -5,8 +7,6 @@ declare global {
         __babylonEngine?: any;
     }
 }
-
-'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSignalBus } from '../store/useSignalBus';
@@ -56,6 +56,69 @@ export default function BabylonHydraCanvas() {
             (window as any).__clickCount = 0;
             (window as any).__bpm = bpm;
         }
+    }, []);
+
+    // Development-only debug shims: log when code attempts to fetch or set element src with a non-string
+    useEffect(() => {
+        // Enable dev-only instrumentation when not in production. Do NOT force-enable in production.
+        const isDev = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production');
+        if (!isDev || typeof window === 'undefined') return;
+
+        const origFetch = (window as any).fetch;
+        (window as any).fetch = function(this: any, input: any, init?: any) {
+            if (typeof input !== 'string') {
+                console.warn('[HydraDebug] fetch called with non-string input:', input, new Error().stack);
+            }
+            return origFetch.apply(this, [input, init]);
+        } as any;
+
+        const origXHROpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(this: any, method: any, url: any, ...rest: any[]) {
+            if (typeof url !== 'string') {
+                console.warn('[HydraDebug] XHR.open called with non-string url:', url, new Error().stack);
+            }
+            return (origXHROpen as any).apply(this, [method, url, ...rest]);
+        };
+
+        // Wrap HTMLImageElement.src and HTMLMediaElement.src setters to catch non-string assignments
+        const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+        if (imgDesc && imgDesc.set) {
+            const origImgSrcSet = imgDesc.set;
+            Object.defineProperty(HTMLImageElement.prototype, 'src', {
+                configurable: true,
+                enumerable: imgDesc.enumerable,
+                get: imgDesc.get,
+                set: function(this: any, v: any) {
+                    if (typeof v !== 'string') {
+                        console.warn('[HydraDebug] Image.src assigned non-string:', v, new Error().stack);
+                    }
+                    return origImgSrcSet.call(this, v);
+                }
+            });
+        }
+
+        const mediaDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+        if (mediaDesc && mediaDesc.set) {
+            const origMediaSrcSet = mediaDesc.set;
+            Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+                configurable: true,
+                enumerable: mediaDesc.enumerable,
+                get: mediaDesc.get,
+                set: function(this: any, v: any) {
+                    if (typeof v !== 'string') {
+                        console.warn('[HydraDebug] Media.src assigned non-string:', v, new Error().stack);
+                    }
+                    return origMediaSrcSet.call(this, v);
+                }
+            });
+        }
+
+        return () => {
+            try { (window as any).fetch = origFetch; } catch (e) {}
+            try { XMLHttpRequest.prototype.open = origXHROpen; } catch (e) {}
+            try { if (imgDesc) Object.defineProperty(HTMLImageElement.prototype, 'src', imgDesc); } catch (e) {}
+            try { if (mediaDesc) Object.defineProperty(HTMLMediaElement.prototype, 'src', mediaDesc); } catch (e) {}
+        };
     }, []);
 
     // Microtonal state
@@ -298,6 +361,381 @@ export default function BabylonHydraCanvas() {
 
             console.log("WHAT IS HYDRA? ", hydra);
 
+            // Runtime shim: wrap s0.initVideo to be tolerant of MediaStream / VideoElement inputs.
+            // Some hydra internals may treat a non-string argument as a URL (causing "[object HTMLVideoElement]" fetches).
+            // By wrapping initVideo we ensure callers always receive a proper DOM-attached <video> or the original behavior.
+            const patchS0InitVideo = (s0obj: any) => {
+                try {
+                    if (!s0obj) return;
+                    if ((s0obj as any).__initVideoPatched) return;
+                    const _orig = (s0obj as any).initVideo && (s0obj as any).initVideo.bind(s0obj);
+                    if (typeof _orig !== 'function') return;
+                    (s0obj as any).initVideo = (arg: any, params?: any) => {
+                        try {
+                            // If it's already a video element, initialize the Hydra source with it directly
+                            if (arg && (arg.tagName === 'VIDEO' || arg instanceof HTMLVideoElement)) {
+                                try {
+                                    // Use the generic init path which accepts { src }
+                                    (s0obj as any).init({ src: arg }, params || {});
+                                    return arg;
+                                } catch (e) {
+                                    // fallback to original initVideo only if direct init fails
+                                    return _orig(arg as any);
+                                }
+                            }
+                            // If it's a MediaStream, create a hidden video element and initialize with that
+                            if (arg && (arg instanceof MediaStream || (arg.constructor && arg.constructor.name === 'MediaStream'))) {
+                                const v = document.createElement('video');
+                                v.autoplay = true;
+                                v.muted = true;
+                                (v as any).playsInline = true;
+                                v.loop = true;
+                                try { v.srcObject = arg; } catch (e) {}
+                                try {
+                                    v.style.position = 'fixed';
+                                    v.style.width = '1px';
+                                    v.style.height = '1px';
+                                    v.style.left = '-10000px';
+                                    document.body && document.body.appendChild(v);
+                                } catch (e) {}
+                                try { v.play().catch(() => {}); } catch (e) {}
+                                try {
+                                    (s0obj as any).init({ src: v }, params || {});
+                                    return v;
+                                } catch (e) {
+                                    return _orig(v as any);
+                                }
+                            }
+                            // If an object with a .video or .el property is passed, prefer that
+                            if (arg && typeof arg === 'object') {
+                                const candidate = arg.video || arg.el || arg.element || null;
+                                if (candidate && (candidate.tagName === 'VIDEO' || candidate instanceof HTMLVideoElement)) {
+                                    try {
+                                        (s0obj as any).init({ src: candidate }, params || {});
+                                        return candidate;
+                                    } catch (e) {
+                                        return _orig(candidate as any);
+                                    }
+                                }
+                                // If candidate has a srcObject (MediaStream), attach and pass
+                                if (candidate && candidate.srcObject instanceof MediaStream) {
+                                    try {
+                                        (s0obj as any).init({ src: candidate }, params || {});
+                                        return candidate;
+                                    } catch (e) {
+                                        try { return _orig(candidate); } catch (ee) {}
+                                    }
+                                }
+                            }
+                            // Fallback: call original with whatever was provided
+                            return _orig(arg as any);
+                        } catch (e) {
+                            console.warn('[Hydra] initVideo wrapper failed', e);
+                            try { return _orig(arg as any); } catch (ee) { console.warn('[Hydra] original initVideo also failed', ee); }
+                        }
+                    };
+                    try { (s0obj as any).__initVideoPatched = true; } catch (e) {}
+                } catch (e) {
+                    console.warn('[Hydra] patchS0InitVideo failed', e);
+                }
+            };
+
+            try { patchS0InitVideo((hydra as any).s0); } catch (e) {}
+            try { patchS0InitVideo((globalThis as any).s0); } catch (e) {}
+            try { patchS0InitVideo(((globalThis as any).hydra as any)?.s0); } catch (e) {}
+
+            // Helper: ensure Hydra video elements default to loop + muted and expose toggle helpers
+            const processHydraVideoEl = (v: any) => {
+                try {
+                    if (!v) return;
+                    // Some hydra paths return a video element or an object wrapping it
+                    const videoEl: HTMLVideoElement | null = (v && (v.tagName === 'VIDEO' ? v : (v.nodeName === 'VIDEO' ? v : (v instanceof HTMLVideoElement ? v : null)))) as any || null;
+                    if (videoEl) {
+                        // default behavior: muted + loop
+                        try { videoEl.loop = true; } catch {}
+                        try { videoEl.muted = true; } catch {}
+                        try { videoEl.playsInline = true; } catch {}
+                        try { videoEl.play().catch(() => {}); } catch {}
+                        // Expose a global reference for toggle from UI
+                        try { (window as any).__hydraVideoEl = videoEl; } catch {}
+                        try { (window as any).__hydraVideoMuted = !!videoEl.muted; } catch {}
+                    } else {
+                        // If hydra returned a wrapper object, attempt to find .video or .el
+                        try {
+                            const candidate = v?.video || v?.el || v?.element || null;
+                            if (candidate && candidate.tagName === 'VIDEO') {
+                                processHydraVideoEl(candidate);
+                            }
+                        } catch {}
+                    }
+                } catch (e) {
+                    // swallow errors
+                }
+            };
+
+            // Global helper to toggle hydra video mute from UI
+            try {
+                (window as any).toggleHydraVideoMute = () => {
+                    try {
+                        const hv = (window as any).__hydraVideoEl as HTMLVideoElement | undefined;
+                        if (!hv) return false;
+                        hv.muted = !hv.muted;
+                        (window as any).__hydraVideoMuted = !!hv.muted;
+                        return hv.muted;
+                    } catch (e) { return false; }
+                };
+                (window as any).isHydraVideoMuted = () => {
+                    try { return !!(window as any).__hydraVideoEl?.muted; } catch { return true; }
+                };
+            } catch (e) {}
+
+            // --- initCam support: allow UI to request the webcam be connected to hydra's s0 ---
+            // These variables live inside the hydra setup scope and are cleaned up in disposer below.
+            let __hydra_camStream: MediaStream | null = null;
+            let __hydra_camVideo: HTMLVideoElement | null = null;
+
+            const hydraInitCamHandler = async (ev?: any) => {
+                try {
+                    // If an event provided a stream, prefer that
+                    const detail = ev && ev.detail ? ev.detail : null;
+                    const detailStream = detail ? detail.stream : null;
+
+                    // First, try to reuse any existing MediaStream exposed on window to avoid re-prompting
+                    const existingStream = (window as any).__cameraStream || (window as any).__mediaStream || (window as any).__localStream || null;
+                    let stream: MediaStream | null = detailStream || existingStream;
+
+                    // If an app-level helper exists (exposed by ChuckSetup), use it so permission requests remain centralized
+                    const wAny: any = window as any;
+                    if (!stream && typeof wAny.ensureSharedMedia === 'function') {
+                        try {
+                            // Prefer the merged helper; request video only to avoid enabling audio unintentionally
+                            stream = await wAny.ensureSharedMedia({ video: true, audio: false });
+                            console.log('[Hydra] initCam: obtained stream from ensureSharedMedia');
+                        } catch (e) {
+                            console.warn('[Hydra] initCam: ensureSharedMedia failed', e);
+                        }
+                    } else if (!stream && typeof wAny.ensureSharedCamera === 'function') {
+                        try {
+                            stream = await wAny.ensureSharedCamera();
+                            console.log('[Hydra] initCam: obtained stream from ensureSharedCamera');
+                        } catch (e) {
+                            console.warn('[Hydra] initCam: ensureSharedCamera failed', e);
+                        }
+                    }
+
+                    if (!stream) {
+                        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                            console.warn('[Hydra] initCam: getUserMedia not available');
+                            return;
+                        }
+                        // stop any previous camera we created earlier
+                        try { __hydra_camStream?.getTracks().forEach(t => t.stop()); } catch {}
+                        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                        // expose for other parts of the app that may check for existing stream
+                        try { (window as any).__cameraStream = stream; } catch {}
+                    }
+
+                    if (!stream) {
+                        console.warn('[Hydra] initCam: no camera stream available');
+                        return;
+                    }
+
+                    // Stop any previous hydra video element so the new camera will overwrite default mp4/video
+                    try {
+                        if (hydraVideoEl && (hydraVideoEl as any).srcObject) {
+                            // pause and clear previous element
+                            hydraVideoEl.pause();
+                            try { (hydraVideoEl as any).srcObject = null; } catch {}
+                        }
+                    } catch (e) {}
+
+
+                    __hydra_camStream = stream;
+
+                    const video = document.createElement('video');
+                    video.autoplay = true;
+                    video.muted = true; // allow autoplay in browsers
+                    (video as any).playsInline = true;
+                    video.loop = true;
+                    video.srcObject = stream;
+                    video.addEventListener('ended', () => { try { video.play().catch(() => {}); } catch {} });
+                    // Attach the video to DOM (hidden) — some Hydra implementations require an attached element
+                    try {
+                        video.style.position = 'fixed';
+                        video.style.width = '1px';
+                        video.style.height = '1px';
+                        video.style.left = '-10000px';
+                        video.style.top = '0';
+                        video.id = 'hydra-camera-video';
+                        document.body && document.body.appendChild(video);
+                    } catch (e) {}
+                    try { await video.play(); } catch (e) { /* ignore - may need user gesture */ }
+                    __hydra_camVideo = video;
+                    // Also update any global hydra video reference so other UI (mute toggle) sees the new element
+                    try { (window as any).__hydraVideoEl = video; } catch (e) {}
+
+                    // Mark camera state in HUD store (if available)
+                    try { useHudStore.getState().setIsCameraOn(true); } catch {}
+
+                    // Pass to hydra s0 if available (hydra was created above)
+                    try {
+                        if (hydra && hydra.s0 && typeof hydra.s0.initVideo === 'function') {
+                                try {
+                                    const maybe = hydra.s0.initVideo(video);
+                                    // ensure defaults on the passed video element
+                                    processHydraVideoEl(video);
+                                    console.log('[Hydra] initCam: camera video handed to s0');
+                                    try { (window as any).__hydraCameraActive = true; } catch (e) {}
+                                    try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: true, message: 'Camera routed to Hydra' } })); } catch (e) {}
+                                    // If initVideo returned a video element, process that too
+                                    try { if (maybe) processHydraVideoEl(maybe); } catch {}
+                                } catch (e) {
+                                    console.warn('[Hydra] initCam: s0.initVideo threw', e);
+                                }
+                            } else {
+                                console.warn('[Hydra] initCam: hydra.s0.initVideo not available');
+                                try {
+                                    // Store pending stream so it can be applied when hydra is ready
+                                    (window as any).__pendingHydraCamStream = stream;
+                                    console.log('[Hydra] initCam: stored pending camera stream for later routing');
+                                    try { startPendingWatcher(); } catch (e) {}
+                                    // Try a global fallback: sometimes hydra globals exist on globalThis even if local `hydra` closure isn't ready.
+                                    try {
+                                        const gAny: any = globalThis as any;
+                                        if (gAny && gAny.s0 && typeof gAny.s0.initVideo === 'function') {
+                                            const camVideoFb = document.createElement('video');
+                                            camVideoFb.autoplay = true;
+                                            camVideoFb.muted = true;
+                                            (camVideoFb as any).playsInline = true;
+                                            camVideoFb.loop = true;
+                                            camVideoFb.srcObject = stream;
+                                            // attach to DOM
+                                            try {
+                                                camVideoFb.style.position = 'fixed';
+                                                camVideoFb.style.width = '1px';
+                                                camVideoFb.style.height = '1px';
+                                                camVideoFb.style.left = '-10000px';
+                                                camVideoFb.id = 'hydra-camera-video-global';
+                                                document.body && document.body.appendChild(camVideoFb);
+                                            } catch (e) {}
+                                            try { await camVideoFb.play(); } catch (e) {}
+                                            try {
+                                                let maybeFb: any = null;
+                                                try {
+                                                    maybeFb = gAny.s0.initVideo(camVideoFb);
+                                                } catch (err) {
+                                                    console.warn('[Hydra] initCam: gAny.s0.initVideo(camVideo) threw', err);
+                                                }
+                                                processHydraVideoEl(camVideoFb);
+                                                try { if (maybeFb) processHydraVideoEl(maybeFb); } catch (e) {}
+                                                (window as any).__hydraVideoEl = camVideoFb;
+                                                (window as any).__hydraCameraActive = true;
+                                                (window as any).__pendingHydraCamStream = null;
+                                                console.log('[Hydra] initCam: routed camera to global s0 fallback');
+                                                try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: true, message: 'Camera routed via global s0 fallback' } })); } catch (e) {}
+                                                return;
+                                            } catch (e) {
+                                                console.warn('[Hydra] initCam: global s0.initVideo threw', e);
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // ignore fallback errors
+                                    }
+                                    try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: false, message: 'Camera granted but Hydra not ready; will route when ready' } })); } catch (e) {}
+                                } catch (e) {}
+                            }
+                    } catch (err) {
+                        console.warn('[Hydra] initCam: error calling s0.initVideo', err);
+                    }
+                } catch (err) {
+                    console.warn('[Hydra] initCam failed', err);
+                }
+            };
+
+            // Watcher + helper to apply any pending camera stream to hydra when s0.initVideo becomes available
+            let __pendingWatcher: any = null;
+            const applyPendingStream = async (stream: MediaStream | null) => {
+                if (!stream) return false;
+                try {
+                    const gAny: any = globalThis as any;
+                    if (!(gAny && gAny.s0 && typeof gAny.s0.initVideo === 'function')) return false;
+                    const camVideo = document.createElement('video');
+                    camVideo.autoplay = true;
+                    camVideo.muted = true;
+                    (camVideo as any).playsInline = true;
+                    camVideo.loop = true;
+                    camVideo.srcObject = stream;
+                    try {
+                        camVideo.style.position = 'fixed';
+                        camVideo.style.width = '1px';
+                        camVideo.style.height = '1px';
+                        camVideo.style.left = '-10000px';
+                        camVideo.id = 'hydra-camera-video-pending';
+                        document.body && document.body.appendChild(camVideo);
+                    } catch (e) {}
+                    try { await camVideo.play(); } catch (e) {}
+                    let maybe: any = null;
+                    try {
+                        maybe = gAny.s0.initVideo(camVideo);
+                    } catch (err) {
+                        console.warn('[Hydra] applyPendingStream: s0.initVideo threw', err);
+                    }
+                    try { processHydraVideoEl(camVideo); } catch (e) {}
+                    try { if (maybe) processHydraVideoEl(maybe); } catch (e) {}
+                    (window as any).__hydraVideoEl = camVideo;
+                    (window as any).__hydraCameraActive = true;
+                    try { (window as any).__pendingHydraCamStream = null; } catch (e) {}
+                    console.log('[Hydra] applyPendingStream: applied camera stream to s0');
+                    try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: true, message: 'Pending camera stream applied to Hydra' } })); } catch (e) {}
+                    return true;
+                } catch (e) {
+                    console.warn('[Hydra] applyPendingStream failed', e);
+                    try { window.dispatchEvent(new CustomEvent('hydra-camera-routed', { detail: { success: false, message: 'Failed to apply pending camera stream' } })); } catch (e) {}
+                    return false;
+                }
+            };
+
+            const startPendingWatcher = () => {
+                if (__pendingWatcher) return;
+                __pendingWatcher = setInterval(async () => {
+                    try {
+                        const pending: any = (window as any).__pendingHydraCamStream || null;
+                        const gAny: any = globalThis as any;
+                        if (pending && gAny && typeof gAny.s0?.initVideo === 'function') {
+                            await applyPendingStream(pending);
+                        }
+                        if (!(window as any).__pendingHydraCamStream) {
+                            clearInterval(__pendingWatcher);
+                            __pendingWatcher = null;
+                        }
+                    } catch (e) {
+                        // ignore errors in watcher
+                    }
+                }, 300);
+            };
+
+            window.addEventListener('hydra-init-cam', hydraInitCamHandler as EventListener);
+            const sharedMediaHandler = (ev: any) => {
+                try {
+                    const detail = ev && ev.detail ? ev.detail : null;
+                    const stream = detail ? detail.stream : null;
+                    if (!stream) {
+                        // shared media disconnected — stop local camera video and clear refs
+                        try { __hydra_camStream?.getTracks().forEach((t: any) => t.stop()); } catch {}
+                        try { if (__hydra_camVideo) { __hydra_camVideo.pause(); (__hydra_camVideo as any).srcObject = null; } } catch {}
+                        __hydra_camStream = null;
+                        __hydra_camVideo = null;
+                        try { (window as any).__hydraCameraActive = false; } catch (e) {}
+                        try { useHudStore.getState().setIsCameraOn(false); } catch {}
+                    } else {
+                        try { useHudStore.getState().setIsCameraOn(true); } catch {}
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            };
+            window.addEventListener('shared-media-updated', sharedMediaHandler as EventListener);
+
             const { osc, noise } = hydra.synth;
             // Mutable live average reference so Hydra param functions see updates every frame.
             const currentAvg = { r:0, g:0, b:0, energy:0 };
@@ -392,6 +830,14 @@ export default function BabylonHydraCanvas() {
                 if (state.userVideoUrl !== lastUserVideoUrl && typeof g.s0?.initVideo === 'function') {
                     lastUserVideoUrl = state.userVideoUrl || null;
                     if (state.userVideoUrl) {
+                        // If a camera stream has been routed to Hydra, prefer it over user-uploaded mp4
+                        try {
+                            if ((window as any).__hydraCameraActive) {
+                                console.log('[Hydra] Skipping userVideoUrl because camera is active');
+                                // don't overwrite the camera with an mp4
+                                return;
+                            }
+                        } catch (e) {}
                         // Reinitialize video with new URL
                         (async () => {
                             const videoUrl = state.userVideoUrl!;
@@ -411,6 +857,8 @@ export default function BabylonHydraCanvas() {
                                         console.log('[Hydra] Video reloaded directly');
                                     }
                                 }
+                                // Post-process hydra video element to enforce defaults
+                                try { processHydraVideoEl(hydraVideoEl); } catch {}
                                 videoStartMs = performance.now();
                                 hydraCamReady = hydraVideoEl !== null;
                             } catch (err: any) {
@@ -1389,6 +1837,24 @@ export default function BabylonHydraCanvas() {
                     const hydraControls = useHydraControlsStore.getState();
                     const userVideoUrl = hydraControls.userVideoUrl;
                     const videoUrl = userVideoUrl || "https://dn790002.ca.archive.org/0/items/0037_Gift_of_Green_13_00_46_00/0037_Gift_of_Green_13_00_46_00.mp4";
+
+                    // If a camera has already been routed to Hydra, skip initializing mp4/video sources
+                    try {
+                        if ((window as any).__hydraCameraActive) {
+                            console.log('[Hydra] Camera active — skipping default/user video init');
+                            hydraCamReady = true;
+                            // build pipeline with camera already active
+                            buildHydraPipeline(hydraState.pattern);
+                            // skip the rest of video init
+                            throw new Error('HYDRA_SKIP_VIDEO_INIT_CAMERA_ACTIVE');
+                        }
+                    } catch (e) {
+                        if (e && (e as any).message === 'HYDRA_SKIP_VIDEO_INIT_CAMERA_ACTIVE') {
+                            // intentionally skip
+                        } else {
+                            // continue normally on unexpected errors
+                        }
+                    }
                     
                     // Blob URLs (user uploads) can be used directly, no proxy needed
                     const isBlobUrl = videoUrl.startsWith('blob:');
@@ -1412,6 +1878,9 @@ export default function BabylonHydraCanvas() {
                             }
                         }
                         
+                        // Ensure defaults on the returned element before waiting for metadata
+                        try { processHydraVideoEl(hydraVideoEl); } catch {}
+
                         // Wait for video metadata to load before setting currentTime
                         if (hydraVideoEl) {
                             await new Promise<void>((resolve, reject) => {
@@ -1496,6 +1965,25 @@ export default function BabylonHydraCanvas() {
             }
 
             console.log('Hydra instance ready (globals?):', { s0: g.s0, srcFn: typeof g.src });
+
+            // If a camera stream was requested earlier before hydra was ready, try to apply it now.
+            try {
+                const pending: any = (window as any).__pendingHydraCamStream || null;
+                if (pending) {
+                    if (g.s0 && typeof g.s0.initVideo === 'function') {
+                        try {
+                            await applyPendingStream(pending);
+                        } catch (e) {
+                            console.warn('[Hydra] applyPendingStream threw', e);
+                        }
+                    } else {
+                        // start watcher which will attempt to apply when s0 becomes available
+                        try { startPendingWatcher(); } catch (e) {}
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
 
 
             // initial pipeline build with zeroed averages
@@ -2176,6 +2664,10 @@ export default function BabylonHydraCanvas() {
             disposer = () => {
                 renderLoopRunning = false; // Stop render loop
                 window.removeEventListener('resize', handleResize);
+                try { window.removeEventListener('hydra-init-cam', hydraInitCamHandler as EventListener); } catch {}
+                try { window.removeEventListener('shared-media-updated', sharedMediaHandler as EventListener); } catch {}
+                try { __hydra_camStream?.getTracks().forEach(t => t.stop()); } catch {}
+                try { if (__hydra_camVideo) { (__hydra_camVideo as HTMLVideoElement).pause(); (__hydra_camVideo as HTMLVideoElement).srcObject = null; } } catch {}
                 // window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
                 try { unsubscribeHydraControls(); } catch {}

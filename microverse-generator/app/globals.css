@@ -331,7 +331,7 @@ li.vizKey.white.half {
 
 #runChuckCodeButton {
   position: absolute;
-  top: 60px !important;
+  top: 224px !important;
   left: 8px !important;
   border: 2px solid var(--color-subdominant-primary);
   background: var(--color-dominant-surface);
