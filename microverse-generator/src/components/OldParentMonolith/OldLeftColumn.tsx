@@ -72,42 +72,32 @@ export default function OldLeftColumn(props: OldLeftColumnProps) {
         chuckHook={chuckHook} 
         FileUploadIcon={FileUploadIcon} 
         onBpmDetected={onBpmDetected} 
-        />
-      {/* {showBPM && (
-        <BPMModule
-          bpm={bpm}
-          beatsNumerator={beatsNumerator}
-          beatsDenominator={beatsDenominator}
-        />
-      )} */}
-      {/* <Box sx={{ padding: '8px', backgroundColor: 'rgba(28,28,28,0.78)' }}>
-        <STKManagerDropdown updateStkKnobs={updateStkKnobs} stkValues={stkValues} setStkValues={setStkValues} />
-      </Box> */}
+      />
       <Box sx={{ position: 'relative', color: 'rgba(255,255,255,0.78)' }}>
-          <FXRouting
-            key={fXChainKey + fxRadioValue}
-            fxData={fxData}
-            width={440}
-            height={440}
-            updateCheckedFXList={handleUpdateCheckedFXList}
-            fxGroupsArrayList={fxGroupOptions}
-            checkedFXList={checkedFXListCurrent}
-            fxFX={[]}
-            handleClickName={handleClickName}
-            setClickFXChain={setClickFXChain}
-            clickFXChain={clickFXChain}
-            updateFXInputRadio={updateFXInputRadio}
-            fxRadioValue={fxRadioValue}
-            setStkValues={setStkValues}
-            stkValues={stkValues}
-            currentScreen={currentScreenCurrent}
-            playUploadedFile={playUploadedFile}
-            lastFileUpload={lastFileUpload}
-            updateFileUploads={updateFileUploads}
-            handleCheckedFXToShow={handleCheckedFXToShow}
-            checkedEffectsListHook={checkedEffectsListHook}
-            setCheckedEffectsListHook={setCheckedEffectsListHook}
-          />
+        <FXRouting
+          key={fXChainKey + fxRadioValue}
+          fxData={fxData}
+          width={440}
+          height={440}
+          updateCheckedFXList={handleUpdateCheckedFXList}
+          fxGroupsArrayList={fxGroupOptions}
+          checkedFXList={checkedFXListCurrent}
+          fxFX={[]}
+          handleClickName={handleClickName}
+          setClickFXChain={setClickFXChain}
+          clickFXChain={clickFXChain}
+          updateFXInputRadio={updateFXInputRadio}
+          fxRadioValue={fxRadioValue}
+          setStkValues={setStkValues}
+          stkValues={stkValues}
+          currentScreen={currentScreenCurrent}
+          playUploadedFile={playUploadedFile}
+          lastFileUpload={lastFileUpload}
+          updateFileUploads={updateFileUploads}
+          handleCheckedFXToShow={handleCheckedFXToShow}
+          checkedEffectsListHook={checkedEffectsListHook}
+          setCheckedEffectsListHook={setCheckedEffectsListHook}
+        />
       </Box>
     </Box>
   );

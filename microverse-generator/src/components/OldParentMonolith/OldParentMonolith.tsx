@@ -362,24 +362,9 @@ function RightDrawer(props: RightDrawerProps) {
         }}
       >
         <header style={{ padding: '4px 4px', borderBottom: '1px solid #222' }}>
-          {/* <Button sx={{
-            position: !open ? 'absolute' : 'relative',
-            top:  !open ? 24 : 'auto',
-            right: !open ? 24 : 'auto',
-            zIndex: 99999,
-            pointerEvents: 'auto',
-            pointer: 'cursor',
-            background: 'rgba(0,0,0,0.5)',
-            color: '#e0e0e0',
-            border: '1px solid #444',
-          }} onClick={() => setOpen(false)} aria-label="Close panel">
-            {
-              !open ? <MenuOpenIcon sx={{ fontSize: 24, pointerEvents: 'none' }} /> : <CloseIcon sx={{ fontSize: 24, pointerEvents: 'none'}} />
-            }
-          </Button> */}
           <Box style={{ 
             display: 'inline-flex', 
-            // gap: 2, 
+            gap: 2, 
             // marginLeft: 8,
             pointerEvents: 'auto',
             zIndex: 9999,
@@ -387,51 +372,61 @@ function RightDrawer(props: RightDrawerProps) {
         >
             <Button sx={{
               position: !open ? 'absolute' : 'relative',
-              // top:  !open ? 24 : 'auto',
-              // right: !open ? 24 : 'auto',
               zIndex: 99999,
               pointerEvents: 'auto',
-              pointer: 'cursor',
+              cursor: 'pointer',           // fixed property name
               background: 'rgba(0,0,0,0.5)',
               color: '#e0e0e0',
+              width: '28px',               // desired narrower width
+              height: '28px',              // desired shorter height
+              minWidth: '28px',            // prevents MUI from expanding it
+              minHeight: '28px',
+              padding: 0,
+              left: 8,                  // remove extra padding
+              marginTop: '8px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               border: '1px solid #444',
             }} onClick={() => setOpen(false)} aria-label="Close panel">
               {
                 !open ? <MenuOpenIcon sx={{ fontSize: 12, pointerEvents: 'none' }} /> : <CloseIcon sx={{ fontSize: 24, pointerEvents: 'none'}} />
               }
             </Button>
-            <Button sx={{
-              pointerEvents: 'auto',
-              pointer: 'cursor',
-              zIndex: 99999,
-            }} onClick={() => { setOpen(true); setTab('grid'); }} aria-pressed={tab === 'grid'} aria-label="Open beat grid panel">Grid</Button>
-            <Button sx={{
-              pointerEvents: 'auto',
-              pointer: 'cursor',
-              zIndex: 99999,
-            }} onClick={() => { setOpen(true); setTab('mixer'); }} aria-pressed={tab === 'mixer'} aria-label="Open audio mixer panel">Mixer</Button>
-            <Button sx={{
-              pointerEvents: 'auto',
-              pointer: 'cursor',
-              zIndex: 99999,
-            }} onClick={() => { setOpen(true); setTab('fx'); }} aria-pressed={tab === 'fx'} aria-label="Open effects panel">FX</Button>
-                  <Button
-                    startIcon={<FileUploadIcon />}
-                    onClick={handleFileUpload}
-                    sx={{
-                      backgroundColor: '#3f51b5',
-                      color: '#fff',
-                      minWidth: '100px',
-                      height: '36px',
-                      padding: '8px',
-                      margin: '8px 8px 8px 0px',
-                      '&:hover': {
-                        backgroundColor: '#303f9f',
-                      },
-                    }}
-                  >
-                    File
-                  </Button>
+            <Box sx={{paddingLeft: '12px'}}>
+              <Button sx={{
+                pointerEvents: 'auto',
+                pointer: 'cursor',
+                zIndex: 99999,
+              }} onClick={() => { setOpen(true); setTab('grid'); }} aria-pressed={tab === 'grid'} aria-label="Open beat grid panel">Grid</Button>
+              <Button sx={{
+                pointerEvents: 'auto',
+                pointer: 'cursor',
+                zIndex: 99999,
+              }} onClick={() => { setOpen(true); setTab('mixer'); }} aria-pressed={tab === 'mixer'} aria-label="Open audio mixer panel">Mixer</Button>
+              <Button sx={{
+                pointerEvents: 'auto',
+                pointer: 'cursor',
+                zIndex: 99999,
+              }} onClick={() => { setOpen(true); setTab('fx'); }} aria-pressed={tab === 'fx'} aria-label="Open effects panel">FX</Button>
+            </Box>
+            <Button
+              startIcon={<FileUploadIcon />}
+              onClick={handleFileUpload}
+              sx={{
+                backgroundColor: '#3f51b5',
+                color: '#fff',
+                minWidth: '100px',
+                height: '36px',
+                padding: '8px',
+                margin: '8px 8px 8px 8px',
+                '&:hover': {
+                  backgroundColor: '#303f9f',
+                },
+              }}
+            >
+              File
+            </Button>
           </Box>
           <Box sx={{ maxHeight: '200px', overflowY: 'auto'}}>
             <TimingControls />
