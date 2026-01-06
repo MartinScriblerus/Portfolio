@@ -1464,511 +1464,479 @@ const BeatGridPanel = (props: BeatGridPanelProps) => {
                                                         {/* <ParameterMultiSelect options={sampleOptions} value={sampleSelected} placeholder="Select samples" onChange={handleSamplesChange} /> */}
                                                     </Box>
                                                 </Box>
-                                                {/* <Box sx={{ display: "inline-flex", width: '100%', flexDirecton: "row" }}>
-                                                    <Box sx={{ width: "58%", margin: "4px", marginLeft: "16px", borderRadius: "5px", justifyContent: "center", alignItems: "center", paddingLeft: "16px", paddingTop: "8px", height: "100%" }}>
-                                                        <Box sx={{ padding: "8px" }}>
-                                                            <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '4px' }}>Pattern Cells</Typography>
-                                                            <Slider
-                                                                value={doAutoAssignPatternNumber}
-                                                                onChange={(e: Event, val: number | number[]) => {
-                                                                    handleAssignPatternNumber({ target: { value: String(val) } } as any);
-                                                                }}
-                                                                marks={[{ value: 0, label: '0' }, { value: 1, label: '1' }, { value: 2, label: '2' }, { value: 3, label: '4' }, { value: 4, label: '8' }]}
-                                                                min={0}
-                                                                max={4}
-                                                                step={1}
-                                                                sx={{ color: ACCESSIBLE_COLORS.subdominant.secondary }}
-                                                            />
-                                                        </Box>
-                                                    </Box>
-                                                    <Box sx={{ display: "inline-flex", flexDirection: "column", justifyContent: "stretch", alignItems: "right", width: "34%", border: `1px solid ${ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", height: "100%", p: 1 }}>
-                                                        <ParameterSlider label="Velocity" value={0} min={0} max={12} step={0.01} onChange={() => { }} />
-                                                    </Box>
-                                                </Box> */}
+
                                             </Box>
                                         )}
-                                        {/* // )} */}
 
-
-
-                                        {/* {fxRadioValue && fxRadioValue.toLowerCase().includes("osc") && ( */}
-
-
-
-
-                                            <Box sx={{ display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "center", height: "100% !important" }}>
-                                                <Box sx={{ display: "inline-flex", flexDirection: "column", justifyContent: "stretch", alignItems: "left", width: "100%" }}>
-                                                    {/* <NoteBuilderToggle noteBuilderFocus={noteBuilderFocus} handleNoteBuilderToggle={handleNoteBuilder} /> */}
-                                                    
-                                                    {/* Piano/Hex/None Keyboard Mode Buttons - Row underneath NoteBuilderToggle */}
-                                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', marginTop: '8px', marginBottom: '8px' }}>
-                                                        <ButtonGroup sx={{ width: '100%', zIndex: 9999 }} size="small" color="primary" variant="outlined">
-                                                            <Button 
-                                                                sx={{ 
-                                                                    zIndex: 99999, 
-                                                                    pointerEvents: 'auto', 
-                                                                    cursor: 'pointer', 
-                                                                    flex: 1,
-                                                                    background: keyboardMode === 'piano' ? '#3f51b5' : undefined,
-                                                                    color: keyboardMode === 'piano' ? '#fff' : undefined 
-                                                                }} 
-                                                                onClick={() => setKeyboardMode('piano')} 
-                                                                variant={keyboardMode === 'piano' ? 'contained' : 'outlined'}
-                                                            >
-                                                                Piano
-                                                            </Button>
-                                                            <Button 
-                                                                sx={{ 
-                                                                    zIndex: 99999, 
-                                                                    pointerEvents: 'auto', 
-                                                                    cursor: 'pointer', 
-                                                                    flex: 1,
-                                                                    background: keyboardMode === 'hex' ? '#3f51b5' : undefined,
-                                                                    color: keyboardMode === 'hex' ? '#fff' : undefined 
-                                                                }} 
-                                                                onClick={() => setKeyboardMode('hex')} 
-                                                                variant={keyboardMode === 'hex' ? 'contained' : 'outlined'}
-                                                            >
-                                                                Hex
-                                                            </Button>
-                                                            <Button 
-                                                                sx={{ 
-                                                                    zIndex: 99999, 
-                                                                    pointerEvents: 'auto', 
-                                                                    cursor: 'pointer', 
-                                                                    flex: 1,
-                                                                    background: keyboardMode === 'none' ? '#3f51b5' : undefined,
-                                                                    color: keyboardMode === 'none' ? '#fff' : undefined 
-                                                                }} 
-                                                                onClick={() => setKeyboardMode('none')} 
-                                                                variant={keyboardMode === 'none' ? 'contained' : 'outlined'}
-                                                            >
-                                                                None
-                                                            </Button>
-                                                        </ButtonGroup>
-                                                    </Box>
-                                                    
-                                                    <Box sx={{ 
-                                                        display: "flex", 
-                                                        flexDirection: "column",
-                                                        gap: 1 
+                                        <Box sx={{ display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "center", height: "100% !important" }}>
+                                            <Box sx={{ display: "inline-flex", flexDirection: "column", justifyContent: "stretch", alignItems: "left", width: "100%" }}>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', marginTop: '8px', marginBottom: '8px' }}>
+                                                    <ButtonGroup sx={{ width: '100%', zIndex: 9999 }} size="small" color="primary" variant="outlined">
+                                                        <Button 
+                                                            sx={{ 
+                                                                zIndex: 99999, 
+                                                                pointerEvents: 'auto', 
+                                                                cursor: 'pointer', 
+                                                                flex: 1,
+                                                                background: keyboardMode === 'piano' ? '#3f51b5' : undefined,
+                                                                color: keyboardMode === 'piano' ? '#fff' : undefined 
+                                                            }} 
+                                                            onClick={() => setKeyboardMode('piano')} 
+                                                            variant={keyboardMode === 'piano' ? 'contained' : 'outlined'}
+                                                        >
+                                                            Piano
+                                                        </Button>
+                                                        <Button 
+                                                            sx={{ 
+                                                                zIndex: 99999, 
+                                                                pointerEvents: 'auto', 
+                                                                cursor: 'pointer', 
+                                                                flex: 1,
+                                                                background: keyboardMode === 'hex' ? '#3f51b5' : undefined,
+                                                                color: keyboardMode === 'hex' ? '#fff' : undefined 
+                                                            }} 
+                                                            onClick={() => setKeyboardMode('hex')} 
+                                                            variant={keyboardMode === 'hex' ? 'contained' : 'outlined'}
+                                                        >
+                                                            Hex
+                                                        </Button>
+                                                        <Button 
+                                                            sx={{ 
+                                                                zIndex: 99999, 
+                                                                pointerEvents: 'auto', 
+                                                                cursor: 'pointer', 
+                                                                flex: 1,
+                                                                background: keyboardMode === 'none' ? '#3f51b5' : undefined,
+                                                                color: keyboardMode === 'none' ? '#fff' : undefined 
+                                                            }} 
+                                                            onClick={() => setKeyboardMode('none')} 
+                                                            variant={keyboardMode === 'none' ? 'contained' : 'outlined'}
+                                                        >
+                                                            None
+                                                        </Button>
+                                                    </ButtonGroup>
+                                                </Box>
+                                                
+                                                <Box sx={{ 
+                                                    display: "flex", 
+                                                    flexDirection: "column",
+                                                    gap: 1 
+                                                }}>
+                                                    <Box sx={{
+                                                        display: 'block', 
+                                                        flexDirection: 'row', 
+                                                        gap: '8px', 
+                                                        height: '100%', 
+                                                        position: 'relative', 
+                                                        zIndex: 9999,
+                                                        justifyContent: 'stretch',
+                                                        // padding: '4px',
+                                            
+                                                        background: "green"
                                                     }}>
-                                                        <Box sx={{
-                                                            display: 'block', 
-                                                            flexDirection: 'row', 
-                                                            gap: '8px', 
-                                                            height: '100%', 
-                                                            position: 'relative', 
-                                                            zIndex: 9999,
-                                                            justifyContent: 'stretch',
-                                                            // padding: '4px',
-                                               
-                                                            background: "green"
-                                                        }}>
-                                                            <MicrotonesWrapper 
-                                                                tune={tune}
-                                                                currentMicroTonalScale={currentMicroTonalScale}
-                                                                updateMicroTonalScale={updateMicroTonalScale}
-                                                            />
-                                                        </Box>
-                                                        {/* Consolidated Note Controls: Notes, Velocity, Volume */}
-                                                        <Box sx={{ display: "flex", flexDirection: "column", 
-                                                            //gap: 2, 
-                                                            width: "100%", 
-                                                            padding: "0px", 
-                                                            // border: `1px solid ${OBERHEIM_TEAL}`, 
-                                                            borderRadius: "5px"}}>
-                                                                
-                                                            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                                                                {/* <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '12px', fontWeight: 'bold' }}>Note Controls</FormLabel> */}
+                                                        <MicrotonesWrapper 
+                                                            tune={tune}
+                                                            currentMicroTonalScale={currentMicroTonalScale}
+                                                            updateMicroTonalScale={updateMicroTonalScale}
+                                                        />
+                                                    </Box>
+                                                    {/* Consolidated Note Controls: Notes, Velocity, Volume */}
+                                                    <Box sx={{ display: "flex", flexDirection: "column", 
+                                                        //gap: 2, 
+                                                        width: "100%", 
+                                                        padding: "0px", 
+                                                        // border: `1px solid ${OBERHEIM_TEAL}`, 
+                                                        borderRadius: "5px"}}>
+                                                            
+                                                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                                                            {/* <FormLabel sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '12px', fontWeight: 'bold' }}>Note Controls</FormLabel> */}
 
-                                                                {/* Show Sample Input if noteBuilderFocus is "Sample" or "MIDI", otherwise show Notes Selector */}
-                                                                {/* {(noteBuilderFocus === 'Sampler' || noteBuilderFocus === 'MIDI') ? ( */}
-                                                                    <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
-                                                                        <Box sx={{ display: "flex", flexDirection: "row", gap: 1, alignItems: "center" }}>
-                                                                            <FormControl size="small" sx={{ minWidth: 'calc(100% - 80px)', flex: 1 }} 
-                                                                            disabled={
-                                                                                // !sampleVoiceEnabled || 
-                                                                                uploadedNames.length === 0}
-                                                                        style={{ width: '100%' }}
-                                                                        >
-                                                                            <InputLabel id="sample-file-label" sx={{ color: 'rgba(245,245,245,0.78)' }}>Sample File</InputLabel>
-                                                                            <Select
-                                                                                labelId="sample-file-label"
-                                                                                label="Sample File"
-                                                                                value={sampleFileName || ''}
-                                                                                onChange={(e) => setSampleFileName(e.target.value || null)}
-                                                                                MenuProps={{
+                                                            {/* Show Sample Input if noteBuilderFocus is "Sample" or "MIDI", otherwise show Notes Selector */}
+                                                            {/* {(noteBuilderFocus === 'Sampler' || noteBuilderFocus === 'MIDI') ? ( */}
+                                                                <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
+                                                                    <Box sx={{ display: "flex", flexDirection: "row", gap: 1, alignItems: "center" }}>
+                                                                        <FormControl size="small" sx={{ minWidth: 'calc(100% - 80px)', flex: 1 }} 
+                                                                        disabled={
+                                                                            // !sampleVoiceEnabled || 
+                                                                            uploadedNames.length === 0}
+                                                                    style={{ width: '100%' }}
+                                                                    >
+                                                                        <InputLabel id="sample-file-label" sx={{ color: 'rgba(245,245,245,0.78)' }}>Sample File</InputLabel>
+                                                                        <Select
+                                                                            labelId="sample-file-label"
+                                                                            label="Sample File"
+                                                                            value={sampleFileName || ''}
+                                                                            onChange={(e) => setSampleFileName(e.target.value || null)}
+                                                                            MenuProps={{
+                                                                                sx: {
+                                                                                    zIndex: 99999,
+                                                                                },
+                                                                                style: {
+                                                                                    zIndex: 99999,
+                                                                                },
+                                                                                PaperProps: {
                                                                                     sx: {
                                                                                         zIndex: 99999,
+                                                                                        backgroundColor: 'rgba(28,28,28,0.95)',
                                                                                     },
                                                                                     style: {
                                                                                         zIndex: 99999,
                                                                                     },
-                                                                                    PaperProps: {
-                                                                                        sx: {
-                                                                                            zIndex: 99999,
-                                                                                            backgroundColor: 'rgba(28,28,28,0.95)',
-                                                                                        },
-                                                                                        style: {
-                                                                                            zIndex: 99999,
-                                                                                        },
-                                                                                    },
-                                                                                }}
-                                                                                sx={{ 
-                                                                                    color: 'rgba(245,245,245,0.78)',
-                                                                                    '& .MuiOutlinedInput-notchedOutline': {
-                                                                                        borderColor: 'rgba(245,245,245,0.3)',
-                                                                                    },
-                                                                                }}
-                                                                            >
-                                                                                {allAvailableFiles.length === 0 ? (
-                                                                                    <MenuItem sx={{ color: 'rgba(245,245,245,0.78)' }} value="" disabled>No files available</MenuItem>
-                                                                                ) : (
-                                                                                    allAvailableFiles.map((nm: string, idx: number) => (
-                                                                                        <MenuItem sx={{ color: 'rgba(245,245,245,0.78)' }} key={`${nm}_${idx}`} value={nm}>{nm}</MenuItem>
-                                                                                    ))
-                                                                                )}
-                                                                                
-                                                                            </Select>
-                                                                        </FormControl>
-                                                                            <Button
-                                                                                size="small"
-                                                                                variant="contained"
-                                                                                onClick={async () => {
-                                                                                    if (sampleFileName) {
-                                                                                        await handleLatestSamples([sampleFileName], currentXVal.current, currentYVal.current);
-                                                                                        // Clear the dropdown after assignment
-                                                                                        setSampleFileName(null);
-                                                                                    }
-                                                                                }}
-                                                                                disabled={!sampleFileName || uploadedNames.length === 0}
-                                                                                sx={{
-                                                                                    minWidth: '70px',
-                                                                                    backgroundColor: ACCESSIBLE_COLORS.subdominant.primary,
-                                                                                    color: '#000',
-                                                                                    fontWeight: 600,
-                                                                                    '&:hover': {
-                                                                                        backgroundColor: ACCESSIBLE_COLORS.subdominant.primary,
-                                                                                        opacity: 0.9,
-                                                                                    },
-                                                                                    '&:disabled': {
-                                                                                        backgroundColor: 'rgba(255,255,255,0.1)',
-                                                                                        color: 'rgba(255,255,255,0.3)',
-                                                                                    },
-                                                                                }}
-                                                                            >
-                                                                                Assign
-                                                                            </Button>
-                                                                        </Box>
-                                                                    </Box>
-
-                                                                    {/* Integrated Notes Dropdown with Chord/Scale integrated */}
-                                                                    <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
-                                                                        {/* Individual Note Chips with Remove Buttons */}
-                                                                        {notesSelectedState && notesSelectedState.length > 0 && (
-                                                                            <Box sx={{ 
-                                                                                display: 'flex', 
-                                                                                flexWrap: 'wrap', 
-                                                                                gap: '6px',
-                                                                                padding: '8px',
-                                                                                backgroundColor: 'rgba(0,0,0,0.2)',
-                                                                                borderRadius: '4px',
-                                                                                border: '1px solid rgba(255,255,255,0.1)',
-                                                                            }}>
-                                                                                {notesSelectedState.map((note) => (
-                                                                                    <Box
-                                                                                        key={note.value}
-                                                                                        sx={{
-                                                                                            display: 'flex',
-                                                                                            alignItems: 'center',
-                                                                                            gap: '4px',
-                                                                                            padding: '4px 8px',
-                                                                                            backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
-                                                                                            color: '#000',
-                                                                                            borderRadius: '4px',
-                                                                                            fontSize: '12px',
-                                                                                            fontWeight: 500,
-                                                                                        }}
-                                                                                    >
-                                                                                        <Typography sx={{ fontSize: '12px', fontWeight: 500 }}>
-                                                                                            {note.label || note.value}
-                                                                                        </Typography>
-                                                                                        <Button
-                                                                                            size="small"
-                                                                                            onClick={() => {
-                                                                                                handleNotesChange(notesSelectedState.filter(n => n.value !== note.value));
-                                                                                            }}
-                                                                                            sx={{
-                                                                                                minWidth: '20px',
-                                                                                                width: '20px',
-                                                                                                height: '20px',
-                                                                                                padding: 0,
-                                                                                                color: '#000',
-                                                                                                fontSize: '14px',
-                                                                                                fontWeight: 'bold',
-                                                                                                '&:hover': {
-                                                                                                    backgroundColor: 'rgba(0,0,0,0.2)',
-                                                                                                },
-                                                                                            }}
-                                                                                            aria-label={`Remove ${note.label || note.value}`}
-                                                                                        >
-                                                                                            ×
-                                                                                        </Button>
-                                                                                    </Box>
-                                                                                ))}
-                                                                            </Box>
-                                                                        )}
-                                                                        
-                                                                        <Box sx={{ display: "flex", flexDirection: "row", gap: 1, alignItems: "flex-start" }}>
-                                                                            <Box sx={{ flex: 1 }}>
-                                                                                <ParameterMultiSelect 
-                                                                                    options={(() => {
-                                                                                        // Add chord/scale as special options at the top of the dropdown
-                                                                                        const specialOptions: Option[] = [];
-                                                                                        if (mingusSelectionsRef.current?.chord) {
-                                                                                            specialOptions.push({
-                                                                                                value: '__ADD_CHORD__',
-                                                                                                label: `➕ Add ${mingusSelectionsRef.current.chord.label} (${mingusSelectionsRef.current.key || 'C'})`
-                                                                                            });
-                                                                                        }
-                                                                                        if (mingusSelectionsRef.current?.scale) {
-                                                                                            specialOptions.push({
-                                                                                                value: '__ADD_SCALE__',
-                                                                                                label: `➕ Add ${mingusSelectionsRef.current.scale} Scale (${mingusSelectionsRef.current.key || 'C'})`
-                                                                                            });
-                                                                                        }
-                                                                                        return [...specialOptions, ...notesOptions];
-                                                                                    })()}
-                                                                                    value={notesSelectedState} 
-                                                                                    disabled={false}
-                                                                                    placeholder={
-                                                                                        notesOptions.length === 0 
-                                                                                            ? "No notes available (check octave range)"
-                                                                                            : mingusSelectionsRef.current?.chord?.label 
-                                                                                                ? `${mingusSelectionsRef.current.chord.label} (${mingusSelectionsRef.current.key || 'C'})` 
-                                                                                                : "Select Notes (or click keyboard)"
-                                                                                    }
-                                                                                    onChange={(vals) => {
-                                                                                        // Handle special chord/scale options first
-                                                                                        const specialVals = vals.filter(v => v.value.startsWith('__ADD_'));
-                                                                                        let noteVals = vals.filter(v => !v.value.startsWith('__ADD_'));
-                                                                                        
-                                                                                        // Start with current selection to merge with
-                                                                                        const currentSelection = notesSelectedState || [];
-                                                                                        
-                                                                                        // If user is removing items (vals.length < currentSelection.length), 
-                                                                                        // allow removal by using noteVals directly
-                                                                                        if (noteVals.length < currentSelection.length) {
-                                                                                            // User is removing items - use noteVals as-is
-                                                                                            handleNotesChange(noteVals);
-                                                                                            return;
-                                                                                        }
-                                                                                        
-                                                                                        // Otherwise, merge new selections with existing
-                                                                                        noteVals = [...currentSelection, ...noteVals.filter(o => !currentSelection.some(c => c.value === o.value))];
-                                                                                        
-                                                                                        // Process special options - add notes to existing selection
-                                                                                        specialVals.forEach(special => {
-                                                                                            if (special.value === '__ADD_CHORD__') {
-                                                                                                const selections = mingusSelectionsRef.current;
-                                                                                                if (selections && selections.key && selections.chord) {
-                                                                                                    const chordNotes = generateChordNotes(
-                                                                                                        selections.key,
-                                                                                                        selections.chord.value,
-                                                                                                        Number(selections.octaveMin || 4)
-                                                                                                    );
-                                                                                                    const chordOptions = chordNotes
-                                                                                                        .map(note => notesOptions.find(o => o.value === note))
-                                                                                                        .filter(Boolean) as Option[];
-                                                                                                    // Merge chord notes with existing selection (avoid duplicates)
-                                                                                                    chordOptions.forEach(opt => {
-                                                                                                        if (!noteVals.some(n => n.value === opt.value)) {
-                                                                                                            noteVals.push(opt);
-                                                                                                        }
-                                                                                                    });
-                                                                                                }
-                                                                                            } else if (special.value === '__ADD_SCALE__') {
-                                                                                                const selections = mingusSelectionsRef.current;
-                                                                                                if (selections && selections.key && selections.scale) {
-                                                                                                    const scaleNotes = generateScaleNotes(
-                                                                                                        selections.key,
-                                                                                                        selections.scale,
-                                                                                                        Number(selections.octaveMin || 1),
-                                                                                                        Number(selections.octaveMax || 4)
-                                                                                                    );
-                                                                                                    const scaleOptions = scaleNotes
-                                                                                                        .map(note => notesOptions.find(o => o.value === note))
-                                                                                                        .filter(Boolean) as Option[];
-                                                                                                    // Merge scale notes with existing selection (avoid duplicates)
-                                                                                                    scaleOptions.forEach(opt => {
-                                                                                                        if (!noteVals.some(n => n.value === opt.value)) {
-                                                                                                            noteVals.push(opt);
-                                                                                                        }
-                                                                                                    });
-                                                                                                }
-                                                                                            }
-                                                                                        });
-                                                                                        
-                                                                                        // Update with note values only (exclude special options)
-                                                                                        handleNotesChange(noteVals);
-                                                                                    }} 
-                                                                                />
-                                                                            </Box>
-                                                                            <Button
-                                                                                size="small"
-                                                                                variant="contained"
-                                                                                onClick={async () => {
-                                                                                    if (notesSelectedState && notesSelectedState.length > 0) {
-                                                                                        // Get note values from selected options
-                                                                                        const noteValues = notesSelectedState.map((o) => o.value);
-                                                                                        await handleLatestNotes(noteValues, currentXVal.current, currentYVal.current);
-                                                                                    }
-                                                                                }}
-                                                                                disabled={!notesSelectedState || notesSelectedState.length === 0}
-                                                                                sx={{
-                                                                                    minWidth: '70px',
-                                                                                    backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
-                                                                                    color: '#000',
-                                                                                    fontWeight: 600,
-                                                                                    marginTop: '4px',
-                                                                                    '&:hover': {
-                                                                                        backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
-                                                                                        opacity: 0.9,
-                                                                                    },
-                                                                                    '&:disabled': {
-                                                                                        backgroundColor: 'rgba(255,255,255,0.1)',
-                                                                                        color: 'rgba(255,255,255,0.3)',
-                                                                                    },
-                                                                                }}
-                                                                            >
-                                                                                Assign
-                                                                            </Button>
-                                                                        </Box>
-                                                                    </Box>
-                                                                    {/* )
-                                                                )} */}
-                                                            </Box>
-                                                            
-
-
-                                                            <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
-                                                                <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? ACCESSIBLE_COLORS.subdominant.secondary : ACCESSIBLE_COLORS.subdominant.primary}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
-                                                                    <Box sx={{ padding: "4px", width: "100%" }}>
-                                                                        <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</Typography>
-                                                                        <Slider
-                                                                            value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
-                                                                            onChange={(e, val) => {
-                                                                                const patternMap: Record<number, number> = { 0: 0, 4: 2, 8: 3, 16: 4 };
-                                                                                const mapped = patternMap[val as number] ?? 0;
-                                                                                handleAssignPatternNumber({ target: { value: mapped.toString() } } as any);
+                                                                                },
                                                                             }}
-                                                                            marks={[{ value: 0, label: '0' }, { value: 4, label: '1' }, { value: 8, label: '2' }, { value: 16, label: '4' }]}
-                                                                            min={0}
-                                                                            max={16}
-                                                                            step={null}
-                                                                            sx={{  paddingLeft: "4px", color: ACCESSIBLE_COLORS.subdominant.secondary }}
-                                                                        />
-                                                                    </Box>
-                                                                </Box>
-                                                                <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? ACCESSIBLE_COLORS.tertiary.warning : ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content"
-                                                                // flex: "1 1 auto" 
-                                                                }}>
-                                                                    <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
-                                                                </Box>
-                                                            </Box>
-
-                                                            {/* Velocity/Length Sliders - Collapsible, less prominent */}
-                                                            {(() => {
-                                                                const hasNotes = notesSelectedState && notesSelectedState.length > 0;
-                                                                const hasCellData = cellData.current && Object.values(cellData.current).length > 0 && Object.values(cellData.current[0]).length > 0;
-                                                                
-                                                                if (!hasNotes && !hasCellData) return null;
-                                                                
-                                                                return (
-                                                                    <Box sx={{ width: "100%" }}>
-                                                                        <Button
-                                                                            size="small"
-                                                                            onClick={() => setShowAdvancedControls(!showAdvancedControls)}
-                                                                            sx={{
-                                                                                fontSize: '10px',
-                                                                                padding: '2px 8px',
-                                                                                minHeight: '24px',
-                                                                                color: 'rgba(245,245,245,0.5)',
-                                                                                textTransform: 'none',
-                                                                                '&:hover': {
-                                                                                    backgroundColor: 'rgba(255,255,255,0.05)',
+                                                                            sx={{ 
+                                                                                color: 'rgba(245,245,245,0.78)',
+                                                                                '& .MuiOutlinedInput-notchedOutline': {
+                                                                                    borderColor: 'rgba(245,245,245,0.3)',
                                                                                 },
                                                                             }}
                                                                         >
-                                                                            {showAdvancedControls ? '▼' : '▶'} Advanced (Velocity/Length)
+                                                                            {allAvailableFiles.length === 0 ? (
+                                                                                <MenuItem sx={{ color: 'rgba(245,245,245,0.78)' }} value="" disabled>No files available</MenuItem>
+                                                                            ) : (
+                                                                                allAvailableFiles.map((nm: string, idx: number) => (
+                                                                                    <MenuItem sx={{ color: 'rgba(245,245,245,0.78)' }} key={`${nm}_${idx}`} value={nm}>{nm}</MenuItem>
+                                                                                ))
+                                                                            )}
+                                                                            
+                                                                        </Select>
+                                                                    </FormControl>
+                                                                        <Button
+                                                                            size="small"
+                                                                            variant="contained"
+                                                                            onClick={async () => {
+                                                                                if (sampleFileName) {
+                                                                                    await handleLatestSamples([sampleFileName], currentXVal.current, currentYVal.current);
+                                                                                    // Clear the dropdown after assignment
+                                                                                    setSampleFileName(null);
+                                                                                }
+                                                                            }}
+                                                                            disabled={!sampleFileName || uploadedNames.length === 0}
+                                                                            sx={{
+                                                                                minWidth: '70px',
+                                                                                backgroundColor: ACCESSIBLE_COLORS.subdominant.primary,
+                                                                                color: '#000',
+                                                                                fontWeight: 600,
+                                                                                '&:hover': {
+                                                                                    backgroundColor: ACCESSIBLE_COLORS.subdominant.primary,
+                                                                                    opacity: 0.9,
+                                                                                },
+                                                                                '&:disabled': {
+                                                                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                                                                    color: 'rgba(255,255,255,0.3)',
+                                                                                },
+                                                                            }}
+                                                                        >
+                                                                            Assign
                                                                         </Button>
-                                                                        {showAdvancedControls && (
-                                                                            <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: "4px", marginTop: "4px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px" }}>
-                                                                                {hasCellData && (
-                                                                                    <VelocityLengthSliders handleNoteLengthUpdate={handleNoteLengthUpdate} cellData={cellData.current} maxLen={Number(+doAutoAssignPatternNumber) !== 0 ? Number(+doAutoAssignPatternNumber) : 1} chuckIsRunning={isChuckRunning} masterPatterns={masterPatternsHashHook[`${currentYVal.current}`][`${currentXVal.current}`]} />
-                                                                                )}
-                                                                                <Box sx={{ display: "flex", flexDirection: "row", gap: 1, width: "100%" }}>
-                                                                                    <Box sx={{ flex: 1, display: "flex", padding: "2px", flexDirection: "column" }}>
-                                                                                        <ParameterSlider label="Velocity" value={noteVelocityValue} min={0} max={1} step={0.01} onChange={handleNoteVelocityUpdateLocal} />
-                                                                                    </Box>
-                                                                                    <Box sx={{ flex: 1, display: "flex", padding: "2px", flexDirection: "column" }}>
-                                                                                        <ParameterSlider label="Volume" value={noteVolumeValue} min={0} max={1} step={0.01} onChange={handleNoteVolumeUpdateLocal} />
-                                                                                    </Box>
-                                                                                </Box>
-                                                                            </Box>
-                                                                        )}
                                                                     </Box>
-                                                                );
-                                                            })()}
+                                                                </Box>
+
+                                                                {/* Integrated Notes Dropdown with Chord/Scale integrated */}
+                                                                <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
+                                                                    {/* Individual Note Chips with Remove Buttons */}
+                                                                    {notesSelectedState && notesSelectedState.length > 0 && (
+                                                                        <Box sx={{ 
+                                                                            display: 'flex', 
+                                                                            flexWrap: 'wrap', 
+                                                                            gap: '6px',
+                                                                            padding: '8px',
+                                                                            backgroundColor: 'rgba(0,0,0,0.2)',
+                                                                            borderRadius: '4px',
+                                                                            border: '1px solid rgba(255,255,255,0.1)',
+                                                                        }}>
+                                                                            {notesSelectedState.map((note) => (
+                                                                                <Box
+                                                                                    key={note.value}
+                                                                                    sx={{
+                                                                                        display: 'flex',
+                                                                                        alignItems: 'center',
+                                                                                        gap: '4px',
+                                                                                        padding: '4px 8px',
+                                                                                        backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
+                                                                                        color: '#000',
+                                                                                        borderRadius: '4px',
+                                                                                        fontSize: '12px',
+                                                                                        fontWeight: 500,
+                                                                                    }}
+                                                                                >
+                                                                                    <Typography sx={{ fontSize: '12px', fontWeight: 500 }}>
+                                                                                        {note.label || note.value}
+                                                                                    </Typography>
+                                                                                    <Button
+                                                                                        size="small"
+                                                                                        onClick={() => {
+                                                                                            handleNotesChange(notesSelectedState.filter(n => n.value !== note.value));
+                                                                                        }}
+                                                                                        sx={{
+                                                                                            minWidth: '20px',
+                                                                                            width: '20px',
+                                                                                            height: '20px',
+                                                                                            padding: 0,
+                                                                                            color: '#000',
+                                                                                            fontSize: '14px',
+                                                                                            fontWeight: 'bold',
+                                                                                            '&:hover': {
+                                                                                                backgroundColor: 'rgba(0,0,0,0.2)',
+                                                                                            },
+                                                                                        }}
+                                                                                        aria-label={`Remove ${note.label || note.value}`}
+                                                                                    >
+                                                                                        ×
+                                                                                    </Button>
+                                                                                </Box>
+                                                                            ))}
+                                                                        </Box>
+                                                                    )}
+                                                                    
+                                                                    <Box sx={{ display: "flex", flexDirection: "row", gap: 1, alignItems: "flex-start" }}>
+                                                                        <Box sx={{ flex: 1 }}>
+                                                                            <ParameterMultiSelect 
+                                                                                options={(() => {
+                                                                                    // Add chord/scale as special options at the top of the dropdown
+                                                                                    const specialOptions: Option[] = [];
+                                                                                    if (mingusSelectionsRef.current?.chord) {
+                                                                                        specialOptions.push({
+                                                                                            value: '__ADD_CHORD__',
+                                                                                            label: `➕ Add ${mingusSelectionsRef.current.chord.label} (${mingusSelectionsRef.current.key || 'C'})`
+                                                                                        });
+                                                                                    }
+                                                                                    if (mingusSelectionsRef.current?.scale) {
+                                                                                        specialOptions.push({
+                                                                                            value: '__ADD_SCALE__',
+                                                                                            label: `➕ Add ${mingusSelectionsRef.current.scale} Scale (${mingusSelectionsRef.current.key || 'C'})`
+                                                                                        });
+                                                                                    }
+                                                                                    return [...specialOptions, ...notesOptions];
+                                                                                })()}
+                                                                                value={notesSelectedState} 
+                                                                                disabled={false}
+                                                                                placeholder={
+                                                                                    notesOptions.length === 0 
+                                                                                        ? "No notes available (check octave range)"
+                                                                                        : mingusSelectionsRef.current?.chord?.label 
+                                                                                            ? `${mingusSelectionsRef.current.chord.label} (${mingusSelectionsRef.current.key || 'C'})` 
+                                                                                            : "Select Notes (or click keyboard)"
+                                                                                }
+                                                                                onChange={(vals) => {
+                                                                                    // Handle special chord/scale options first
+                                                                                    const specialVals = vals.filter(v => v.value.startsWith('__ADD_'));
+                                                                                    let noteVals = vals.filter(v => !v.value.startsWith('__ADD_'));
+                                                                                    
+                                                                                    // Start with current selection to merge with
+                                                                                    const currentSelection = notesSelectedState || [];
+                                                                                    
+                                                                                    // If user is removing items (vals.length < currentSelection.length), 
+                                                                                    // allow removal by using noteVals directly
+                                                                                    if (noteVals.length < currentSelection.length) {
+                                                                                        // User is removing items - use noteVals as-is
+                                                                                        handleNotesChange(noteVals);
+                                                                                        return;
+                                                                                    }
+                                                                                    
+                                                                                    // Otherwise, merge new selections with existing
+                                                                                    noteVals = [...currentSelection, ...noteVals.filter(o => !currentSelection.some(c => c.value === o.value))];
+                                                                                    
+                                                                                    // Process special options - add notes to existing selection
+                                                                                    specialVals.forEach(special => {
+                                                                                        if (special.value === '__ADD_CHORD__') {
+                                                                                            const selections = mingusSelectionsRef.current;
+                                                                                            if (selections && selections.key && selections.chord) {
+                                                                                                const chordNotes = generateChordNotes(
+                                                                                                    selections.key,
+                                                                                                    selections.chord.value,
+                                                                                                    Number(selections.octaveMin || 4)
+                                                                                                );
+                                                                                                const chordOptions = chordNotes
+                                                                                                    .map(note => notesOptions.find(o => o.value === note))
+                                                                                                    .filter(Boolean) as Option[];
+                                                                                                // Merge chord notes with existing selection (avoid duplicates)
+                                                                                                chordOptions.forEach(opt => {
+                                                                                                    if (!noteVals.some(n => n.value === opt.value)) {
+                                                                                                        noteVals.push(opt);
+                                                                                                    }
+                                                                                                });
+                                                                                            }
+                                                                                        } else if (special.value === '__ADD_SCALE__') {
+                                                                                            const selections = mingusSelectionsRef.current;
+                                                                                            if (selections && selections.key && selections.scale) {
+                                                                                                const scaleNotes = generateScaleNotes(
+                                                                                                    selections.key,
+                                                                                                    selections.scale,
+                                                                                                    Number(selections.octaveMin || 1),
+                                                                                                    Number(selections.octaveMax || 4)
+                                                                                                );
+                                                                                                const scaleOptions = scaleNotes
+                                                                                                    .map(note => notesOptions.find(o => o.value === note))
+                                                                                                    .filter(Boolean) as Option[];
+                                                                                                // Merge scale notes with existing selection (avoid duplicates)
+                                                                                                scaleOptions.forEach(opt => {
+                                                                                                    if (!noteVals.some(n => n.value === opt.value)) {
+                                                                                                        noteVals.push(opt);
+                                                                                                    }
+                                                                                                });
+                                                                                            }
+                                                                                        }
+                                                                                    });
+                                                                                    
+                                                                                    // Update with note values only (exclude special options)
+                                                                                    handleNotesChange(noteVals);
+                                                                                }} 
+                                                                            />
+                                                                        </Box>
+                                                                        <Button
+                                                                            size="small"
+                                                                            variant="contained"
+                                                                            onClick={async () => {
+                                                                                if (notesSelectedState && notesSelectedState.length > 0) {
+                                                                                    // Get note values from selected options
+                                                                                    const noteValues = notesSelectedState.map((o) => o.value);
+                                                                                    await handleLatestNotes(noteValues, currentXVal.current, currentYVal.current);
+                                                                                }
+                                                                            }}
+                                                                            disabled={!notesSelectedState || notesSelectedState.length === 0}
+                                                                            sx={{
+                                                                                minWidth: '70px',
+                                                                                backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
+                                                                                color: '#000',
+                                                                                fontWeight: 600,
+                                                                                marginTop: '4px',
+                                                                                '&:hover': {
+                                                                                    backgroundColor: ACCESSIBLE_COLORS.tertiary.warning,
+                                                                                    opacity: 0.9,
+                                                                                },
+                                                                                '&:disabled': {
+                                                                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                                                                    color: 'rgba(255,255,255,0.3)',
+                                                                                },
+                                                                            }}
+                                                                        >
+                                                                            Assign
+                                                                        </Button>
+                                                                    </Box>
+                                                                </Box>
+                                                                {/* )
+                                                            )} */}
+                                                        </Box>
+                                                        
+
+
+                                                        <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
+                                                            <Box sx={{ borderRadius: "5px", width: "50%", 
+                                                                // border: `1px solid ${noteBuilderFocus !== "Chord" ? ACCESSIBLE_COLORS.subdominant.secondary : ACCESSIBLE_COLORS.subdominant.primary}`, 
+                                                                padding: "0px 8px 0px 8px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
+                                                                {/* <Box sx={{ padding: "4px", width: "100%" }}> */}
+                                                                    <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</Typography>
+                                                                    <Slider
+                                                                        value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
+                                                                        onChange={(e, val) => {
+                                                                            const patternMap: Record<number, number> = { 0: 0, 4: 2, 8: 3, 16: 4 };
+                                                                            const mapped = patternMap[val as number] ?? 0;
+                                                                            handleAssignPatternNumber({ target: { value: mapped.toString() } } as any);
+                                                                        }}
+                                                                        marks={[{ value: 0, label: '0' }, { value: 4, label: '1' }, { value: 8, label: '2' }, { value: 16, label: '4' }]}
+                                                                        min={0}
+                                                                        max={16}
+                                                                        step={null}
+                                                                        sx={{  paddingLeft: "4px", color: ACCESSIBLE_COLORS.subdominant.secondary }}
+                                                                    />
+                                                                {/* </Box> */}
+                                                            </Box>
+                                                            <Box sx={{ 
+                                                                //border: `1px solid ${noteBuilderFocus !== "Micro" ? ACCESSIBLE_COLORS.tertiary.warning : ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", 
+                                                                padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content"
+                                                            // flex: "1 1 auto" 
+                                                            }}>
+                                                                <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
+                                                            </Box>
                                                         </Box>
 
+                                                        {/* Velocity/Length Sliders - Collapsible, less prominent */}
+                                                        {(() => {
+                                                            const hasNotes = notesSelectedState && notesSelectedState.length > 0;
+                                                            const hasCellData = cellData.current && Object.values(cellData.current).length > 0 && Object.values(cellData.current[0]).length > 0;
+                                                            
+                                                            if (!hasNotes && !hasCellData) return null;
+                                                            
+                                                            return (
+                                                                <Box sx={{ width: "100%" }}>
+                                                                    <Button
+                                                                        size="small"
+                                                                        onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                                                                        sx={{
+                                                                            fontSize: '10px',
+                                                                            padding: '2px 8px',
+                                                                            minHeight: '24px',
+                                                                            color: 'rgba(245,245,245,0.5)',
+                                                                            textTransform: 'none',
+                                                                            '&:hover': {
+                                                                                backgroundColor: 'rgba(255,255,255,0.05)',
+                                                                            },
+                                                                        }}
+                                                                    >
+                                                                        {showAdvancedControls ? '▼' : '▶'} Advanced (Velocity/Length)
+                                                                    </Button>
+                                                                    {showAdvancedControls && (
+                                                                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: "4px", marginTop: "4px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px" }}>
+                                                                            {hasCellData && (
+                                                                                <VelocityLengthSliders handleNoteLengthUpdate={handleNoteLengthUpdate} cellData={cellData.current} maxLen={Number(+doAutoAssignPatternNumber) !== 0 ? Number(+doAutoAssignPatternNumber) : 1} chuckIsRunning={isChuckRunning} masterPatterns={masterPatternsHashHook[`${currentYVal.current}`][`${currentXVal.current}`]} />
+                                                                            )}
+                                                                            <Box sx={{ display: "flex", flexDirection: "row", gap: 1, width: "100%" }}>
+                                                                                <Box sx={{ flex: 1, display: "flex", padding: "2px", flexDirection: "column" }}>
+                                                                                    <ParameterSlider label="Velocity" value={noteVelocityValue} min={0} max={1} step={0.01} onChange={handleNoteVelocityUpdateLocal} />
+                                                                                </Box>
+                                                                                <Box sx={{ flex: 1, display: "flex", padding: "2px", flexDirection: "column" }}>
+                                                                                    <ParameterSlider label="Volume" value={noteVolumeValue} min={0} max={1} step={0.01} onChange={handleNoteVolumeUpdateLocal} />
+                                                                                </Box>
+                                                                            </Box>
+                                                                        </Box>
+                                                                    )}
+                                                                </Box>
+                                                            );
+                                                        })()}
+                                                    </Box>
 
-                                                        <Box sx={{ width: "100%" }}>
-                                                            <MingusPopup
-                                                                updateKeyScaleChord={updateKeyScaleChord}
-                                                                noteBuilderFocus={noteBuilderFocus}
-                                                                selectionsRef={mingusSelectionsRef}
-                                                                tune={tune}
-                                                                currentMicroTonalScale={currentMicroTonalScale}
-                                                                setFxKnobsCount={setFxKnobsCount}
-                                                                doUpdateBabylonKey={doUpdateBabylonKey}
-                                                                getSTK1Preset={getSTK1Preset}
-                                                                updateMicroTonalScale={updateMicroTonalScale}
+
+                                                    <Box sx={{ width: "100%" }}>
+                                                        <MingusPopup
+                                                            updateKeyScaleChord={updateKeyScaleChord}
+                                                            noteBuilderFocus={noteBuilderFocus}
+                                                            selectionsRef={mingusSelectionsRef}
+                                                            tune={tune}
+                                                            currentMicroTonalScale={currentMicroTonalScale}
+                                                            setFxKnobsCount={setFxKnobsCount}
+                                                            doUpdateBabylonKey={doUpdateBabylonKey}
+                                                            getSTK1Preset={getSTK1Preset}
+                                                            updateMicroTonalScale={updateMicroTonalScale}
+                                                        />
+                                                    </Box>
+                                                </Box>
+                                                {/* <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
+
+                                                    <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? ACCESSIBLE_COLORS.subdominant.secondary : ACCESSIBLE_COLORS.subdominant.primary}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
+                                                        <Box sx={{ padding: "4px", width: "100%" }}>
+                                                            <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</Typography>
+                                                            <Slider
+                                                                value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
+                                                                onChange={(e, val) => {
+                                                                    const patternMap: Record<number, number> = { 0: 0, 4: 2, 8: 3, 16: 4 };
+                                                                    const mapped = patternMap[val as number] ?? 0;
+                                                                    handleAssignPatternNumber({ target: { value: mapped.toString() } } as any);
+                                                                }}
+                                                                marks={[{ value: 0, label: '0' }, { value: 4, label: '1' }, { value: 8, label: '2' }, { value: 16, label: '4' }]}
+                                                                min={0}
+                                                                max={16}
+                                                                step={null}
+                                                                sx={{ color: ACCESSIBLE_COLORS.subdominant.secondary }}
                                                             />
                                                         </Box>
                                                     </Box>
-                                                    {/* <Box sx={{ display: "inline-flex", flexDirecton: "row", width: "100%" }}>
-
-                                                        <Box sx={{ borderRadius: "5px", width: "50%", border: `1px solid ${noteBuilderFocus !== "Chord" ? ACCESSIBLE_COLORS.subdominant.secondary : ACCESSIBLE_COLORS.subdominant.primary}`, padding: "2px 2px 2px 2px", marginTop: "4px", marginBottom: "4px", marginRight: "4px" }}>
-                                                            <Box sx={{ padding: "4px", width: "100%" }}>
-                                                                <Typography sx={{ color: 'rgba(245,245,245,0.78)', fontSize: '11px', marginBottom: '2px' }}>Pattern</Typography>
-                                                                <Slider
-                                                                    value={doAutoAssignPatternNumber === 0 ? 0 : doAutoAssignPatternNumber === 2 ? 4 : doAutoAssignPatternNumber === 3 ? 8 : doAutoAssignPatternNumber === 4 ? 16 : 4}
-                                                                    onChange={(e, val) => {
-                                                                        const patternMap: Record<number, number> = { 0: 0, 4: 2, 8: 3, 16: 4 };
-                                                                        const mapped = patternMap[val as number] ?? 0;
-                                                                        handleAssignPatternNumber({ target: { value: mapped.toString() } } as any);
-                                                                    }}
-                                                                    marks={[{ value: 0, label: '0' }, { value: 4, label: '1' }, { value: 8, label: '2' }, { value: 16, label: '4' }]}
-                                                                    min={0}
-                                                                    max={16}
-                                                                    step={null}
-                                                                    sx={{ color: ACCESSIBLE_COLORS.subdominant.secondary }}
-                                                                />
-                                                            </Box>
-                                                        </Box>
-                                                        <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? ACCESSIBLE_COLORS.tertiary.warning : ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
-                                                            <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
-                                                        </Box>
-                                                    </Box> */}
-                                                </Box>
+                                                    <Box sx={{ border: `1px solid ${noteBuilderFocus !== "Micro" ? ACCESSIBLE_COLORS.tertiary.warning : ACCESSIBLE_COLORS.subdominant.primary}`, borderRadius: "5px", padding: "2px 4px", margin: "4px 0px 4px 0", justifyContent: "right", width: "fit-content", flex: "1 1 auto" }}>
+                                                        <GenericRadioButtons label={"ascending"} options={["asc", "desc"]} callback={handleChangeNotesAscending} />
+                                                    </Box>
+                                                </Box> */}
                                             </Box>
-                                        {/* // )} */}
-
-
-
-
+                                        </Box>
                                     </Box>
                                 </>
                             )}

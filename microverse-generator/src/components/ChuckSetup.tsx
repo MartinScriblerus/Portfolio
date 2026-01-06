@@ -2759,7 +2759,11 @@ export default function ChuckSetup() {
                         gap: 1,
                         background: 'rgba(255,255,255,0.078)'
                     }}>
-                        <Box sx={{display: 'inline-flex'}}>
+                        <Box sx={{
+                            display: 'inline-flex',
+                            width: '100%',
+                            justifyContent: 'space-between',
+                        }}>
                             {/* Keyboard toggle (single toggle as requested) */}
                             <Button
                                 id='toggleKeyboardButton'
@@ -2790,7 +2794,7 @@ export default function ChuckSetup() {
                                         color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
                                         fontFamily: 'monospace'
                                     }}>
-                                        HID active
+                                        HID Active
                                     </span>
                                 )}
                             </Button>

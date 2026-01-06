@@ -59,7 +59,7 @@ export const Tooltip = ({
           // top: interactionData.yPos * 1,
           width: 200,
           top: 40,
-          background: "rgba(0, 0, 0, 0.78)",
+          // background: "rgba(0, 0, 0, 0.78)",
         }}
       >
         <div>
