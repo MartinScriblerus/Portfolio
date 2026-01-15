@@ -331,8 +331,8 @@ li.vizKey.white.half {
 
 #runChuckCodeButton {
   position: absolute;
-  top: 60px !important;
-  left: 8px !important;
+  top: 52px !important;
+  left: 268px !important;
   border: 2px solid var(--color-subdominant-primary);
   background: var(--color-dominant-surface);
   color: var(--color-subdominant-primary);
@@ -364,8 +364,8 @@ li.vizKey.white.half {
 
 #chuckMicButtonWrapper {
   position: absolute;
-  top: 72px !important;
-  left: 64px !important;
+  top: 116px !important;
+  left: 268px !important;
   border: 2px solid var(--color-subdominant-primary);
   background: var(--color-dominant-surface);
   color: var(--color-subdominant-primary);

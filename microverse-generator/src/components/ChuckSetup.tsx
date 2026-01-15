@@ -16,6 +16,8 @@ import {
 import { useTimingStore } from '../hooks/useTimingStore';
 import { useBeatGridStore } from '../store/useBeatGridStore';
 import { useTransportStore } from '../store/useTransportStore';
+import { useOldMonolithStore } from '../store/useOldMonolithStore';
+import { buildCacheFromGrid } from '../hooks/useRhythmCache';
 import '../../app/globals.css';
 import { useAudioInSettingsStore } from '../utils/audioInSettingsHelper';
 import { audioInEffectSlidersHelper } from '../utils/utils';
@@ -49,115 +51,22 @@ import { EFFECTS } from '../constants';
 import {
     getChuckCode,
     buildSourceData,
-    processSourceFX,
-    createEmptyTargets
+    createEmptyTargets,
+    processSourceFX
 } from '../utils/chuckHelper';
-import { useOldMonolithStore } from '../store/useOldMonolithStore';
-import { useMicrotonalStore } from '../store/useMicrotonalStore';
 import { initializeUniversalSources } from '../utils/effectsInitializationHelper';
-import PhilosopherGuide from '../components/PhilosopherGuide';
-import { buildCacheFromGrid } from '../hooks/useRhythmCache';
 import BabylonCanvas from './BabylonCanvas';
+import PhilosopherGuide from './PhilosopherGuide';
 
-// Put this near the top, inside component file (module scope or inside component before handlers):
-const SERVER_FILES_TO_PRELOAD: Array<{ serverFilename: string; virtualFilename: string }> = [
-    { serverFilename: "/Conga.wav", virtualFilename: "Conga.wav" },
-    { serverFilename: "/DR-55Hat.wav", virtualFilename: "DR-55Hat.wav" },
-    { serverFilename: "/DR-55Kick.wav", virtualFilename: "DR-55Kick.wav" },
-    { serverFilename: "/DR-55Pop.wav", virtualFilename: "DR-55Pop.wav" },
-    { serverFilename: "/DR-55Snare.wav", virtualFilename: "DR-55Snare.wav" },
+// Files to preload into ChucK's virtual filesystem when initializing
+const SERVER_FILES_TO_PRELOAD = [
+    { serverFilename: '/Conga.wav', virtualFilename: 'Conga.wav' },
+    { serverFilename: '/DR-55Hat.wav', virtualFilename: 'DR-55Hat.wav' },
+    { serverFilename: '/DR-55Kick.wav', virtualFilename: 'DR-55Kick.wav' },
+    { serverFilename: '/DR-55Pop.wav', virtualFilename: 'DR-55Pop.wav' },
+    { serverFilename: '/DR-55Snare.wav', virtualFilename: 'DR-55Snare.wav' }
 ];
 
-// -----------------------------
-// Effect Dropdown + Sliders
-// -----------------------------
-export type FxDropProps = {
-    chuckRef: any;
-    updateSelectedAudioInSetting: any;
-    showAudioInDropdown: boolean;
-};
-
-function EffectDropdown({ chuckRef, updateSelectedAudioInSetting, showAudioInDropdown }: FxDropProps) {
-    const [open, setOpen] = useState(false);
-    const [selected, setSelected] = useState<string | null>(null);
-    const [minimizeAudioInDropdown, setMinimizeAudioInDropdown] = useState(false);
-
-    return (
-        <div style={{ width: '100%', marginTop: 0 }}>
-            <div
-                style={{
-                    padding: '10px 12px',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid var(--color-tertiary-muted, rgba(74,85,104,0.5))',
-                    userSelect: 'none',
-                    background: 'var(--color-dominant-surface, rgba(26,28,32,0.95))',
-                    color: 'var(--color-dominant-text, #F5F7FA)',
-                    borderRadius: '4px 4px 0 0',
-                    transition: 'all 0.2s ease',
-                }}
-                onClick={() => {
-                    if (selected === '' && !minimizeAudioInDropdown) {
-                        setMinimizeAudioInDropdown(true);
-                    } else {
-                        setMinimizeAudioInDropdown(false);
-                    }
-                    setSelected('');
-                }}
-                onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--color-subdominant-primary, #00D9FF)';
-                    e.currentTarget.style.color = 'var(--color-subdominant-text, #0A0B0D)';
-                }}
-                onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'var(--color-dominant-surface, rgba(26,28,32,0.95))';
-                    e.currentTarget.style.color = 'var(--color-dominant-text, #F5F7FA)';
-                }}
-            >
-                {selected || 'Select Effect'}
-                <span
-                    className="effects-dropdown-arrow"
-                    style={{
-                        rotate: selected ? '180deg' : '0deg',
-                        float: 'right',
-                        fontSize: '12px',
-                        opacity: 0.7,
-                    }}
-                >
-                    ▼
-                </span>
-            </div>
-
-            {!minimizeAudioInDropdown && (
-                <div className="effects-dropdown-wrapper">
-                    {EFFECTS.map(effect => (
-                        <div
-                            key={effect}
-                            className="effects-dropdown-item"
-                            style={{
-                                background:
-                                    selected === effect ? 'rgba(255,255,255,0.10)' : 'transparent',
-                            }}
-                            onClick={() => {
-                                // updateSelectedAudioInSetting
-                                setSelected(effect);
-                                setOpen(!open);
-                                updateSelectedAudioInSetting(effect);
-                            }}
-                        >
-                            {effect}
-                            {selected === effect && (
-                                <EffectSliders
-                                    effect={selected}
-                                    chuckRef={chuckRef}
-                                    updateSelectedAudioInSetting={updateSelectedAudioInSetting}
-                                />
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
 
 function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
     effect: string,
@@ -464,11 +373,22 @@ export default function ChuckSetup() {
     const [addToMidiBuffers, setAddToMidiBuffers] = useState(false);
     // Toggle: should keyboard clicks add notes to the notes dropdown? (default on)
     const [keyboardAddsToNotes, setKeyboardAddsToNotes] = useState(true);
+    // Separate state for HID enabled/disabled (independent of keyboard UI)
+    const [hidEnabled, setHidEnabled] = useState(false);
     
     // Expose keyboard toggle to global scope on mount/update
     useEffect(() => {
         (window as any).__keyboardAddsToNotes = keyboardAddsToNotes;
     }, [keyboardAddsToNotes]);
+    
+    // Expose HID enabled state to KeyboardHIDManager
+    useEffect(() => {
+        (window as any).__hidEnabled = hidEnabled;
+        // Update KeyboardHIDManager if it exists
+        if ((window as any).__keyboardHIDManager) {
+            (window as any).__keyboardHIDManager.setEnabled(hidEnabled);
+        }
+    }, [hidEnabled]);
 
     const globalAudioCtx = useRef<AudioContext | null>(null);
     // Defer AudioContext creation until the user explicitly enables audio (user gesture)
@@ -642,6 +562,10 @@ export default function ChuckSetup() {
                     return;
                 }
 
+                if (message.includes("log!")) {
+                    console.log(`%c HID REACHED!!! ${message}`, "color: aqua;")
+                }
+
                 const lowered = message.toLowerCase();
                 // Capture CHUCK_UP_TO_DATE quickly
                 if (lowered.indexOf('chuck_up_to_date') !== -1) {
@@ -661,8 +585,8 @@ export default function ChuckSetup() {
                         const audioTime = (globalAudioCtx.current && typeof globalAudioCtx.current.currentTime === 'number') ? globalAudioCtx.current.currentTime : perf / 1000;
                         pushTickToBuffer(tickNum, audioTime, perf);
                     }
-                    // keep previous handler but call it after short work
-                    if (previous) try { previous(message); } catch (e) {}
+                    // Don't log TICK messages to console for performance - only process them
+                    // if (previous) try { previous(message); } catch (e) {}
                     return;
                 }
 
@@ -703,6 +627,20 @@ export default function ChuckSetup() {
         };
         rafId = requestAnimationFrame(frame);
         return () => { if (rafId) cancelAnimationFrame(rafId); };
+    }, []);
+
+    // CRITICAL: Cleanup KeyboardHIDManager on unmount to prevent memory leaks
+    useEffect(() => {
+        return () => {
+            if (keyboardHIDManagerRef.current) {
+                keyboardHIDManagerRef.current.destroy();
+                keyboardHIDManagerRef.current = null;
+            }
+            // Clear global window reference on unmount
+            if (typeof window !== 'undefined') {
+                (window as any).__keyboardHIDManager = null;
+            }
+        };
     }, []);
 
 
@@ -803,11 +741,123 @@ export default function ChuckSetup() {
                     // Install minimal, canonical chuckPrint handler
                     setupDefaultChuckPrint(chuckRef.current);
                 }
+                // Expose the obtained audio stream globally so other parts of the app can reuse permission
+                try { (window as any).__sharedAudioStream = stream; } catch {}
             } catch (err) {
                 console.error('Failed to construct AudioWorkletNode:', err);
             }
         } else {
             console.error('AudioContext not ready or AudioWorkletNode not available');
+        }
+    }
+
+    // Expose helpers to ensure/get shared media (audio/video) and a merged MediaStream
+    if (typeof window !== 'undefined') {
+        try {
+            (window as any).ensureSharedMedia = async ({ audio = false, video = false }: { audio?: boolean; video?: boolean } = {}) => {
+                const w: any = window as any;
+
+                // If a merged shared media stream already exists and satisfies the request, return it
+                if (w.__sharedMediaStream && w.__sharedMediaStream.getTracks) {
+                    const hasAudio = w.__sharedMediaStream.getAudioTracks().length > 0;
+                    const hasVideo = w.__sharedMediaStream.getVideoTracks().length > 0;
+                    if ((audio ? hasAudio : true) && (video ? hasVideo : true)) {
+                        return w.__sharedMediaStream as MediaStream;
+                    }
+                }
+
+                // If individual requested streams already exist, merge their tracks and return
+                const availableTracks: MediaStreamTrack[] = [];
+                if (audio && w.__sharedAudioStream && w.__sharedAudioStream.getAudioTracks) {
+                    availableTracks.push(...w.__sharedAudioStream.getAudioTracks());
+                }
+                if (video && w.__cameraStream && w.__cameraStream.getVideoTracks) {
+                    availableTracks.push(...w.__cameraStream.getVideoTracks());
+                }
+                if (availableTracks.length > 0 && ((audio ? availableTracks.some(t => t.kind === 'audio') : true) && (video ? availableTracks.some(t => t.kind === 'video') : true))) {
+                    const merged = new MediaStream(availableTracks);
+                    try { w.__sharedMediaStream = merged; } catch {}
+                    try { window.dispatchEvent(new CustomEvent('shared-media-updated', { detail: { stream: merged } })); } catch {}
+                    return merged;
+                }
+
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('getUserMedia not available');
+                }
+
+                // Request missing tracks from the browser
+                const constraints: any = {};
+                if (audio) constraints.audio = true;
+                if (video) constraints.video = true;
+
+                const s = await navigator.mediaDevices.getUserMedia(constraints);
+
+                // Store individual streams if present
+                if (s.getAudioTracks && s.getAudioTracks().length > 0) {
+                    try { w.__sharedAudioStream = s; } catch {}
+                }
+                if (s.getVideoTracks && s.getVideoTracks().length > 0) {
+                    try { w.__cameraStream = s; } catch {}
+                }
+
+                // Merge any available audio/video tracks into a single MediaStream
+                const mergedTracks: MediaStreamTrack[] = [];
+                if (w.__sharedAudioStream && w.__sharedAudioStream.getAudioTracks) mergedTracks.push(...w.__sharedAudioStream.getAudioTracks());
+                if (w.__cameraStream && w.__cameraStream.getVideoTracks) mergedTracks.push(...w.__cameraStream.getVideoTracks());
+                const merged = new MediaStream(mergedTracks);
+                try { w.__sharedMediaStream = merged; } catch {}
+
+                // Record device labels for UI display if available
+                try {
+                    const labels: any = { audio: [], video: [] };
+                    if (w.__sharedAudioStream && w.__sharedAudioStream.getAudioTracks) {
+                        labels.audio = w.__sharedAudioStream.getAudioTracks().map((t: MediaStreamTrack) => t.label || 'Microphone');
+                    }
+                    if (w.__cameraStream && w.__cameraStream.getVideoTracks) {
+                        labels.video = w.__cameraStream.getVideoTracks().map((t: MediaStreamTrack) => t.label || 'Camera');
+                    }
+                    try { w.__sharedMediaDevices = labels; } catch {}
+                } catch (e) {}
+
+                try { window.dispatchEvent(new CustomEvent('shared-media-updated', { detail: { stream: merged } })); } catch {}
+                return merged;
+            };
+
+            (window as any).ensureSharedCamera = async () => {
+                const w: any = window as any;
+                if (w.__cameraStream && w.__cameraStream.getVideoTracks && w.__cameraStream.getVideoTracks().length > 0) {
+                    return w.__cameraStream as MediaStream;
+                }
+                const s = await (window as any).ensureSharedMedia({ video: true, audio: false });
+                return s;
+            };
+
+            // Disconnect helper: stop tracks and clear stored streams
+            (window as any).disconnectSharedMedia = () => {
+                try {
+                    const w: any = window as any;
+                    try { if (w.__sharedMediaStream && w.__sharedMediaStream.getTracks) w.__sharedMediaStream.getTracks().forEach((t: any) => t.stop()); } catch (e) {}
+                    try { if (w.__cameraStream && w.__cameraStream.getTracks) w.__cameraStream.getTracks().forEach((t: any) => t.stop()); } catch (e) {}
+                    try { if (w.__sharedAudioStream && w.__sharedAudioStream.getTracks) w.__sharedAudioStream.getTracks().forEach((t: any) => t.stop()); } catch (e) {}
+                    try { w.__sharedMediaStream = null; } catch (e) {}
+                    try { w.__cameraStream = null; } catch (e) {}
+                    try { w.__sharedAudioStream = null; } catch (e) {}
+                    try { w.__sharedMediaDevices = null; } catch (e) {}
+                    try { window.dispatchEvent(new CustomEvent('shared-media-updated', { detail: { stream: null } })); } catch (e) {}
+                } catch (e) {
+                    console.warn('disconnectSharedMedia failed', e);
+                }
+            };
+
+            (window as any).getSharedMediaStatus = () => {
+                const w: any = window as any;
+                return {
+                    hasAudio: !!(w.__sharedMediaStream && w.__sharedMediaStream.getAudioTracks && w.__sharedMediaStream.getAudioTracks().length > 0),
+                    hasVideo: !!(w.__sharedMediaStream && w.__sharedMediaStream.getVideoTracks && w.__sharedMediaStream.getVideoTracks().length > 0),
+                };
+            };
+        } catch (e) {
+            console.warn('Failed to install shared media helpers on window', e);
         }
     }
 
@@ -1657,6 +1707,15 @@ export default function ChuckSetup() {
                 // Initialize HID for keyboard input
                 try {
                     console.log('🎹 Initializing HID for keyboard input...');
+                    // CRITICAL: Cleanup existing instance before creating new one to prevent memory leaks
+                    if (keyboardHIDManagerRef.current) {
+                        keyboardHIDManagerRef.current.destroy();
+                        keyboardHIDManagerRef.current = null;
+                    }
+                    // Clear global window reference before creating new instance
+                    if (typeof window !== 'undefined') {
+                        (window as any).__keyboardHIDManager = null;
+                    }
                     hidRef.current = await HID.init(chuckRef.current, false, true); // Mouse: false, Keyboard: true
                     keyboardHIDManagerRef.current = new KeyboardHIDManager(chuckRef.current, hidRef.current);
                     await keyboardHIDManagerRef.current.setupChuckHIDListener();
@@ -1871,7 +1930,7 @@ export default function ChuckSetup() {
                     // First try replaceCode (better for large code)
                     // result = await chuckRef.current.runCode(generatedChuckCode);
 
-                    console.log("HEYO FUCKER LOOK HERE! ", chuckCodeData.masterPatternsRef);
+                    console.log("Master Patterns Ref! ", chuckCodeData.masterPatternsRef);
 
                     // Parse filesArray JSON string and prepare Chuck array
                     const filesArrayParsed = JSON.parse(chuckCodeData.filesArray);
@@ -1896,8 +1955,7 @@ export default function ChuckSetup() {
                     
                     const expandedEvents = rhythmCache.events;
                     
-                    console.log("WHAT ARE EXPANDED EVENTS??? ", expandedEvents);
-                    
+
                     // Calculate expanded measure length: base cells * max subdivisions
                     // Each cell can have up to MAX_SUBDIVISIONS events, so we expand arrays accordingly
                     // const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
@@ -2326,7 +2384,11 @@ export default function ChuckSetup() {
                                 hid => now;
                                 
                                 while (hid.recv(msg)) {
-                                    if (msg.isButtonDown()) {
+                                    if (msg.isButtonUp()) {
+                                         <<< "log! HID button UP:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
+                                    }
+                                    else if (msg.isButtonDown()) {
+                                        <<< "log! HID button DOWN:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
                                         // Convert key to MIDI note (simplified - you'd use actual MIDI mapping)
                                         msg.ascii => int ascii;
                                         // Simple mapping: a-z keys to MIDI notes 60-85
@@ -2484,7 +2546,6 @@ export default function ChuckSetup() {
                         mainTickLoop();
                     `
 
-                    console.log("DEBUG CHUCK! ", tempTestCode);
 
                     result = await chuckRef.current.runCode(tempTestCode);
                     console.log('✅ ChucK code replaced successfully ', result);
@@ -2655,51 +2716,57 @@ export default function ChuckSetup() {
             {/* <Box sx={{width: '100%', color: '#f6f6f6', zIndex: '9999999', position: 'fixed'}}>HELLO!!!</Box> */}
             <BabylonCanvas />
             <>
+            {initializing && (
+                        <Button
+                            id='chuckMicButtonWrapper'
+                            aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
+                        sx={{
+                            cursor: ready ? 'pointer' : 'not-allowed',
+                            minWidth: '48px',
+                            minHeight: '48px',
+                            padding: '8px',
+                            pointerEvents: 'auto',
+                        }}
+                    // onClick={chuckMicButton}
+                    >
+                        {/* {!isRunning && */}
+                        <MicIcon
+                            sx={{
+                                fontSize: '32px',
+                                color: 'yellow',
+                                verticalAlign: 'middle'
+                            }}
+                            onClick={chuckMicButton}
+                        />
+                        {/* // } */}
+                        {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
+                    </Button>
+                )}
                 <Box
                     id='chuckSetupContainer'
                     sx={{
                         position: 'absolute',
                         top: 120,
-                        left: 0, /* Position to the right of RGB panel */
-                        display: 'inline-flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-
-                        gap: '12px',
+                        left: 8,
+                        right: 0, // stretch flush across available width
+                        display: 'flex',
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        alignItems: 'flex-start',
+                        justifyContent: 'flex-start',
+                        gap: 2,
+                        paddingLeft: 0,
+                        paddingRight: 0,
                         backgroundColor: 'transparent',
                         // Lower the container z-index so HUD/keyboard overlays can appear above it.
                         // Make container itself non-interactive so it doesn't block underlying overlays,
                         // but keep child buttons interactive (they explicitly set `pointerEvents: 'auto'`).
                         zIndex: 200,
                         pointerEvents: 'none',
+                        // background: 'yellow',
+                        maxWidth: '320px',
                     }}>
-                    {initializing && (
-                        <Button
-                            id='chuckMicButtonWrapper'
-                            aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
-                            sx={{
-                                cursor: ready ? 'pointer' : 'not-allowed',
-                                minWidth: '48px',
-                                minHeight: '48px',
-                                padding: '8px',
-                                pointerEvents: 'auto',
-                            }}
-                        // onClick={chuckMicButton}
-                        >
-                            {/* {!isRunning && */}
-                            <MicIcon
 
-                                sx={{
-                                    fontSize: '32px',
-                                    color: 'yellow',
-                                    verticalAlign: 'middle'
-                                }}
-                                onClick={chuckMicButton}
-                            />
-                            {/* // } */}
-                            {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
-                        </Button>
-                    )}
 
                     {/* Enable Audio button: create/resume AudioContext with a user gesture */}
                     {!ready && (
@@ -2718,188 +2785,226 @@ export default function ChuckSetup() {
                         </Button>
                     )}
 
-                    <Button
-                        id='runChuckCodeButton'
-                        aria-label="Run ChucK audio code"
-                        sx={{
-                            minWidth: '48px',
-                            minHeight: '48px',
-                            padding: '8px',
-                            cursor: ready ? 'pointer' : 'not-allowed',
-                            pointerEvents: 'auto',
-                        }}
-                        onClick={isRunning ? stopChuckInstance : runChuckCode}
-
-                    >
-                        {!isRunning ?
-                            <PlayCircleIcon
-                                sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
-                            <StopCircleIcon
-                                sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
-                        }
-                    </Button>
+                    
 
 
                     <Box sx={{
-                        display: "inline-flex", 
-                        flexDirection: "row",
-                        minWidth: "100%",
-                        maxWidh: "180px",
-                        marginLeft: "16px",
-                        justifyContent: "space-between",
-                        background: "rgba(255,255,255,0.078)"
+                        display: 'table',
+                        flexDirection: 'column',
+                        width: 'fit-content',
+                        minWidth: 0,
+                        // marginLeft: 8,
+                        justifyContent: 'flex-start',
+                        alignItems: 'center',
+                        gap: 1,
+                        background: 'rgba(255,255,255,0.078)'
                     }}>
-                        {/* Keyboard toggle (single toggle as requested) */}
-                        <Button
-                            id='toggleKeyboardButton'
-                            sx={{
-                                minWidth: '48px',
-                                minHeight: '48px',
-                                padding: '8px',
-                                cursor: 'pointer',
-                                pointerEvents: 'auto',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 1,
-                            }}
-                            onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
-                        >
-                            <KeyboardIcon
-                                sx={{
-                                    fontSize: '24px',
-                                    color: keyboardMode === 'none'
-                                        ? 'var(--color-dominant-text, white)'
-                                        : 'var(--color-subdominant-primary, #00D9FF)'
-                                }}
-                            />
-                            {keyboardMode !== 'none' && (
-                                <span style={{
-                                    fontSize: '10px',
-                                    marginLeft: '4px',
-                                    color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
-                                    fontFamily: 'monospace'
-                                }}>
-                                    HID active
-                                </span>
-                            )}
-                        </Button>
-
-                        {/* Simple toggle: Add uploaded files to MIDI keyboard buffers */}
-                        <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
+                        <Box sx={{
+                            display: 'inline-flex',
+                            width: '100%',
+                            justifyContent: 'space-between',
+                        }}>
+                            {/* Keyboard toggle (single toggle as requested) */}
                             <Button
-                                id='addToMidiBuffersToggle'
+                                id='toggleKeyboardButton'
                                 sx={{
-                                    minWidth: '48px',
-                                    minHeight: '48px',
-                                    padding: '8px',
+                                    // minWidth: '48px',
+                                    // minHeight: '48px',
+                                    // padding: '8px',
                                     cursor: 'pointer',
                                     pointerEvents: 'auto',
-                                    border: addToMidiBuffers ? '1px solid var(--color-subdominant-primary, #00D9FF)' : '1px solid transparent',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    // gap: 1,
                                 }}
-                                onClick={() => setAddToMidiBuffers(!addToMidiBuffers)}
+                                onClick={() => {
+                                    // Toggle HID on/off WITHOUT opening Piano keyboard UI
+                                    // HID functionality is independent of keyboard UI (piano/hex/none)
+                                    // This only enables/disables HID keyboard input - does NOT change keyboardMode
+                                    setHidEnabled(!hidEnabled);
+                                }}
                             >
-                                <AddBoxIcon
+                                <KeyboardIcon
                                     sx={{
-                                        fontSize: '20px',
-                                        color: addToMidiBuffers 
+                                        fontSize: '24px',
+                                        color: hidEnabled
                                             ? 'var(--color-subdominant-primary, #00D9FF)'
                                             : 'var(--color-dominant-text, white)'
                                     }}
                                 />
+                                {hidEnabled && (
+                                    <span style={{
+                                        fontSize: '10px',
+                                        marginLeft: '4px',
+                                        color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
+                                        fontFamily: 'monospace'
+                                    }}>
+                                        HID Active
+                                    </span>
+                                )}
                             </Button>
-                        </Tooltip>
 
-                        {/* Toggle: Keyboard clicks add to notes dropdown */}
-                        <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
-                            <Button
-                                id='keyboardAddsToNotesToggle'
-                                sx={{
-                                    minWidth: '48px',
-                                    minHeight: '48px',
-                                    padding: '8px',
-                                    cursor: 'pointer',
-                                    pointerEvents: 'auto',
-                                    border: keyboardAddsToNotes ? '1px solid var(--color-tertiary-warning, #FFA500)' : '1px solid transparent',
-                                }}
-                                onClick={() => {
-                                    const newValue = !keyboardAddsToNotes;
-                                    setKeyboardAddsToNotes(newValue);
-                                    // Expose to global scope for BeatGridPanel to check
-                                    (window as any).__keyboardAddsToNotes = newValue;
-                                }}
-                            >
-                                <MusicNoteIcon
+                            {/* Simple toggle: Add uploaded files to MIDI keyboard buffers */}
+                            <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
+                                <Button
+                                    id='addToMidiBuffersToggle'
                                     sx={{
-                                        fontSize: '20px',
-                                        color: keyboardAddsToNotes 
-                                            ? 'var(--color-tertiary-warning, #FFA500)'
-                                            : 'var(--color-dominant-text, white)'
+                                        minWidth: '48px',
+                                        minHeight: '48px',
+                                        padding: '8px',
+                                        cursor: 'pointer',
+                                        pointerEvents: 'auto',
+                                        border: addToMidiBuffers ? '1px solid var(--color-subdominant-primary, #00D9FF)' : '1px solid transparent',
                                     }}
-                                />
-                            </Button>
-                        </Tooltip>
-                    </Box>    
-
-                    <Box sx={{ 
-                        marginLeft: "64px",
-                    }}>
-                        <Tooltip title="Oscillator Synth Controls">
-                            <Button
-                                aria-label="Open oscillator synth controls"
-                                sx={{
-                                    minWidth: '48px',
-                                    minHeight: '48px',
-                                    padding: '8px',
-                                    cursor: 'pointer',
-                                    pointerEvents: 'auto',
-                                }}
-                                onClick={() => setSynthPanelOpen(true)}
-                            >
-                                <SettingsIcon
-                                    sx={{
-                                        fontSize: '20px',
-                                        color: 'var(--color-dominant-text, white)'
-                                    }}
-                                />
-                            </Button>
-                        </Tooltip>
-
-                        <Box sx={{display: "inline-flex", flexDirection: "row" }}>
-                            {/* Effects Control Panel buttons for each source */}
-                            {(['osc1', 'stk1', 'sampler', 'audioin'] as const).map(source => (
-                                <Tooltip key={source} title={`${source.toUpperCase()} Effects`}>
-                                    <Button
+                                    onClick={() => setAddToMidiBuffers(!addToMidiBuffers)}
+                                >
+                                    <AddBoxIcon
                                         sx={{
-                                            minWidth: '48px',
-                                            minHeight: '48px',
-                                            padding: '8px',
-                                            cursor: 'pointer',
-                                            pointerEvents: 'auto',
+                                            fontSize: '20px',
+                                            color: addToMidiBuffers 
+                                                ? 'var(--color-subdominant-primary, #00D9FF)'
+                                                : 'var(--color-dominant-text, white)'
                                         }}
-                                        onClick={() => {
-                                            setEffectsPanelSource(source);
-                                            setEffectsPanelOpen(true);
+                                    />
+                                </Button>
+                            </Tooltip>
+
+                            {/* Toggle: Keyboard clicks add to notes dropdown */}
+                            <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
+                                <Button
+                                    id='keyboardAddsToNotesToggle'
+                                    sx={{
+                                        minWidth: '48px',
+                                        minHeight: '48px',
+                                        padding: '8px',
+                                        cursor: 'pointer',
+                                        pointerEvents: 'auto',
+                                        border: keyboardAddsToNotes ? '1px solid var(--color-tertiary-warning, #FFA500)' : '1px solid transparent',
+                                    }}
+                                    onClick={() => {
+                                        const newValue = !keyboardAddsToNotes;
+                                        setKeyboardAddsToNotes(newValue);
+                                        // Expose to global scope for BeatGridPanel to check
+                                        (window as any).__keyboardAddsToNotes = newValue;
+                                    }}
+                                >
+                                    <MusicNoteIcon
+                                        sx={{
+                                            fontSize: '20px',
+                                            color: keyboardAddsToNotes 
+                                                ? 'var(--color-tertiary-warning, #FFA500)'
+                                                : 'var(--color-dominant-text, white)'
                                         }}
-                                        aria-label={`Open ${source.toUpperCase()} effects control panel`}
-                                    >
-                                        <Typography
+                                    />
+                                </Button>
+                            </Tooltip>
+                        </Box>    
+                        <Box sx={{ 
+                            marginLeft: "0px",
+                        }}>
+                            <Tooltip title="Oscillator Synth Controls">
+                                <Button
+                                    aria-label="Open oscillator synth controls"
+                                    sx={{
+                                        minWidth: '48px',
+                                        minHeight: '48px',
+                                        padding: '8px',
+                                        cursor: 'pointer',
+                                        pointerEvents: 'auto',
+                                    }}
+                                    onClick={() => setSynthPanelOpen(true)}
+                                >
+                                    <SettingsIcon
+                                        sx={{
+                                            fontSize: '20px',
+                                            color: 'var(--color-dominant-text, white)'
+                                        }}
+                                    />
+                                </Button>
+                            </Tooltip>
+
+                            <Box sx={{display: "inline-flex", flexDirection: "row" }}>
+                                {/* Effects Control Panel buttons for each source */}
+                                {(['osc1', 'stk1', 'sampler', 'audioin'] as const).map(source => (
+                                    <Tooltip key={source} title={`${source.toUpperCase()} Effects`}>
+                                        <Button
                                             sx={{
-                                                fontSize: '12px',
-                                                color: 'var(--color-dominant-text, white)',
-                                                textTransform: 'uppercase',
-                                                fontWeight: 600
+                                                minWidth: '48px',
+                                                minHeight: '48px',
+                                                padding: '8px',
+                                                cursor: 'pointer',
+                                                pointerEvents: 'auto',
                                             }}
+                                            onClick={() => {
+                                                setEffectsPanelSource(source);
+                                                setEffectsPanelOpen(true);
+                                            }}
+                                            aria-label={`Open ${source.toUpperCase()} effects control panel`}
                                         >
-                                            {source === 'osc1' ? 'OSC' : source === 'stk1' ? 'STK' : source === 'sampler' ? 'SMP' : 'IN'}
-                                        </Typography>
-                                    </Button>
-                                </Tooltip>
-                            ))}
+                                            <Typography
+                                                sx={{
+                                                    fontSize: '12px',
+                                                    color: 'var(--color-dominant-text, white)',
+                                                    textTransform: 'uppercase',
+                                                    fontWeight: 600
+                                                }}
+                                            >
+                                                {source === 'osc1' ? 'OSC' : source === 'stk1' ? 'STK' : source === 'sampler' ? 'SMP' : 'IN'}
+                                            </Typography>
+                                        </Button>
+                                    </Tooltip>
+                                ))}
+                            </Box>
                         </Box>
-                    </Box>
+                    </Box> 
+
+                    {/* Row 3: Play/Stop button aligned left */}
+                    {/* <Box sx={{ display: 'flex', width: '100%', justifyContent: 'flex-start' }}>
+                        <Button
+                            id='runChuckCodeButton'
+                            aria-label="Run ChucK audio code"
+                            sx={{
+                                minWidth: '48px',
+                                minHeight: '48px',
+                                padding: '8px',
+                                cursor: ready ? 'pointer' : 'not-allowed',
+                                pointerEvents: 'auto',
+                            }}
+                            onClick={isRunning ? stopChuckInstance : runChuckCode}
+                        >
+                            {!isRunning ?
+                                <PlayCircleIcon
+                                    sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
+                                <StopCircleIcon
+                                    sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
+                            }
+                        </Button>
+                    </Box> */}
 
                     <PhilosopherGuide />
                 </Box>
+
+                    <Box sx={{ display: 'flex', width: '100%', justifyContent: 'flex-start' }}>
+                        <Button
+                            id='runChuckCodeButton'
+                            aria-label="Run ChucK audio code"
+                            sx={{
+                                minWidth: '48px',
+                                minHeight: '48px',
+                                padding: '8px',
+                                cursor: ready ? 'pointer' : 'not-allowed',
+                                pointerEvents: 'auto',
+                            }}
+                            onClick={isRunning ? stopChuckInstance : runChuckCode}
+                        >
+                            {!isRunning ?
+                                <PlayCircleIcon
+                                    sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
+                                <StopCircleIcon
+                                    sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
+                            }
+                        </Button>
+                    </Box>
 
                 <SynthControlPanel
                     open={synthPanelOpen}

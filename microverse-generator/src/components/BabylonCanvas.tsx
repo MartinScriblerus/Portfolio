@@ -100,6 +100,8 @@ export default function BabylonHydraCanvas() {
     // }, []);
 
     // Simple keyboard controls for quick config tweaks
+    // CRITICAL: Completely disabled when HID is active (keyboardMode !== 'none')
+    // When HID is enabled, all keyboard input goes to HID - no Babylon hotkeys
     useEffect(() => {
 
         if (!tune && Tune) {
@@ -107,11 +109,21 @@ export default function BabylonHydraCanvas() {
             setTune(getTune);
         }
         const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'l' || e.key === 'L') setShowNoteLabels(v => !v);
-            if (e.key === '[') cycleLayout(-1);
-            if (e.key === ']') cycleLayout(1);
-            if (e.key === '+' || e.key === '=') setTileScale(s => Math.min(4, s + 0.25));
-            if (e.key === '-') setTileScale(s => Math.max(0.5, s - 0.25));
+            
+            // Check if HID is enabled via keyboardMode state
+            const keyboardMode = useOldMonolithStore.getState().keyboardMode;
+            // const isHIDEnabled = keyboardMode !== 'none';
+            
+                        // near start of your onKeyDown handler
+            const hidManager = (window as any).__keyboardHIDManager;
+            const isHIDEnabled = typeof hidManager?.getEnabled === 'function'
+            ? hidManager.getEnabled()
+            : (keyboardMode !== 'none'); // keep your existing fallback
+
+            if (isHIDEnabled) {
+                // Optional debug: console.debug('[BabylonCanvas] HID active — ignoring Babylon hotkey');
+                return; // let HID manager handle these messages exclusively
+            }        
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);

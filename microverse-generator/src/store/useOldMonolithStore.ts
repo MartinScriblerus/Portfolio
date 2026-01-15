@@ -48,7 +48,7 @@ export const useOldMonolithStore = create<OldMonolithState>((set) => ({
   setIsManagingEffects: (v) => set({ isManagingEffects: v }),
 
   // Default to piano keyboard - HID will work when ChucK is initialized
-  keyboardMode: 'piano',
+  keyboardMode: 'none',
   setKeyboardMode: (m) => set({ keyboardMode: m }),
 
   sampleVoiceEnabled: false,
