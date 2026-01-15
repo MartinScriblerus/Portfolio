@@ -38,6 +38,9 @@ export class KeyboardHIDManager {
   private triggers: KeyboardTrigger[] = [];
   private isEnabled = true;
   private inputFocused = false;
+  private cleanupFocusHandlers: (() => void) | null = null;
+  private blurTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private focusDebounceTimeout: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Get currently pressed MIDI notes
@@ -53,10 +56,22 @@ export class KeyboardHIDManager {
     pressedKeysCallback = callback;
   }
 
+  /**
+   * Unregister callback for pressed keys updates
+   * CRITICAL: Call this to prevent holding references to components
+   */
+  offPressedKeysChange() {
+    if (pressedKeysCallback) {
+      pressedKeysCallback = null;
+    }
+  }
+
   constructor(chuck: Chuck, hid: HID) {
     this.chuck = chuck;
     this.hid = hid;
-    this.setupInputFocusHandlers();
+    // WebChucK HID listeners remain always enabled - we filter events in our custom listeners
+    // This avoids memory leaks from repeatedly enabling/disabling listeners
+    this.cleanupFocusHandlers = this.setupInputFocusHandlers();
   }
 
   /**
@@ -78,10 +93,12 @@ export class KeyboardHIDManager {
 
   /**
    * Enable/disable HID based on input focus
+   * Note: WebChucK's keyboard listeners remain always enabled to avoid memory leaks.
+   * We filter events in our custom listeners based on canvas focus.
    */
   setEnabled(enabled: boolean) {
     this.isEnabled = enabled;
-    if (!enabled && this.hid) {
+    if (!enabled) {
       // Release all currently pressed keys when disabled
       pressedKeys.forEach(midiNote => {
         this.triggerNoteOff(midiNote);
@@ -191,6 +208,26 @@ export class KeyboardHIDManager {
     // Track canvas focus state
     let canvasFocused = false;
     
+    // Debounced focus handler to prevent rapid-fire events
+    const debouncedSetEnabled = (enabled: boolean, reason: string) => {
+      if (this.focusDebounceTimeout !== null) {
+        clearTimeout(this.focusDebounceTimeout);
+      }
+      this.focusDebounceTimeout = setTimeout(() => {
+        this.focusDebounceTimeout = null;
+        // Only update if state actually changed
+        if (enabled !== this.getEnabled()) {
+          this.setEnabled(enabled);
+          // Reduced logging for performance - only log state changes
+          if (enabled) {
+            console.log('[HID] Enabled:', reason);
+          } else {
+            console.log('[HID] Disabled:', reason);
+          }
+        }
+      }, 50); // 50ms debounce
+    };
+    
     // Handle canvas focus (when Babylon canvas is clicked)
     const handleCanvasFocus = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
@@ -200,8 +237,7 @@ export class KeyboardHIDManager {
       if (target === babylonCanvas || (target.tagName === 'CANVAS' && target.id === 'babylonCanvas')) {
         canvasFocused = true;
         this.inputFocused = false;
-        this.setEnabled(true);
-        console.log('[HID] Babylon canvas focused - HID enabled');
+        debouncedSetEnabled(true, 'canvas focused');
       }
     };
     
@@ -214,7 +250,7 @@ export class KeyboardHIDManager {
       if (target === babylonCanvas || (target.tagName === 'CANVAS' && target.id === 'babylonCanvas')) {
         canvasFocused = true;
         this.inputFocused = false;
-        this.setEnabled(true);
+        debouncedSetEnabled(true, 'canvas focused');
         return;
       }
       
@@ -222,8 +258,7 @@ export class KeyboardHIDManager {
       if (this.isUIElement(target)) {
         this.inputFocused = true;
         canvasFocused = false;
-        this.setEnabled(false);
-        console.log('[HID] UI element focused - HID disabled');
+        debouncedSetEnabled(false, 'UI element focused');
       }
     };
 
@@ -238,6 +273,11 @@ export class KeyboardHIDManager {
       if (target === babylonCanvas || target.tagName === 'CANVAS' && target.id === 'babylonCanvas') {
         canvasFocused = true;
         this.inputFocused = false;
+        // Clear debounce and set immediately for click events
+        if (this.focusDebounceTimeout !== null) {
+          clearTimeout(this.focusDebounceTimeout);
+          this.focusDebounceTimeout = null;
+        }
         this.setEnabled(true);
         // Ensure canvas is focusable and focus it
         if (babylonCanvas) {
@@ -245,7 +285,6 @@ export class KeyboardHIDManager {
             babylonCanvas.tabIndex = 0; // Make it focusable
           }
           babylonCanvas.focus();
-          console.log('[HID] Babylon canvas clicked - HID enabled');
         }
         return;
       }
@@ -254,6 +293,11 @@ export class KeyboardHIDManager {
       if (target.tagName === 'svg' || target.closest('svg') || target.closest('[class*="HexKeyboard"]')) {
         canvasFocused = true;
         this.inputFocused = false;
+        // Clear debounce and set immediately for click events
+        if (this.focusDebounceTimeout !== null) {
+          clearTimeout(this.focusDebounceTimeout);
+          this.focusDebounceTimeout = null;
+        }
         this.setEnabled(true);
         // Focus the Babylon canvas if available
         if (babylonCanvas) {
@@ -264,7 +308,6 @@ export class KeyboardHIDManager {
         } else {
           (target.closest('svg') as SVGElement)?.focus?.();
         }
-        console.log('[HID] HexKeyboard clicked - HID enabled');
         return;
       }
       
@@ -272,8 +315,12 @@ export class KeyboardHIDManager {
       if (this.isUIElement(target)) {
         canvasFocused = false;
         this.inputFocused = true;
+        // Clear debounce and set immediately for click events
+        if (this.focusDebounceTimeout !== null) {
+          clearTimeout(this.focusDebounceTimeout);
+          this.focusDebounceTimeout = null;
+        }
         this.setEnabled(false);
-        console.log('[HID] UI element clicked - HID disabled');
       }
     };
 
@@ -286,15 +333,19 @@ export class KeyboardHIDManager {
         target.tagName === 'SELECT' ||
         target.isContentEditable
       ) {
+        // Clear any existing timeout to prevent leaks
+        if (this.blurTimeoutId !== null) {
+          clearTimeout(this.blurTimeoutId);
+        }
         // Small delay to allow for tab navigation
-        setTimeout(() => {
+        this.blurTimeoutId = setTimeout(() => {
+          this.blurTimeoutId = null; // Clear the ID when timeout fires
           const activeElement = document.activeElement as HTMLElement | null;
           // Only re-enable if canvas is now focused
           if (this.isCanvasFocused()) {
             this.inputFocused = false;
             canvasFocused = true;
-            this.setEnabled(true);
-            console.log('[HID] Input blurred, canvas focused - HID enabled');
+            debouncedSetEnabled(true, 'input blurred, canvas focused');
           } else if (
             !activeElement ||
             !this.isUIElement(activeElement)
@@ -312,8 +363,7 @@ export class KeyboardHIDManager {
       if (this.isCanvasFocused()) {
         this.inputFocused = false;
         canvasFocused = true;
-        this.setEnabled(true);
-        console.log('[HID] Window focused, canvas active - HID enabled');
+        debouncedSetEnabled(true, 'window focused, canvas active');
       }
     };
 
@@ -325,6 +375,8 @@ export class KeyboardHIDManager {
 
     // Cleanup on destroy
     return () => {
+      // Centralized timeout cleanup (idempotent)
+      this.clearAllTimeouts();
       document.removeEventListener('focusin', handleFocus);
       document.removeEventListener('focusin', handleCanvasFocus);
       document.removeEventListener('focusout', handleBlur);
@@ -334,10 +386,26 @@ export class KeyboardHIDManager {
   }
 
   /**
+   * Clear and nullify all internal timeouts in an idempotent way.
+   * Calling this multiple times is safe.
+   */
+  private clearAllTimeouts() {
+    if (this.blurTimeoutId !== null) {
+      clearTimeout(this.blurTimeoutId);
+      this.blurTimeoutId = null;
+    }
+    if (this.focusDebounceTimeout !== null) {
+      clearTimeout(this.focusDebounceTimeout);
+      this.focusDebounceTimeout = null;
+    }
+  }
+
+  /**
    * Handle key press from HID
    */
   async handleKeyPress(key: string, velocity: number = 100) {
-    if (!this.getEnabled()) return;
+    // Guard: prevent execution if instance is being destroyed
+    if (!this.chuck || !this.getEnabled()) return;
 
     const midiNote = KEYBOARD_MAP[key.toLowerCase()];
     if (midiNote && !pressedKeys.has(midiNote)) {
@@ -354,7 +422,8 @@ export class KeyboardHIDManager {
    * Handle key release from HID
    */
   async handleKeyRelease(key: string) {
-    if (!this.getEnabled()) return;
+    // Guard: prevent execution if instance is being destroyed
+    if (!this.chuck || !this.getEnabled()) return;
 
     const midiNote = KEYBOARD_MAP[key.toLowerCase()];
     if (midiNote && pressedKeys.has(midiNote)) {
@@ -439,9 +508,11 @@ export class KeyboardHIDManager {
 
   /**
    * Start listening for keyboard events via JavaScript
-   * WebChucK HID automatically captures keyboard events, but we need to
-   * also listen directly for better integration
-   * IMPORTANT: Only processes events when Babylon canvas is focused
+   * WebChucK HID also captures keyboard events, but we listen directly for MIDI note mapping
+   * IMPORTANT: 
+   * - Only processes events when Babylon canvas is focused
+   * - Does NOT call stopPropagation() to allow WebChucK's HID listeners to also receive events
+   * - WebChucK's keyboard listeners are enabled/disabled via setEnabled() based on canvas focus
    */
   async startListening() {
     // Set up direct JavaScript keyboard event listeners
@@ -450,13 +521,16 @@ export class KeyboardHIDManager {
     const handleKeyDown = (e: KeyboardEvent) => {
       // CRITICAL: Only process if Babylon canvas is focused
       if (!this.getEnabled() || !this.isCanvasFocused()) {
+
         return;
       }
       
       // Prevent default only for our mapped keys when canvas is focused
+      // IMPORTANT: Do NOT call stopPropagation() - WebChucK's HID listeners need to receive events
+      // WebChucK's HID attaches listeners to document, so events must bubble through
       if (KEYBOARD_MAP[e.key.toLowerCase()]) {
-        e.preventDefault();
-        e.stopPropagation(); // Prevent event from bubbling to other handlers
+
+        e.preventDefault(); // Prevent typing, but allow event to propagate to WebChucK's HID
         this.handleKeyPress(e.key, 100);
       }
     };
@@ -468,8 +542,7 @@ export class KeyboardHIDManager {
       }
       
       if (KEYBOARD_MAP[e.key.toLowerCase()]) {
-        e.preventDefault();
-        e.stopPropagation(); // Prevent event from bubbling to other handlers
+        e.preventDefault(); // Prevent typing, but allow event to propagate to WebChucK's HID
         this.handleKeyRelease(e.key);
       }
     };
@@ -488,20 +561,42 @@ export class KeyboardHIDManager {
   }
 
   /**
-   * Cleanup
+   * Cleanup - CRITICAL: Must be called to prevent memory leaks
    */
   destroy() {
+    // Clear any pending timeouts (centralized and idempotent)
+    this.clearAllTimeouts();
+    
+    // Cleanup focus/click handlers (CRITICAL - prevents memory leak)
+    if (this.cleanupFocusHandlers) {
+      this.cleanupFocusHandlers();
+      this.cleanupFocusHandlers = null;
+    }
+    
+    // Cleanup keyboard listeners
+    if ((this as any)._cleanupKeyboardListeners) {
+      (this as any)._cleanupKeyboardListeners();
+      (this as any)._cleanupKeyboardListeners = null;
+    }
+    
+    // Release all pressed keys
     pressedKeys.forEach(midiNote => {
       this.triggerNoteOff(midiNote);
     });
     pressedKeys.clear();
     this.triggers = [];
     
-    // Cleanup keyboard listeners
-    if ((this as any)._cleanupKeyboardListeners) {
-      (this as any)._cleanupKeyboardListeners();
+    // Clear global callback to prevent holding references to components
+    if (pressedKeysCallback) {
+      pressedKeysCallback = null;
     }
     
+    // Clear global window reference to prevent pointer errors and allow GC
+    if (typeof window !== 'undefined' && (window as any).__keyboardHIDManager === this) {
+      (window as any).__keyboardHIDManager = null;
+    }
+    
+    // Clear references
     this.hid = null;
     this.chuck = null;
   }

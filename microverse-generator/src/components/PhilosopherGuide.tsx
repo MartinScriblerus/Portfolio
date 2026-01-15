@@ -402,7 +402,8 @@ export default function CodeGuide() {
         aria-label="ChucK Code Guide"
         style={{ 
           position: 'fixed', // Use fixed to ensure it's above the canvas
-          top: 284, 
+          // bottom: 240,
+          top: 224, 
           left: 8, 
           maxWidth: 240, 
           padding: '12px 14px', 

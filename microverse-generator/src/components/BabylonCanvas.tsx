@@ -170,11 +170,6 @@ export default function BabylonHydraCanvas() {
             setTune(getTune);
         }
         const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'l' || e.key === 'L') setShowNoteLabels(v => !v);
-            if (e.key === '[') cycleLayout(-1);
-            if (e.key === ']') cycleLayout(1);
-            if (e.key === '+' || e.key === '=') setTileScale(s => Math.min(4, s + 0.25));
-            if (e.key === '-') setTileScale(s => Math.max(0.5, s - 0.25));
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
@@ -2671,6 +2666,17 @@ export default function BabylonHydraCanvas() {
                 // window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
                 try { unsubscribeHydraControls(); } catch {}
+                
+                // CRITICAL: Cleanup HID manager to prevent memory leaks
+                try {
+                    if ((window as any).__keyboardHIDManager) {
+                        (window as any).__keyboardHIDManager.destroy();
+                        (window as any).__keyboardHIDManager = null;
+                    }
+                } catch (hidCleanupErr) {
+                    console.warn('[BabylonCanvas] Error cleaning up HID manager:', hidCleanupErr);
+                }
+                
                 // Clear cache to prevent memory leaks
                 chainCache.clear();
                 if (scene) {

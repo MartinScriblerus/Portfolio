@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, type RefObject } from 'react';
 import type { Chuck } from 'webchuck';
 import { HID } from 'webchuck';
 import { KeyboardHIDManager } from '../utils/keyboardHIDManager';
@@ -176,6 +176,16 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
 // -----------------------------
 // Main Component
 // -----------------------------
+
+// ============================================================
+// TYPE EXPORTS
+// ============================================================
+export interface FxDropProps {
+    chuckRef: RefObject<Chuck>;
+    updateSelectedAudioInSetting: (effect: string) => void;
+    showAudioInDropdown?: boolean;
+}
+
 // ============================================================
 // CELL FUNCTION REGISTRY: Runtime-populatable function system
 // Functions are stored per cell and compiled into ChucK code at build time
@@ -373,11 +383,22 @@ export default function ChuckSetup() {
     const [addToMidiBuffers, setAddToMidiBuffers] = useState(false);
     // Toggle: should keyboard clicks add notes to the notes dropdown? (default on)
     const [keyboardAddsToNotes, setKeyboardAddsToNotes] = useState(true);
+    // Separate state for HID enabled/disabled (independent of keyboard UI)
+    const [hidEnabled, setHidEnabled] = useState(false);
     
     // Expose keyboard toggle to global scope on mount/update
     useEffect(() => {
         (window as any).__keyboardAddsToNotes = keyboardAddsToNotes;
     }, [keyboardAddsToNotes]);
+    
+    // Expose HID enabled state to KeyboardHIDManager
+    useEffect(() => {
+        (window as any).__hidEnabled = hidEnabled;
+        // Update KeyboardHIDManager if it exists
+        if ((window as any).__keyboardHIDManager) {
+            (window as any).__keyboardHIDManager.setEnabled(hidEnabled);
+        }
+    }, [hidEnabled]);
 
     const globalAudioCtx = useRef<AudioContext | null>(null);
     // Defer AudioContext creation until the user explicitly enables audio (user gesture)
@@ -551,6 +572,10 @@ export default function ChuckSetup() {
                     return;
                 }
 
+                if (message.includes("log!")) {
+                    console.log(`%c HID REACHED!!! ${message}`, "color: aqua;")
+                }
+
                 const lowered = message.toLowerCase();
                 // Capture CHUCK_UP_TO_DATE quickly
                 if (lowered.indexOf('chuck_up_to_date') !== -1) {
@@ -570,8 +595,8 @@ export default function ChuckSetup() {
                         const audioTime = (globalAudioCtx.current && typeof globalAudioCtx.current.currentTime === 'number') ? globalAudioCtx.current.currentTime : perf / 1000;
                         pushTickToBuffer(tickNum, audioTime, perf);
                     }
-                    // keep previous handler but call it after short work
-                    if (previous) try { previous(message); } catch (e) {}
+                    // Don't log TICK messages to console for performance - only process them
+                    // if (previous) try { previous(message); } catch (e) {}
                     return;
                 }
 
@@ -612,6 +637,20 @@ export default function ChuckSetup() {
         };
         rafId = requestAnimationFrame(frame);
         return () => { if (rafId) cancelAnimationFrame(rafId); };
+    }, []);
+
+    // CRITICAL: Cleanup KeyboardHIDManager on unmount to prevent memory leaks
+    useEffect(() => {
+        return () => {
+            if (keyboardHIDManagerRef.current) {
+                keyboardHIDManagerRef.current.destroy();
+                keyboardHIDManagerRef.current = null;
+            }
+            // Clear global window reference on unmount
+            if (typeof window !== 'undefined') {
+                (window as any).__keyboardHIDManager = null;
+            }
+        };
     }, []);
 
 
@@ -1678,6 +1717,15 @@ export default function ChuckSetup() {
                 // Initialize HID for keyboard input
                 try {
                     console.log('🎹 Initializing HID for keyboard input...');
+                    // CRITICAL: Cleanup existing instance before creating new one to prevent memory leaks
+                    if (keyboardHIDManagerRef.current) {
+                        keyboardHIDManagerRef.current.destroy();
+                        keyboardHIDManagerRef.current = null;
+                    }
+                    // Clear global window reference before creating new instance
+                    if (typeof window !== 'undefined') {
+                        (window as any).__keyboardHIDManager = null;
+                    }
                     hidRef.current = await HID.init(chuckRef.current, false, true); // Mouse: false, Keyboard: true
                     keyboardHIDManagerRef.current = new KeyboardHIDManager(chuckRef.current, hidRef.current);
                     await keyboardHIDManagerRef.current.setupChuckHIDListener();
@@ -1917,8 +1965,7 @@ export default function ChuckSetup() {
                     
                     const expandedEvents = rhythmCache.events;
                     
-                    console.log("WHAT ARE EXPANDED EVENTS??? ", expandedEvents);
-                    
+
                     // Calculate expanded measure length: base cells * max subdivisions
                     // Each cell can have up to MAX_SUBDIVISIONS events, so we expand arrays accordingly
                     // const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
@@ -2347,7 +2394,11 @@ export default function ChuckSetup() {
                                 hid => now;
                                 
                                 while (hid.recv(msg)) {
-                                    if (msg.isButtonDown()) {
+                                    if (msg.isButtonUp()) {
+                                         <<< "log! HID button UP:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
+                                    }
+                                    else if (msg.isButtonDown()) {
+                                        <<< "log! HID button DOWN:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
                                         // Convert key to MIDI note (simplified - you'd use actual MIDI mapping)
                                         msg.ascii => int ascii;
                                         // Simple mapping: a-z keys to MIDI notes 60-85
@@ -2505,7 +2556,6 @@ export default function ChuckSetup() {
                         mainTickLoop();
                     `
 
-                    console.log("DEBUG CHUCK! ", tempTestCode);
 
                     result = await chuckRef.current.runCode(tempTestCode);
                     console.log('✅ ChucK code replaced successfully ', result);
@@ -2676,6 +2726,32 @@ export default function ChuckSetup() {
             {/* <Box sx={{width: '100%', color: '#f6f6f6', zIndex: '9999999', position: 'fixed'}}>HELLO!!!</Box> */}
             <BabylonCanvas />
             <>
+            {initializing && (
+                        <Button
+                            id='chuckMicButtonWrapper'
+                            aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
+                        sx={{
+                            cursor: ready ? 'pointer' : 'not-allowed',
+                            minWidth: '48px',
+                            minHeight: '48px',
+                            padding: '8px',
+                            pointerEvents: 'auto',
+                        }}
+                    // onClick={chuckMicButton}
+                    >
+                        {/* {!isRunning && */}
+                        <MicIcon
+                            sx={{
+                                fontSize: '32px',
+                                color: 'yellow',
+                                verticalAlign: 'middle'
+                            }}
+                            onClick={chuckMicButton}
+                        />
+                        {/* // } */}
+                        {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
+                    </Button>
+                )}
                 <Box
                     id='chuckSetupContainer'
                     sx={{
@@ -2700,33 +2776,7 @@ export default function ChuckSetup() {
                         // background: 'yellow',
                         maxWidth: '320px',
                     }}>
-                    {initializing && (
-                        <Button
-                            id='chuckMicButtonWrapper'
-                            aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
-                            sx={{
-                                cursor: ready ? 'pointer' : 'not-allowed',
-                                minWidth: '48px',
-                                minHeight: '48px',
-                                padding: '8px',
-                                pointerEvents: 'auto',
-                            }}
-                        // onClick={chuckMicButton}
-                        >
-                            {/* {!isRunning && */}
-                            <MicIcon
 
-                                sx={{
-                                    fontSize: '32px',
-                                    color: 'yellow',
-                                    verticalAlign: 'middle'
-                                }}
-                                onClick={chuckMicButton}
-                            />
-                            {/* // } */}
-                            {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
-                        </Button>
-                    )}
 
                     {/* Enable Audio button: create/resume AudioContext with a user gesture */}
                     {!ready && (
@@ -2776,18 +2826,27 @@ export default function ChuckSetup() {
                                     display: 'flex',
                                     alignItems: 'center',
                                     // gap: 1,
+
                                 }}
-                                onClick={() => setKeyboardMode(keyboardMode === 'none' ? 'piano' : 'none')}
+                                onClick={() => {
+                                    // Toggle HID on/off WITHOUT opening Piano keyboard UI
+                                    // HID functionality is independent of keyboard UI (piano/hex/none)
+                                    // This only enables/disables HID keyboard input - does NOT change keyboardMode
+                                    setHidEnabled(!hidEnabled);
+                                }}
+
                             >
                                 <KeyboardIcon
                                     sx={{
                                         fontSize: '24px',
-                                        color: keyboardMode === 'none'
-                                            ? 'var(--color-dominant-text, white)'
-                                            : 'var(--color-subdominant-primary, #00D9FF)'
+
+                                        color: hidEnabled
+                                            ? 'var(--color-subdominant-primary, #00D9FF)'
+                                            : 'var(--color-dominant-text, white)'
                                     }}
                                 />
-                                {keyboardMode !== 'none' && (
+                                {hidEnabled && (
+
                                     <span style={{
                                         fontSize: '10px',
                                         marginLeft: '4px',
@@ -2889,11 +2948,13 @@ export default function ChuckSetup() {
                                                 padding: '8px',
                                                 cursor: 'pointer',
                                                 pointerEvents: 'auto',
+
                                             }}
                                             onClick={() => {
                                                 setEffectsPanelSource(source);
                                                 setEffectsPanelOpen(true);
                                             }}
+
                                             aria-label={`Open ${source.toUpperCase()} effects control panel`}
                                         >
                                             <Typography
