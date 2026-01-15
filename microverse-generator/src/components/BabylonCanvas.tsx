@@ -100,8 +100,6 @@ export default function BabylonHydraCanvas() {
     // }, []);
 
     // Simple keyboard controls for quick config tweaks
-    // CRITICAL: Completely disabled when HID is active (keyboardMode !== 'none')
-    // When HID is enabled, all keyboard input goes to HID - no Babylon hotkeys
     useEffect(() => {
 
         if (!tune && Tune) {
@@ -109,21 +107,6 @@ export default function BabylonHydraCanvas() {
             setTune(getTune);
         }
         const onKeyDown = (e: KeyboardEvent) => {
-            
-            // Check if HID is enabled via keyboardMode state
-            const keyboardMode = useOldMonolithStore.getState().keyboardMode;
-            // const isHIDEnabled = keyboardMode !== 'none';
-            
-                        // near start of your onKeyDown handler
-            const hidManager = (window as any).__keyboardHIDManager;
-            const isHIDEnabled = typeof hidManager?.getEnabled === 'function'
-            ? hidManager.getEnabled()
-            : (keyboardMode !== 'none'); // keep your existing fallback
-
-            if (isHIDEnabled) {
-                // Optional debug: console.debug('[BabylonCanvas] HID active — ignoring Babylon hotkey');
-                return; // let HID manager handle these messages exclusively
-            }        
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
@@ -2051,6 +2034,17 @@ export default function BabylonHydraCanvas() {
                 // window.removeEventListener('keydown', onKey);
                 try { unsubscribeVis(); } catch {}
                 try { unsubscribeHydraControls(); } catch {}
+                
+                // CRITICAL: Cleanup HID manager to prevent memory leaks
+                try {
+                    if ((window as any).__keyboardHIDManager) {
+                        (window as any).__keyboardHIDManager.destroy();
+                        (window as any).__keyboardHIDManager = null;
+                    }
+                } catch (hidCleanupErr) {
+                    console.warn('[BabylonCanvas] Error cleaning up HID manager:', hidCleanupErr);
+                }
+                
                 // Clear cache to prevent memory leaks
                 chainCache.clear();
                 if (scene) {

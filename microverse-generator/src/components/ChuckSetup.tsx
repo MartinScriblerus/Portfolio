@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, type RefObject } from 'react';
 import type { Chuck } from 'webchuck';
 import { HID } from 'webchuck';
 import { KeyboardHIDManager } from '../utils/keyboardHIDManager';
@@ -176,6 +176,16 @@ function EffectSliders({ effect, chuckRef, updateSelectedAudioInSetting }: {
 // -----------------------------
 // Main Component
 // -----------------------------
+
+// ============================================================
+// TYPE EXPORTS
+// ============================================================
+export interface FxDropProps {
+    chuckRef: RefObject<Chuck>;
+    updateSelectedAudioInSetting: (effect: string) => void;
+    showAudioInDropdown?: boolean;
+}
+
 // ============================================================
 // CELL FUNCTION REGISTRY: Runtime-populatable function system
 // Functions are stored per cell and compiled into ChucK code at build time
