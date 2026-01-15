@@ -299,14 +299,14 @@ const MingusPopup = ({
                 marginRight: '4px',
             }}
         >
-            <FormLabel
+            {/* <FormLabel
                 sx={{
                     color: 'rgba(245,245,245,0.78)',
                     fontSize: '11px',
                     paddingLeft: '8px',
                 }}
                 id="notebuilder-select-label"
-            >Notes Builder</FormLabel>
+            >Notes Builder</FormLabel> */}
             <Box sx={{width: '100%', height: '100%'}}>
                 {
                 //(noteBuilderFocus && (noteBuilderFocus.toLowerCase() === "scale" || noteBuilderFocus.toLowerCase() === "micro")) && 
@@ -373,14 +373,15 @@ const MingusPopup = ({
                                 ref={dropdownOctaveMaxSelectRef}
                                 style={{
                                     position: 'absolute',
-                                    top: '100%',
+                                    // top: '100%',
+                                    bottom: 'calc(100% - 6px)',
                                     width: '100%',
                                     fontSize: '12px',
                                     maxHeight: '12rem',
                                     overflowY: 'auto',
                                     backgroundColor: OBERHEIM_TEAL,
                                     color: 'rgba(245,245,245,0.78)',
-                                    zIndex: 9999,
+                                    zIndex: 99999,
                                     // minWidth: '180px',
                                 }}
                             >
@@ -392,6 +393,9 @@ const MingusPopup = ({
                                         width: '100%',
                                         fontFamily: 'monospace',
                                         fontSize: '12px',
+                                                                           bottom: 'calc(100% + 6px)',
+                                    height: 'auto',
+                                    display: 'inline-block',
                                         marginBottom: '8px',
                                         background: 'rgba(28,28,28,1)',
                                         color: 'rgba(245,245,245,0.78)',
@@ -411,7 +415,8 @@ const MingusPopup = ({
                                                     padding: '5px',
                                                     cursor: 'pointer',
                                                     fontFamily: 'monospace',
-                                                    background: OBERHEIM_TEAL,
+                                                    // background: OBERHEIM_TEAL,
+                                                    zIndex: '99999',
                                                     color: 'rgba(245,245,245,0.78)',
                                                 }}
                                             >
@@ -481,13 +486,14 @@ const MingusPopup = ({
                                 ref={dropdownOctaveMinSelectRef}
                                 style={{
                                     position: 'absolute',
-                                    top: '100%',
+                                    // top: '100%',
+                                    bottom: 'calc(100% - 6px)',
                                     width: '100%',
                                     maxHeight: '12rem',
                                     overflowY: 'auto',
                                     backgroundColor: OBERHEIM_TEAL,
                                     color: 'rgba(245,245,245,0.78)',
-                                    zIndex: 9999,
+                                    zIndex: 99999,
                                 }}
                             >
                                 <Input
@@ -521,7 +527,8 @@ const MingusPopup = ({
                                                         padding: '5px',
                                                         cursor: 'pointer',
                                                         fontFamily: 'monospace',
-                                                        background: OBERHEIM_TEAL,
+                                                        // background: OBERHEIM_TEAL,
+                                                        zIndex: '99999',
                                                     }}
                                                 >
                                                     {option.label}
@@ -607,12 +614,14 @@ const MingusPopup = ({
                                 ref={dropdownKeySelectRef}
                                 style={{
                                     position: 'absolute',
-                                    top: '100%',
+                                    // top: '100%',
+                                    bottom: 'calc(100% - 6px)',
                                     width: '100%',
                                     maxHeight: '12rem',
                                     overflowY: 'auto',
                                     color: 'rgba(245,245,245,0.78)',
-                                    zIndex: 9999,
+                                    backgroundColor: OBERHEIM_TEAL,
+                                    zIndex: 99999,
                                 }}
                             >
                                 {(searchKeyTerm.length > 0 ? keyOptions.filter((x: any) => x.includes(searchKeyTerm)) : keyOptions).map((option) => (
@@ -624,7 +633,8 @@ const MingusPopup = ({
                                             padding: '5px',
                                             cursor: 'pointer',
                                             fontFamily: 'monospace',
-                                            background: OBERHEIM_TEAL,
+                                            // background: OBERHEIM_TEAL,
+                                            zIndex: '99999',
                                         }}
                                     >
                                         {option}
@@ -685,13 +695,14 @@ const MingusPopup = ({
                                     ref={dropdownChordSelectRef}
                                     style={{
                                         position: 'absolute',
-                                        top: '100%',
+                                        // top: '100%',
+                                        bottom: 'calc(100% - 6px)',
                                         width: '100%',
                                         maxHeight: '12rem',
                                         overflowY: 'auto',
                                         backgroundColor: OBERHEIM_TEAL,
                                         color: 'rgba(245,245,245,0.78)',
-                                        zIndex: 9999,
+                                        zIndex: 99999,
                                         minWidth: '180px',
                                     }}
                                 >
@@ -722,7 +733,8 @@ const MingusPopup = ({
                                                         padding: '5px',
                                                         cursor: 'pointer',
                                                         fontFamily: 'monospace',
-                                                        background: OBERHEIM_TEAL,
+                                                        // background: OBERHEIM_TEAL,
+                                                        zIndex: '99999',
                                                     }}
                                                 >
                                                     {option.label}
@@ -787,13 +799,14 @@ const MingusPopup = ({
                                 ref={dropdownScaleSelectRef}
                                 style={{
                                     position: 'absolute',
-                                    top: '100%',
+                                    // top: '100%',
+                                    bottom: 'calc(100% - 6px)',
                                     width: '100%',
                                     maxHeight: '12rem',
                                     overflowY: 'auto',
                                     backgroundColor: OBERHEIM_TEAL,
                                     color: 'rgba(245,245,245,0.78)',
-                                    zIndex: 9999,
+                                    zIndex: 99999,
                                     minWidth: '180px',
                                 }}
                             >
@@ -822,7 +835,9 @@ const MingusPopup = ({
                                                 padding: '5px',
                                                 cursor: 'pointer',
                                                 fontFamily: 'monospace',
-                                                background: OBERHEIM_TEAL,
+                                                // background: OBERHEIM_TEAL,
+                                                backgroundColor: OBERHEIM_TEAL,
+                                                zIndex: '99999'
                                             }}
                                         >
                                             {option.label}

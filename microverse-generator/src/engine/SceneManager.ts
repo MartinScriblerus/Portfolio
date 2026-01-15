@@ -16,7 +16,19 @@ export class SceneManager {
     this.scene = new BABYLON.Scene(this.engine);
     this.scene.createDefaultCameraOrLight(true, true, true);
     this.scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
-    this.engine.runRenderLoop(() => this.scene?.render());
+    // Safe-runner wrapper to avoid passing non-functions into requestAnimationFrame
+    const safeSceneRunner = () => {
+      try {
+        if (this.scene && typeof this.scene.render === 'function') {
+          this.scene.render();
+        } else {
+          console.warn('[SceneManager] scene.render not callable', { scene: this.scene });
+        }
+      } catch (err) {
+        console.error('[SceneManager] error during scene render', err);
+      }
+    };
+    this.engine.runRenderLoop(safeSceneRunner as any);
     this.isInitialized = true;
   }
 

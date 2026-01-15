@@ -2826,6 +2826,7 @@ export default function ChuckSetup() {
                                     display: 'flex',
                                     alignItems: 'center',
                                     // gap: 1,
+
                                 }}
                                 onClick={() => {
                                     // Toggle HID on/off WITHOUT opening Piano keyboard UI
@@ -2833,16 +2834,19 @@ export default function ChuckSetup() {
                                     // This only enables/disables HID keyboard input - does NOT change keyboardMode
                                     setHidEnabled(!hidEnabled);
                                 }}
+
                             >
                                 <KeyboardIcon
                                     sx={{
                                         fontSize: '24px',
+
                                         color: hidEnabled
                                             ? 'var(--color-subdominant-primary, #00D9FF)'
                                             : 'var(--color-dominant-text, white)'
                                     }}
                                 />
                                 {hidEnabled && (
+
                                     <span style={{
                                         fontSize: '10px',
                                         marginLeft: '4px',
@@ -2944,11 +2948,13 @@ export default function ChuckSetup() {
                                                 padding: '8px',
                                                 cursor: 'pointer',
                                                 pointerEvents: 'auto',
+
                                             }}
                                             onClick={() => {
                                                 setEffectsPanelSource(source);
                                                 setEffectsPanelOpen(true);
                                             }}
+
                                             aria-label={`Open ${source.toUpperCase()} effects control panel`}
                                         >
                                             <Typography
