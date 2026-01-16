@@ -221,6 +221,7 @@ export async function validateWithWebChuck(
   
   try {
     // Try to run the code
+    console.log("### RUN CODE ###", code);
     await chuckInstance.runCode(code);
     
     return {
@@ -241,6 +242,7 @@ export async function validateWithWebChuck(
       
       // Try again with fixed code
       try {
+        console.log("### RUN FIXED CODE ###", fixedCode);
         await chuckInstance.runCode(fixedCode);
         return {
           isValid: true,

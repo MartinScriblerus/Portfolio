@@ -960,7 +960,7 @@ export default function ChuckSetup() {
                         
                         <<< "File loaded into MIDI buffer", ${bufferIndex}, ":", "${vpath}", "READY" >>>;
                     `;
-                    
+                    console.log("### LOAD CODE ###", loadCode);
                     await chuckRef.current.runCode(loadCode);
                     console.log(`✅ File "${safeName}" also loaded into MIDI buffer ${bufferIndex}`);
                 } catch (err: any) {
@@ -1382,6 +1382,7 @@ export default function ChuckSetup() {
                     if (allUpdates.length > 0) {
                         // Check one more time before executing
                         if (!updateToken.cancelled && chuckRef.current) {
+                            console.log("### ALL UPDATES ###", allUpdates.join('\n'));
                             await chuckRef.current.runCode(allUpdates.join('\n'));
                         }
                     }
@@ -1966,28 +1967,91 @@ export default function ChuckSetup() {
                     const expandedEvents = rhythmCache.events;
                     
 
-                    // Calculate expanded measure length: base cells * max subdivisions
-                    // Each cell can have up to MAX_SUBDIVISIONS events, so we expand arrays accordingly
-                    // const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
+                    // Get row keys and sort them first (needed to calculate actual max columns)
                     const rowKeys = Object.keys(masterPatterns).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
-                    // Sort rows to match getGridRows() ordering (top->bottom = ascending)
                     rowKeys.sort((a, b) => a - b); // Always ascending to match getGridRows when rowOrderTopToBottomRef is true
-                    const filesArr2D: number[][] = [];
-                    const cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
                     
-                    // Build array in row-major order to match tick progression
+                    // Calculate cellsPerRow: base calculation + any extra cells needed for split cells/subdivisions
+                    // Base: numeratorSignature * masterFastestRate (matches UI: nCol / nRow where nCol = numeratorSignature * denominatorSignature * effectiveFastest)
+                    let cellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
+                    
+                    // Check actual data to see if any row has more columns (due to subdivisions or split cells)
+                    // This ensures we account for any cells beyond the base calculation
+                    let maxActualCols = cellsPerRow;
                     rowKeys.forEach((rowY) => {
                         const row = masterPatterns[String(rowY)] || {};
-                        for (let colX = 0; colX < cellsPerRow; colX++) {
-                            const cell = row[String(colX)];
-                            const fileNums = cell?.fileNums || [];
-                            filesArr2D.push(fileNums.length > 0 ? fileNums : [9999]);
+                        const rowColKeys = Object.keys(row).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
+                        if (rowColKeys.length > 0) {
+                            const maxColInRow = Math.max(...rowColKeys);
+                            if (maxColInRow >= maxActualCols) {
+                                maxActualCols = maxColInRow + 1; // +1 because indices are 0-based
+                            }
                         }
                     });
                     
-                    // If no cells, create empty array
+                    // Use the larger of base calculation or actual max columns
+                    // This handles cases where subdivisions create additional cells
+                    cellsPerRow = Math.max(cellsPerRow, maxActualCols);
+                    
+                    // Calculate measureLength: theoretical total ticks in a measure
+                    // This is numeratorSignature * masterFastestRate * denominatorSignature
+                    // (total cells across all rows, matching UI's nCol calculation)
+                    let measureLength = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate * chuckCodeData.denominatorSignature;
+                    
+                    // If actual cellsPerRow is larger than base, adjust measureLength to account for it
+                    // This ensures measureLength matches the actual grid size
+                    const baseCellsPerRow = chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate;
+                    if (cellsPerRow > baseCellsPerRow) {
+                        // Scale measureLength proportionally
+                        const scaleFactor = cellsPerRow / baseCellsPerRow;
+                        measureLength = Math.ceil(measureLength * scaleFactor);
+                    }
+                    
+                    // Safety limit: prevent memory issues from extremely large arrays
+                    // If measureLength is too large, it likely indicates incorrect configuration
+                    const MAX_MEASURE_LENGTH = 512; // Reasonable upper bound (16 rows * 32 cells)
+                    if (measureLength > MAX_MEASURE_LENGTH) {
+                        console.warn(`[runChuckCode] measureLength ${measureLength} exceeds maximum ${MAX_MEASURE_LENGTH}, clamping to prevent memory errors`);
+                        measureLength = MAX_MEASURE_LENGTH;
+                    }
+                    
+                    // Initialize filesArr2D with exactly measureLength entries (one per tick)
+                    // Each entry is an array of 32 file indices, defaulting to 9999
+                    const filesArr2D: number[][] = new Array(measureLength).fill(null).map(() => new Array(32).fill(9999));
+                    
+                    // Populate filesArr2D from masterPatterns by calculating tick index
+                    // Tick index = row * cellsPerRow + colX
+                    rowKeys.forEach((rowY) => {
+                        const row = masterPatterns[String(rowY)] || {};
+                        // Iterate through actual columns in this row (may be more than base cellsPerRow)
+                        const rowColKeys = Object.keys(row).map(k => parseInt(k, 10)).filter(n => !Number.isNaN(n));
+                        const maxColInRow = rowColKeys.length > 0 ? Math.max(...rowColKeys) : -1;
+                        
+                        // Process all columns up to maxColInRow (or cellsPerRow, whichever is larger)
+                        const colsToProcess = Math.max(cellsPerRow, maxColInRow + 1);
+                        for (let colX = 0; colX < colsToProcess; colX++) {
+                            const cell = row[String(colX)];
+                            const fileNums = cell?.fileNums || [];
+                            
+                            // Calculate the tick index: row * cellsPerRow + colX
+                            const tickIndex = rowY * cellsPerRow + colX;
+                            
+                            // Only set if within bounds
+                            if (tickIndex >= 0 && tickIndex < measureLength) {
+                                if (fileNums.length > 0) {
+                                    // Pad to exactly 32 elements
+                                    const padded = [...fileNums];
+                                    while (padded.length < 32) padded.push(9999);
+                                    filesArr2D[tickIndex] = padded.slice(0, 32);
+                                }
+                                // Otherwise it stays as [9999, 9999, ...] from initialization
+                            }
+                        }
+                    });
+                    
+                    // Safety check: ensure we have at least one entry
                     if (filesArr2D.length === 0) {
-                        filesArr2D.push([9999]);
+                        filesArr2D.push(new Array(32).fill(9999));
                     }
                     
                     // Safety validation: ensure all rows are exactly 32 elements before ChucK injection
@@ -2131,7 +2195,18 @@ export default function ChuckSetup() {
                         global Event stopEvent;  // Global stop signal
                         
                         ${filesArrayChuck} @=> string files[];
-                        ${filesArr2DChuck} @=> int filesArr[][];
+                        // Initialize array with defaults using loop (more efficient than individual assignments)
+                        int filesArr[${filesArr2D.length}][32];
+                        // Initialize all to 9999 (default)
+                        for (0 => int i; i < ${filesArr2D.length}; i++) {
+                            for (0 => int j; j < 32; j++) {
+                                9999 => filesArr[i][j];
+                            }
+                        }
+                        // Override with actual values (only non-default entries)
+                        ${filesArr2D.map((row, i) => 
+                            row.map((val, j) => val !== 9999 ? `                        ${val} => filesArr[${i}][${j}];` : '').filter(Boolean).join('\n')
+                        ).filter(Boolean).join('\n')}
                         
                         Std.ftoi(60000 / ${chuckCodeData.bpm}) => beatMSNew;
                         ${chuckCodeData.numeratorSignature * chuckCodeData.masterFastestRate * chuckCodeData.denominatorSignature} => int measureLength;
@@ -2359,6 +2434,149 @@ export default function ChuckSetup() {
                             }
                         }
                         
+
+
+
+
+
+// ============================================================
+// SHRED MANAGEMENT: Track and manage shreds per key
+// Based on MCP knowledge base: "spork2-exit" pattern
+// ============================================================
+// Global storage for active shred references (one per key code)
+Shred activeShredRefs[256];  // Map key code to Shred reference
+
+// Function to start a shred on key press
+fun void startKeyShred(int keyCode, int ascii, int midiNote) {
+    // #region agent log
+    <<< "DEBUG startKeyShred ENTRY keyCode:", keyCode, "ascii:", ascii, "midiNote:", midiNote, "activeShredRefs[keyCode] null?:", (activeShredRefs[keyCode] == null), "Machine.numShreds():", Machine.numShreds() >>>;
+    // #endregion
+    
+    // Check if shred already exists for this key
+    if (activeShredRefs[keyCode] != null) {
+        // #region agent log
+        <<< "DEBUG startKeyShred SKIP - shred already exists for key", keyCode >>>;
+        // #endregion
+        // Already running, don't start another
+        return;
+    }
+    
+    // Spork the shred and store the Shred reference
+    spork ~ keyPressShred(keyCode, ascii, midiNote) @=> activeShredRefs[keyCode];
+    
+    // #region agent log
+    activeShredRefs[keyCode].id() => int newShredId;
+    <<< "DEBUG startKeyShred SUCCESS keyCode:", keyCode, "newShredId:", newShredId, "Machine.numShreds():", Machine.numShreds() >>>;
+    // #endregion
+    
+    <<< "log! Shred started for key", keyCode, "MIDI:", midiNote >>>;
+}
+
+// Function to stop a shred on key release (using Machine.remove pattern from MCP)
+fun void stopKeyShred(int keyCode) {
+    // #region agent log
+    <<< "DEBUG stopKeyShred ENTRY keyCode:", keyCode, "activeShredRefs[keyCode] null?:", (activeShredRefs[keyCode] == null), "Machine.numShreds():", Machine.numShreds() >>>;
+    // #endregion
+    
+    if (activeShredRefs[keyCode] != null) {
+        // Get shred ID from the Shred reference (Machine.remove expects int, not Shred)
+        activeShredRefs[keyCode].id() => int shredId;
+        
+        // #region agent log
+        <<< "DEBUG stopKeyShred BEFORE remove shredId:", shredId, "Machine.numShreds():", Machine.numShreds() >>>;
+        // #endregion
+        
+        // Remove the shred by ID (garbage collects automatically)
+        Machine.remove(shredId);
+        
+        // #region agent log
+        <<< "DEBUG stopKeyShred AFTER remove shredId:", shredId, "Machine.numShreds():", Machine.numShreds() >>>;
+        // #endregion
+        
+        null @=> activeShredRefs[keyCode];  // Clear the reference
+        
+        // #region agent log
+        <<< "DEBUG stopKeyShred SUCCESS keyCode:", keyCode, "reference cleared" >>>;
+        // #endregion
+        
+        <<< "log! Shred stopped for key", keyCode, "shred ID:", shredId >>>;
+    } else {
+        // #region agent log
+        <<< "DEBUG stopKeyShred SKIP - no active shred for key", keyCode >>>;
+        // #endregion
+    }
+}
+
+// The actual shred that runs while key is pressed
+// Produces continuous audio until removed by Machine.remove()
+fun void keyPressShred(int keyCode, int ascii, int midiNote) {
+    // #region agent log
+    me.id() => int myShredId;
+    <<< "DEBUG keyPressShred START keyCode:", keyCode, "shredId:", myShredId, "Machine.numShreds():", Machine.numShreds() >>>;
+    // #endregion
+    
+    // Route through effects chain for processing
+    SinOsc s => ADSR env => Gain g => osc1_FxChain => masterGain;
+    
+    // #region agent log
+    <<< "DEBUG keyPressShred AUDIO_ROUTED keyCode:", keyCode, "shredId:", myShredId >>>;
+    // #endregion
+    
+    // Set frequency from MIDI note
+    Std.mtof(midiNote) => s.freq;
+    0.5 => g.gain;  // Audible gain level
+    
+    // ADSR envelope: quick attack, sustain, quick release
+    env.set(10::ms, 50::ms, 0.7, 100::ms);
+    env.keyOn();
+    
+    // #region agent log
+    <<< "DEBUG keyPressShred ENVELOPE_ON keyCode:", keyCode, "shredId:", myShredId, "entering loop" >>>;
+    // #endregion
+    
+    // Run continuously until removed - audio needs continuous time advancement
+    // Use small time increments to produce continuous audio
+    // The shred will be removed by Machine.remove() when key is released
+    0 => int loopCount;
+    while (true) {
+        // Small time increment allows continuous audio generation
+        // This is much smaller than tick intervals, so audio is smooth
+        1::ms => now;
+        loopCount++;
+        
+        // #region agent log
+        // Log every 1000 iterations (every second) to track if shred is still running
+        if (loopCount % 1000 == 0) {
+            <<< "DEBUG keyPressShred LOOP keyCode:", keyCode, "shredId:", myShredId, "loopCount:", loopCount, "Machine.numShreds():", Machine.numShreds() >>>;
+        }
+        // #endregion
+    }
+    
+    // Cleanup when shred exits (though Machine.remove() handles termination)
+    // #region agent log
+    <<< "DEBUG keyPressShred CLEANUP_START keyCode:", keyCode, "shredId:", myShredId >>>;
+    // #endregion
+    env.keyOff();
+    100::ms => now;  // Let release envelope finish
+    s =< env =< g =< osc1_FxChain =< masterGain;
+    
+    // #region agent log
+    <<< "DEBUG keyPressShred CLEANUP_DONE keyCode:", keyCode, "shredId:", myShredId >>>;
+    // #endregion
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
                         // ============================================================
                         // MIDI KEYBOARD SHRED: Cross-input pitch-shifted playback
                         // Transforms captured audio (file/mic) into MIDI-triggered keyboard
@@ -2372,6 +2590,11 @@ export default function ChuckSetup() {
                             Hid hid;
                             HidMsg msg;
                             
+// Initialize shred reference tracking array
+for (0 => int i; i < 256; i++) {
+    null @=> activeShredRefs[i];
+}
+
                             // Open keyboard HID (already initialized in TypeScript, but check)
                             // The HID manager in TypeScript will only send events when canvas is focused
                             if (hid.openKeyboard(0)) {
@@ -2393,54 +2616,48 @@ export default function ChuckSetup() {
                                 // Wait for MIDI keyboard event
                                 hid => now;
                                 
+                                // Process all pending HID messages
                                 while (hid.recv(msg)) {
-                                    if (msg.isButtonUp()) {
-                                         <<< "log! HID button UP:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
-                                    }
-                                    else if (msg.isButtonDown()) {
+                                    if (msg.isButtonDown()) {
                                         <<< "log! HID button DOWN:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
-                                        // Convert key to MIDI note (simplified - you'd use actual MIDI mapping)
+                                        
+                                        // Convert key to MIDI note
                                         msg.ascii => int ascii;
-                                        // Simple mapping: a-z keys to MIDI notes 60-85
+                                        
+                                        // #region agent log
+                                        <<< "DEBUG HID buttonDown ascii:", ascii, "isLowercase (97-122)?", (ascii >= 97 && ascii <= 122), "isUppercase (65-90)?", (ascii >= 65 && ascii <= 90) >>>;
+                                        // #endregion
+                                        
                                         int midiNote;
-                                        if (ascii >= 97 && ascii <= 122) {  // a-z
+                                        // Check both uppercase (65-90) and lowercase (97-122) ASCII ranges
+                                        if ((ascii >= 97 && ascii <= 122) || (ascii >= 65 && ascii <= 90)) {  // a-z or A-Z
+                                            // Normalize to lowercase for MIDI note calculation
+                                            if (ascii >= 65 && ascii <= 90) {
+                                                ascii + 32 => ascii;  // Convert A-Z to a-z
+                                            }
                                             (ascii - 97) + 60 => midiNote;  // C4 to C6 range
                                             
-                                            // Check if we have a recorded buffer to play
-                                            if (activeBufferIndex >= 0 && activeBufferIndex < sharedAudioBuffers.size()) {
-                                                // Get voice for this MIDI note
-                                                midiNote => int voiceIndex;
-                                                if (voiceIndex < playbackVoices.size()) {
-                                                    // Copy from shared buffer to voice
-                                                    // (In real implementation, you'd use LiSa.copy() or similar)
-                                                    
-                                                    // Calculate pitch ratio from MIDI note
-                                                    Std.mtof(midiNote) / Std.mtof(60) => float pitchRatio;
+                                            // #region agent log
+                                            <<< "DEBUG HID CALLING startKeyShred keyCode:", msg.which, "normalizedAscii:", ascii, "midiNote:", midiNote >>>;
+                                            // #endregion
                                             
-                                                    // Play with pitch modification
-                                                    playbackVoices[voiceIndex].play(1);
-                                                    playbackVoices[voiceIndex].rate(pitchRatio);  // Pitch shift
-                                            playbackVoices[voiceIndex].playPos(0::samp);
-                                                    0.5 => playbackVoices[voiceIndex].gain;
-                                            
-                                                    <<< "MIDI Keyboard: Playing note", midiNote, "at pitch ratio", pitchRatio >>>;
-                                                    
-                                                    // Stop after buffer length (or use envelope)
-                                                    // LiSa doesn't have length() - use recPos() to get recorded length, or use known duration
-                                                    // Get recorded length from shared buffer, or use max duration (10 seconds)
-                                                    sharedAudioBuffers[activeBufferIndex].recPos() / pitchRatio => now;
-                                                    playbackVoices[voiceIndex].play(0);
+                                            // Start shred for this key (synchronized with mainTickLoop)
+                                            startKeyShred(msg.which, ascii, midiNote);
+                                        } else {
+                                            // #region agent log
+                                            <<< "DEBUG HID SKIP - not a letter key ascii:", ascii >>>;
+                                            // #endregion
+                                        }
                                     }
-                                } else {
-                                                <<< "MIDI Keyboard: No active buffer to play" >>>;
+                                    else if (msg.isButtonUp()) {
+                                        <<< "log! HID button UP:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
+                                        
+                                        // Stop shred for this key (garbage collects automatically)
+                                        stopKeyShred(msg.which);
+                                    }
                                 }
-                            }
-                                    } else if (msg.isButtonUp()) {
-                                        // Note off - could implement release envelope here
-                                        // For now, just log
-                            }
-                        }
-                        
+                                
+                                // Yield to allow other shreds to process
                                 me.yield();
                             }
                         }
@@ -2504,6 +2721,7 @@ export default function ChuckSetup() {
                         // ============================================================
                         fun void mainTickLoop() {
                             0 => int ticker;
+                            0 => int lastShredCount;
                             
                             while (true) {
                                 // Broadcast tick event (non-blocking, all listeners process in parallel)
@@ -2511,6 +2729,17 @@ export default function ChuckSetup() {
                                 
                                 // Print tick for external monitoring (meyda worker can inspect)
                                 <<< "TICK", ticker >>>;
+                                
+                                // #region agent log
+                                // Monitor shred count every 10 ticks to detect leaks
+                                if (ticker % 10 == 0) {
+                                    Machine.numShreds() => int currentShredCount;
+                                    if (currentShredCount != lastShredCount) {
+                                        <<< "DEBUG mainTickLoop SHRED_COUNT_CHANGE ticker:", ticker, "shreds:", currentShredCount, "was:", lastShredCount >>>;
+                                        currentShredCount => lastShredCount;
+                                    }
+                                }
+                                // #endregion
                                 
                                 // Advance time
                                 (beatMSNew)::ms => now;
@@ -2556,26 +2785,11 @@ export default function ChuckSetup() {
                         mainTickLoop();
                     `
 
-
+console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
                     result = await chuckRef.current.runCode(tempTestCode);
                     console.log('✅ ChucK code replaced successfully ', result);
                 } catch (replaceErr: any) {
-                    // If replaceCode fails, try runCode
-                    // console.log('⚠️ replaceCode failed, trying runCode...');
-                    // result = await chuckRef.current.runCode(generatedChuckCode);
-                    // result = await chuckRef.current.runCode(`
-                    //     SinOsc osc => dac;
-                    //     440 => osc.freq;
-                    //     1::week => now;
-                    // `);
                 }
-                // Clear any existing code first to avoid conflicts
-                // try {
-                //     await chuckRef.current.runCode(`Machine.removeAllShreds();`);
-                //     await chuckRef.current.runCode(`Machine.resetShredID();`);
-                // } catch (clearErr: any) {
-                //     // Ignore clear errors - might not be necessary
-                // }
                 console.log('✅ ChucK code executed successfully with effects routing');
                 if (errorMessages.length > 0) {
                     console.warn('⚠️ ChucK warnings captured:', errorMessages);
