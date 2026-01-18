@@ -57,6 +57,7 @@ import {
 import { initializeUniversalSources } from '../utils/effectsInitializationHelper';
 import BabylonCanvas from './BabylonCanvas';
 import PhilosopherGuide from './PhilosopherGuide';
+import ControlPanel from './ControlPanel';
 
 // Files to preload into ChucK's virtual filesystem when initializing
 const SERVER_FILES_TO_PRELOAD = [
@@ -2445,6 +2446,45 @@ export default function ChuckSetup() {
 // ============================================================
 // Global storage for active shred references (one per key code)
 Shred activeShredRefs[256];  // Map key code to Shred reference
+// Global storage for Gain objects (for volume normalization)
+Gain activeGains[256];  // Map key code to Gain object for volume control
+
+// Helper function to count active keys
+fun int countActiveKeys() {
+    0 => int count;
+    for (0 => int i; i < 256; i++) {
+        if (activeShredRefs[i] != null) {
+            count++;
+        }
+    }
+    return count;
+}
+
+// Helper function to normalize volume across all active keys
+// Reduces individual key gain so total volume stays constant
+fun void normalizeActiveKeysVolume() {
+    countActiveKeys() => int activeCount;
+    
+    // If no keys active, nothing to do
+    if (activeCount == 0) {
+        return;
+    }
+    
+    // Calculate normalized gain: base gain (0.5) divided by number of active keys
+    // This ensures total volume stays constant (e.g., 5 keys = 0.1 each = 0.5 total)
+    0.5 / (activeCount $ float) => float normalizedGain;
+    
+    // #region agent log
+    <<< "DEBUG normalizeActiveKeysVolume activeCount:", activeCount, "normalizedGain:", normalizedGain >>>;
+    // #endregion
+    
+    // Update gain for all active keys
+    for (0 => int i; i < 256; i++) {
+        if (activeGains[i] != null) {
+            normalizedGain => activeGains[i].gain;
+        }
+    }
+}
 
 // Function to start a shred on key press
 fun void startKeyShred(int keyCode, int ascii, int midiNote) {
@@ -2453,12 +2493,21 @@ fun void startKeyShred(int keyCode, int ascii, int midiNote) {
     // #endregion
     
     // Check if shred already exists for this key
+    // If it does, stop it first to prevent stuck keys (orphaned due to missing UP events)
     if (activeShredRefs[keyCode] != null) {
         // #region agent log
-        <<< "DEBUG startKeyShred SKIP - shred already exists for key", keyCode >>>;
+        <<< "WARNING: Key", keyCode, "already has active shred - stopping orphaned shred first!" >>>;
+        <<< "DEBUG startKeyShred FORCE_STOP existing shred for key", keyCode, "shredId:", activeShredRefs[keyCode].id(), "Machine.numShreds():", Machine.numShreds() >>>;
         // #endregion
-        // Already running, don't start another
-        return;
+        // Force stop the orphaned shred (this handles stuck keys from missing UP events)
+        stopKeyShred(keyCode);
+        
+        // #region agent log
+        <<< "DEBUG startKeyShred AFTER force stop keyCode:", keyCode, "Machine.numShreds():", Machine.numShreds() >>>;
+        // #endregion
+        
+        // Small delay to ensure cleanup completes
+        10::ms => now;
     }
     
     // Spork the shred and store the Shred reference
@@ -2470,17 +2519,27 @@ fun void startKeyShred(int keyCode, int ascii, int midiNote) {
     // #endregion
     
     <<< "log! Shred started for key", keyCode, "MIDI:", midiNote >>>;
+    
+    // Note: Volume normalization happens inside keyPressShred after Gain reference is stored
+    // This ensures the new key's Gain is included in normalization
 }
 
 // Function to stop a shred on key release (using Machine.remove pattern from MCP)
 fun void stopKeyShred(int keyCode) {
     // #region agent log
-    <<< "DEBUG stopKeyShred ENTRY keyCode:", keyCode, "activeShredRefs[keyCode] null?:", (activeShredRefs[keyCode] == null), "Machine.numShreds():", Machine.numShreds() >>>;
+    <<< "DEBUG stopKeyShred ENTRY keyCode:", keyCode, "activeShredRefs[keyCode] null?:", (activeShredRefs[keyCode] == null), "activeGains[keyCode] null?:", (activeGains[keyCode] == null), "Machine.numShreds():", Machine.numShreds() >>>;
     // #endregion
     
     if (activeShredRefs[keyCode] != null) {
+        // Store shred reference locally before clearing
+        activeShredRefs[keyCode] @=> Shred @ localShredRef;
+        
         // Get shred ID from the Shred reference (Machine.remove expects int, not Shred)
-        activeShredRefs[keyCode].id() => int shredId;
+        localShredRef.id() => int shredId;
+        
+        // Clear references immediately to prevent reuse
+        null @=> activeShredRefs[keyCode];
+        null @=> activeGains[keyCode];
         
         // #region agent log
         <<< "DEBUG stopKeyShred BEFORE remove shredId:", shredId, "Machine.numShreds():", Machine.numShreds() >>>;
@@ -2493,16 +2552,17 @@ fun void stopKeyShred(int keyCode) {
         <<< "DEBUG stopKeyShred AFTER remove shredId:", shredId, "Machine.numShreds():", Machine.numShreds() >>>;
         // #endregion
         
-        null @=> activeShredRefs[keyCode];  // Clear the reference
+        // Normalize volume across remaining active keys
+        normalizeActiveKeysVolume();
         
         // #region agent log
-        <<< "DEBUG stopKeyShred SUCCESS keyCode:", keyCode, "reference cleared" >>>;
+        <<< "DEBUG stopKeyShred SUCCESS keyCode:", keyCode, "shred removed, volume normalized" >>>;
         // #endregion
         
         <<< "log! Shred stopped for key", keyCode, "shred ID:", shredId >>>;
     } else {
         // #region agent log
-        <<< "DEBUG stopKeyShred SKIP - no active shred for key", keyCode >>>;
+        <<< "DEBUG stopKeyShred SKIP - no active shred for key", keyCode, "BUT activeGains[keyCode] null?:", (activeGains[keyCode] == null), "Machine.numShreds():", Machine.numShreds() >>>;
         // #endregion
     }
 }
@@ -2518,13 +2578,23 @@ fun void keyPressShred(int keyCode, int ascii, int midiNote) {
     // Route through effects chain for processing
     SinOsc s => ADSR env => Gain g => osc1_FxChain => masterGain;
     
+    // Store Gain reference globally so we can normalize volume
+    g @=> activeGains[keyCode];
+    
     // #region agent log
-    <<< "DEBUG keyPressShred AUDIO_ROUTED keyCode:", keyCode, "shredId:", myShredId >>>;
+    <<< "DEBUG keyPressShred AUDIO_ROUTED keyCode:", keyCode, "shredId:", myShredId, "Gain reference stored" >>>;
     // #endregion
     
     // Set frequency from MIDI note
     Std.mtof(midiNote) => s.freq;
-    0.5 => g.gain;  // Audible gain level
+    
+    // Normalize volume across all active keys (including this new one)
+    // This ensures total volume stays constant regardless of number of keys pressed
+    normalizeActiveKeysVolume();
+    
+    // #region agent log
+    <<< "DEBUG keyPressShred AFTER normalization keyCode:", keyCode, "gain:", g.gain() >>>;
+    // #endregion
     
     // ADSR envelope: quick attack, sustain, quick release
     env.set(10::ms, 50::ms, 0.7, 100::ms);
@@ -2590,9 +2660,10 @@ fun void keyPressShred(int keyCode, int ascii, int midiNote) {
                             Hid hid;
                             HidMsg msg;
                             
-// Initialize shred reference tracking array
+// Initialize shred reference tracking arrays
 for (0 => int i; i < 256; i++) {
     null @=> activeShredRefs[i];
+    null @=> activeGains[i];
 }
 
                             // Open keyboard HID (already initialized in TypeScript, but check)
@@ -2651,6 +2722,10 @@ for (0 => int i; i < 256; i++) {
                                     }
                                     else if (msg.isButtonUp()) {
                                         <<< "log! HID button UP:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
+                                        
+                                        // #region agent log
+                                        <<< "DEBUG HID buttonUp keyCode:", msg.which, "activeShredRefs[keyCode] null?:", (activeShredRefs[msg.which] == null), "Machine.numShreds():", Machine.numShreds() >>>;
+                                        // #endregion
                                         
                                         // Stop shred for this key (garbage collects automatically)
                                         stopKeyShred(msg.which);
@@ -2940,37 +3015,12 @@ console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
             {/* <Box sx={{width: '100%', color: '#f6f6f6', zIndex: '9999999', position: 'fixed'}}>HELLO!!!</Box> */}
             <BabylonCanvas />
             <>
-            {initializing && (
-                        <Button
-                            id='chuckMicButtonWrapper'
-                            aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
-                        sx={{
-                            cursor: ready ? 'pointer' : 'not-allowed',
-                            minWidth: '48px',
-                            minHeight: '48px',
-                            padding: '8px',
-                            pointerEvents: 'auto',
-                        }}
-                    // onClick={chuckMicButton}
-                    >
-                        {/* {!isRunning && */}
-                        <MicIcon
-                            sx={{
-                                fontSize: '32px',
-                                color: 'yellow',
-                                verticalAlign: 'middle'
-                            }}
-                            onClick={chuckMicButton}
-                        />
-                        {/* // } */}
-                        {/* <MicIcon sx={{ fontSize: '32px', color: "yellow", verticalAlign: 'middle' }} /> */}
-                    </Button>
-                )}
+
                 <Box
                     id='chuckSetupContainer'
                     sx={{
                         position: 'absolute',
-                        top: 120,
+                        top: 80,
                         left: 8,
                         right: 0, // stretch flush across available width
                         display: 'flex',
@@ -3026,54 +3076,112 @@ console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
                         <Box sx={{
                             display: 'inline-flex',
                             width: '100%',
-                            justifyContent: 'space-between',
+                            justifyContent: 'left',
                         }}>
+                            <Box sx={{maxWidth:"20%"}}>
                             {/* Keyboard toggle (single toggle as requested) */}
-                            <Button
-                                id='toggleKeyboardButton'
-                                sx={{
-                                    // minWidth: '48px',
-                                    // minHeight: '48px',
-                                    // padding: '8px',
-                                    cursor: 'pointer',
-                                    pointerEvents: 'auto',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    // gap: 1,
-
-                                }}
-                                onClick={() => {
-                                    // Toggle HID on/off WITHOUT opening Piano keyboard UI
-                                    // HID functionality is independent of keyboard UI (piano/hex/none)
-                                    // This only enables/disables HID keyboard input - does NOT change keyboardMode
-                                    setHidEnabled(!hidEnabled);
-                                }}
-
-                            >
-                                <KeyboardIcon
+                                <Button
+                                    id='toggleKeyboardButton'
                                     sx={{
-                                        fontSize: '24px',
-
-                                        color: hidEnabled
-                                            ? 'var(--color-subdominant-primary, #00D9FF)'
-                                            : 'var(--color-dominant-text, white)'
+                                        minWidth: '48px',
+                                        minHeight: '48px',
+                                        maxWidth: '48px',
+                                        maxHeight: '48px',
+                                        // padding: '8px',
+                                        cursor: 'pointer',
+                                        pointerEvents: 'auto',
+                                        display: 'flex',
+                                        alignItems: 'center',
                                     }}
-                                />
-                                {hidEnabled && (
+                                    onClick={() => {
+                                        // Toggle HID on/off WITHOUT opening Piano keyboard UI
+                                        // HID functionality is independent of keyboard UI (piano/hex/none)
+                                        // This only enables/disables HID keyboard input - does NOT change keyboardMode
+                                        setHidEnabled(!hidEnabled);
+                                    }}
 
-                                    <span style={{
-                                        fontSize: '10px',
-                                        marginLeft: '4px',
-                                        color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
-                                        fontFamily: 'monospace'
-                                    }}>
-                                        HID Active
-                                    </span>
+                                >
+                                    <KeyboardIcon
+                                        sx={{
+                                            color: hidEnabled
+                                                ? 'var(--color-subdominant-primary, #00D9FF)'
+                                                : 'var(--color-dominant-text, white)'
+                                        }}
+                                    />
+                                    {hidEnabled && (
+                                        <span style={{
+                                            fontSize: '10px',
+                                            marginLeft: '1px',
+                                            color: 'var(--color-tertiary-muted, rgba(74,85,104,0.8))',
+                                            fontFamily: 'monospace'
+                                        }}>
+                                            HID Active
+                                        </span>
+                                    )}
+                                </Button>
+                            </Box>
+
+                            <Box sx={{maxWidth:"40%", marginTop:"4px"}}>
+                                <ControlPanel />
+                            </Box>
+                            <Box sx={{ 
+                                display: 'flex', 
+                                // width: '40%', 
+                                justifyContent: 'flex-start' }}>
+                                <Button
+                                    id='runChuckCodeButton'
+                                    aria-label="Run ChucK audio code"
+                                    sx={{
+                                        maxWidth: '32px',
+                                        maxHeight: '32px',
+                                        minWidth: '32px',
+                                        minHeight: '32px',
+                                        marginLeft: '16px',
+                                        marginTop: '8px',
+                                        padding: '4px',
+                                        cursor: ready ? 'pointer' : 'not-allowed',
+                                        pointerEvents: 'auto',
+                                    }}
+                                    onClick={isRunning ? stopChuckInstance : runChuckCode}
+                                >
+                                    {!isRunning ?
+                                        <PlayCircleIcon
+                                            sx={{ fontSize: '48px', color: "green", verticalAlign: 'middle' }} /> :
+                                        <StopCircleIcon
+                                            sx={{ fontSize: '48px', color: "red", verticalAlign: 'middle' }} />
+                                    }
+                                </Button>
+                                {initializing && (
+                                    <Button
+                                        id='chuckMicButtonWrapper'
+                                        aria-label={audioInSelected ? 'Disable microphone input' : 'Enable microphone input'}
+                                        sx={{
+                                            cursor: ready ? 'pointer' : 'not-allowed',
+                                            maxWidth: '32px',
+                                            maxHeight: '32px',
+                                            minWidth: '40px',
+                                            minHeight: '40px',
+                                            padding: '4px',
+                                            marginLeft: '12px',
+                                            marginTop: '4px',
+                                            pointerEvents: 'auto',
+                                        }}
+                                    // onClick={chuckMicButton}
+                                    >
+                                        <MicIcon
+                                            sx={{
+                                                fontSize: '32px',
+                                                color: 'yellow',
+                                                verticalAlign: 'middle'
+                                            }}
+                                            onClick={chuckMicButton}
+                                        />
+                                    </Button>
                                 )}
-                            </Button>
+                                </Box>
 
                             {/* Simple toggle: Add uploaded files to MIDI keyboard buffers */}
-                            <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
+                            {/* <Tooltip title={addToMidiBuffers ? "Files will be added to MIDI keyboard buffers" : "Files go to sampler only"}>
                                 <Button
                                     id='addToMidiBuffersToggle'
                                     sx={{
@@ -3095,10 +3203,10 @@ console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
                                         }}
                                     />
                                 </Button>
-                            </Tooltip>
+                            </Tooltip> */}
 
                             {/* Toggle: Keyboard clicks add to notes dropdown */}
-                            <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
+                            {/* <Tooltip title={keyboardAddsToNotes ? "Keyboard clicks add notes to dropdown" : "Keyboard clicks don't add to notes"}>
                                 <Button
                                     id='keyboardAddsToNotesToggle'
                                     sx={{
@@ -3125,7 +3233,7 @@ console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
                                         }}
                                     />
                                 </Button>
-                            </Tooltip>
+                            </Tooltip> */}
                         </Box>    
                         <Box sx={{ 
                             marginLeft: "0px",
@@ -3136,7 +3244,7 @@ console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
                                     sx={{
                                         minWidth: '48px',
                                         minHeight: '48px',
-                                        padding: '8px',
+                                        // padding: '8px',
                                         cursor: 'pointer',
                                         pointerEvents: 'auto',
                                     }}
@@ -3188,53 +3296,8 @@ console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
                         </Box>
                     </Box> 
 
-                    {/* Row 3: Play/Stop button aligned left */}
-                    {/* <Box sx={{ display: 'flex', width: '100%', justifyContent: 'flex-start' }}>
-                        <Button
-                            id='runChuckCodeButton'
-                            aria-label="Run ChucK audio code"
-                            sx={{
-                                minWidth: '48px',
-                                minHeight: '48px',
-                                padding: '8px',
-                                cursor: ready ? 'pointer' : 'not-allowed',
-                                pointerEvents: 'auto',
-                            }}
-                            onClick={isRunning ? stopChuckInstance : runChuckCode}
-                        >
-                            {!isRunning ?
-                                <PlayCircleIcon
-                                    sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
-                                <StopCircleIcon
-                                    sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
-                            }
-                        </Button>
-                    </Box> */}
-
                     <PhilosopherGuide />
                 </Box>
-
-                    <Box sx={{ display: 'flex', width: '100%', justifyContent: 'flex-start' }}>
-                        <Button
-                            id='runChuckCodeButton'
-                            aria-label="Run ChucK audio code"
-                            sx={{
-                                minWidth: '48px',
-                                minHeight: '48px',
-                                padding: '8px',
-                                cursor: ready ? 'pointer' : 'not-allowed',
-                                pointerEvents: 'auto',
-                            }}
-                            onClick={isRunning ? stopChuckInstance : runChuckCode}
-                        >
-                            {!isRunning ?
-                                <PlayCircleIcon
-                                    sx={{ fontSize: '32px', color: "green", verticalAlign: 'middle' }} /> :
-                                <StopCircleIcon
-                                    sx={{ fontSize: '32px', color: "red", verticalAlign: 'middle' }} />
-                            }
-                        </Button>
-                    </Box>
 
                 <SynthControlPanel
                     open={synthPanelOpen}

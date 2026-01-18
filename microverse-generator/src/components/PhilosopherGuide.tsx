@@ -403,7 +403,7 @@ export default function CodeGuide() {
         style={{ 
           position: 'fixed', // Use fixed to ensure it's above the canvas
           // bottom: 240,
-          top: 224, 
+          top: 184, 
           left: 8, 
           maxWidth: 240, 
           padding: '12px 14px', 

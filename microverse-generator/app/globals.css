@@ -330,15 +330,15 @@ li.vizKey.white.half {
 }
 
 #runChuckCodeButton {
-  position: absolute;
-  top: 52px !important;
-  left: 268px !important;
+  /* position: absolute; */
+  /* top: 52px !important;
+  left: 268px !important; */
   border: 2px solid var(--color-subdominant-primary);
   background: var(--color-dominant-surface);
   color: var(--color-subdominant-primary);
   z-index: 99999;
   border-radius: 50%;
-  padding: 8px;
+  /* padding: 8px; */
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -363,9 +363,9 @@ li.vizKey.white.half {
 }
 
 #chuckMicButtonWrapper {
-  position: absolute;
+  /* position: absolute;
   top: 116px !important;
-  left: 268px !important;
+  left: 268px !important; */
   border: 2px solid var(--color-subdominant-primary);
   background: var(--color-dominant-surface);
   color: var(--color-subdominant-primary);

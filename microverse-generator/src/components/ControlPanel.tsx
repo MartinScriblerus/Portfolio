@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import HydraControlsPopup from './HydraControlsPopup';
 import { useVisStore } from '../store/useVisStore';
 import { useOldMonolithStore } from '../store/useOldMonolithStore';
+import LibraryMusic from '@mui/icons-material/LibraryMusic';
+import VideoSettingsIcon from '@mui/icons-material/VideoSettings';
 
 export default function ControlPanel() {
   const [hydraControlsOpen, setHydraControlsOpen] = useState(false);
@@ -12,10 +14,12 @@ export default function ControlPanel() {
     background: 'var(--color-dominant-surface, #1A1C20)',
     color: 'var(--color-dominant-text, #fff)',
     border: '2px solid var(--color-subdominant-primary, #00D9FF)',
-    padding: '6px 12px',
+    // padding: '6px 6px',
     borderRadius: 4,
     cursor: 'pointer',
     fontSize: 12,
+    // maxWidth: '24px',
+    // maxHeight: '24px',
     transition: 'all 0.2s ease',
   };
 
@@ -32,9 +36,9 @@ export default function ControlPanel() {
   return (
     <div 
       style={{ 
-        position:'absolute', 
-        top: 8, 
-        left: 8, /* Align with HID button and play button */
+        position:'relative', 
+        // top: 8, 
+        // left: 8, /* Align with HID button and play button */
         zIndex: 10000, 
         background: 'transparent',
         color: 'var(--color-dominant-text, #eee)', 
@@ -51,7 +55,7 @@ export default function ControlPanel() {
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
-          Hydra Controls
+          <VideoSettingsIcon />
         </button>
         <button
           onClick={() => setRightDrawerOpen(!rightDrawerOpen)}
@@ -61,7 +65,7 @@ export default function ControlPanel() {
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
-          ChucK Controls
+          <LibraryMusic />
         </button>
       </div>
       <HydraControlsPopup open={hydraControlsOpen} onClose={() => setHydraControlsOpen(false)} />
