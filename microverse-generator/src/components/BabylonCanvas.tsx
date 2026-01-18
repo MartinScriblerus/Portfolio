@@ -3223,11 +3223,11 @@ export default function BabylonHydraCanvas() {
             />
             {/* Top-left controls arranged to avoid overlap */}
             {/* Hydra Controls - top row, left side */}
-            <ControlPanel />
+            {/* <ControlPanel /> */}
             {/* RGB Panel - positioned below Hydra Controls */}
             <div style={{
                 position:'absolute', 
-                top: 48, /* Below Hydra Controls button (8px + ~40px button height) */
+                top: 8, /* Below Hydra Controls button (8px + ~40px button height) */
                 left: 8, /* Same left position as ControlPanel */
                 padding:'6px 10px', 
                 background: 'var(--color-dominant-surface, rgba(26,28,32,0.9))', 
