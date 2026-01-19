@@ -42,13 +42,21 @@ export function buildSourceData(sourceName: keyof Sources) {
     valuesReadout[fx.Type.toLowerCase()] = {};
     valuesReadoutDeclarations[fx.Type.toLowerCase()] = {};
 
-    Object.entries(fx.presets).forEach(([param, preset]: [string, any]) => {
-      const assignLine = `allFXDynamic${preset.kind}[\"${varName}_${param}\"] => ${varName}.${param};`;
-      valuesReadout[fx.Type.toLowerCase()][param] = assignLine;
+    // fx.presets is an array, not an object
+    if (Array.isArray(fx.presets)) {
+      fx.presets.forEach((preset: any) => {
+        if (!preset || !preset.name) return;
+        const param = preset.name;
+        // preset.type is "float" or "int" - capitalize first letter and add "s" for array name
+        const typeCapitalized = preset.type ? preset.type.charAt(0).toUpperCase() + preset.type.slice(1) + 's' : 'Floats';
+        
+        const assignLine = `allFXDynamic${typeCapitalized}[\"${varName}_${param}\"] => ${varName}.${param};`;
+        valuesReadout[fx.Type.toLowerCase()][param] = assignLine;
 
-      const getterLine = `(${preset.value}) => allFXDynamic${preset.kind}[\"${varName}_${param}\"];`;
-      valuesReadoutDeclarations[fx.Type.toLowerCase()][param] = getterLine;
-    });
+        const getterLine = `(${preset.value}) => allFXDynamic${typeCapitalized}[\"${varName}_${param}\"];`;
+        valuesReadoutDeclarations[fx.Type.toLowerCase()][param] = getterLine;
+      });
+    }
   });
 
   return {

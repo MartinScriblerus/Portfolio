@@ -2194,6 +2194,8 @@ export default function ChuckSetup() {
                         global int beatMSNew;
                         global Event tickEvent;  // Main tick event for coordination
                         global Event stopEvent;  // Global stop signal
+                        global float allFXDynamicFloats[0];  // Associative array for effect parameters
+                        global int allFXDynamicInts[0];  // Associative array for int effect parameters
                         
                         ${filesArrayChuck} @=> string files[];
                         // Initialize array with defaults using loop (more efficient than individual assignments)
@@ -2219,28 +2221,33 @@ export default function ChuckSetup() {
                         0.5 => masterGain.gain;
                         
                         // ============================================================
+                        // EFFECTS DECLARATIONS: All chugins and effects
+                        // CRITICAL: Must be declared BEFORE class definitions that use them
+                        // ============================================================
+                        ${(chuckCodeData.signalChainDeclarations || []).map((d: string) => d).join(' ')}
+                        ${(chuckCodeData.signalChainSamplerDeclarations || []).map((d: string) => d).join(' ')}
+                        ${(chuckCodeData.signalChainSTKDeclarations || []).map((d: string) => d).join(' ')}
+                        ${(chuckCodeData.signalChainAudioInDeclarations || []).map((d: string) => d).join(' ')}
+                        
+                        // ============================================================
                         // EFFECTS CHAIN CLASSES: Parameter-driven, non-blocking
                         // All effects are connected via Chugraph for sample-accurate routing
                         // CRITICAL: Classes must be defined BEFORE instances are declared
                         // ============================================================
                         class Osc1_EffectsChain extends Chugraph {
                             inlet => ${(chuckCodeData.signalChain || []).join(' ')} outlet;
-                            ${Object.values(chuckCodeData.valuesReadout || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
                         }
                         
                         class Sampler_EffectsChain extends Chugraph {
                             inlet => ${(chuckCodeData.signalChainSampler || []).join(' ')} outlet;
-                            ${Object.values(chuckCodeData.valuesReadoutSampler || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
                         }
                         
                         class STK_EffectsChain extends Chugraph {
                             inlet => ${(chuckCodeData.signalChainSTK || []).join(' ')} outlet;
-                            ${Object.values(chuckCodeData.valuesReadoutSTK || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
                         }
                         
                         class AudioIn_EffectsChain extends Chugraph {
                             inlet => ${(chuckCodeData.signalChainAudioIn || []).join(' ')} outlet;
-                            ${Object.values(chuckCodeData.valuesReadoutAudioIn || {}).map((value: any) => typeof value === 'object' ? Object.values(value).join(' ') : value).join(' ')}
                         }
                         
                         // CRITICAL: Declare effects chain instances BEFORE they are used
@@ -2249,6 +2256,54 @@ export default function ChuckSetup() {
                         Osc1_EffectsChain osc1_FxChain;
                         STK_EffectsChain stk_FxChain;
                         AudioIn_EffectsChain audioIn_FxChain;
+                        
+                        // ============================================================
+                        // EFFECT PARAMETER ASSIGNMENTS: Execute after instances are created
+                        // CRITICAL: Assignments must be at top level, not inside class body
+                        // ============================================================
+                        ${(() => {
+                            const assignments: string[] = [];
+                            // Osc1 assignments - handle both flat object from applyPresetValue and nested object
+                            const osc1Vals = chuckCodeData.valuesReadout || {};
+                            if (Array.isArray(osc1Vals)) {
+                                // If it's an array, filter out non-string values
+                                osc1Vals.forEach((assignStr: any) => {
+                                    if (typeof assignStr === 'string') assignments.push(assignStr);
+                                });
+                            } else if (typeof osc1Vals === 'object') {
+                                // If it's an object, check if nested or flat
+                                Object.values(osc1Vals).forEach((val: any) => {
+                                    if (typeof val === 'string') {
+                                        // Flat object: { "mix": "allFXDynamicFloats[...] => ...", ... }
+                                        assignments.push(val);
+                                    } else if (val && typeof val === 'object') {
+                                        // Nested object: { jcrev: { mix: "...", ... } }
+                                        Object.values(val).forEach((assignStr: any) => {
+                                            if (typeof assignStr === 'string') assignments.push(assignStr);
+                                        });
+                                    }
+                                });
+                            }
+                            // Same for other sources...
+                            [chuckCodeData.valuesReadoutSampler, chuckCodeData.valuesReadoutSTK, chuckCodeData.valuesReadoutAudioIn].forEach((vals: any) => {
+                                if (Array.isArray(vals)) {
+                                    vals.forEach((assignStr: any) => {
+                                        if (typeof assignStr === 'string') assignments.push(assignStr);
+                                    });
+                                } else if (typeof vals === 'object') {
+                                    Object.values(vals).forEach((val: any) => {
+                                        if (typeof val === 'string') {
+                                            assignments.push(val);
+                                        } else if (val && typeof val === 'object') {
+                                            Object.values(val).forEach((assignStr: any) => {
+                                                if (typeof assignStr === 'string') assignments.push(assignStr);
+                                            });
+                                        }
+                                    });
+                                }
+                            });
+                            return assignments.join('\n                        ');
+                        })()}
                         
                         // ============================================================
                         // SAMPLER: Enhanced polyphonic pitch-shifted playback
@@ -2290,14 +2345,6 @@ export default function ChuckSetup() {
                         for (0 => int i; i < samplerBuffers.size(); i++) {
                             samplerBuffers[i] => masterGain;
                         }
-                        
-                        // ============================================================
-                        // EFFECTS DECLARATIONS: All chugins and effects
-                        // ============================================================
-                        ${(chuckCodeData.signalChainDeclarations || []).map((d: string) => d).join(' ')}
-                        ${(chuckCodeData.signalChainSamplerDeclarations || []).map((d: string) => d).join(' ')}
-                        ${(chuckCodeData.signalChainSTKDeclarations || []).map((d: string) => d).join(' ')}
-                        ${(chuckCodeData.signalChainAudioInDeclarations || []).map((d: string) => d).join(' ')}
                         
                         // ============================================================
                         // AUDIO INPUT: Ready for effects/mangling
@@ -2863,6 +2910,34 @@ for (0 => int i; i < 256; i++) {
 console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
                     result = await chuckRef.current.runCode(tempTestCode);
                     console.log('✅ ChucK code replaced successfully ', result);
+                    
+                    // RE-APPLY EFFECT VALUES AFTER CODE RUNS (prevents zeroing out)
+                    // This matches SoundSink pattern - values must be set after VM resets
+                    // RE-APPLY EFFECT VALUES AFTER CODE RUNS (prevents zeroing out)
+                    // This matches SoundSink pattern - values must be set after VM resets
+                    if (universalSources.current) {
+                        const osc1Effects = Object.values(universalSources.current.osc1?.effects || {}).filter((fx: any) => fx?.On);
+                        const samplerEffects = Object.values(universalSources.current.sampler?.effects || {}).filter((fx: any) => fx?.On);
+                        const stk1Effects = Object.values(universalSources.current.stk1?.effects || {}).filter((fx: any) => fx?.On);
+                        const audioinEffects = Object.values(universalSources.current.audioin?.effects || {}).filter((fx: any) => fx?.On);
+                        const fxRadioValue = useOldMonolithStore.getState().fxRadioValue || 'osc1';
+                        
+                        const osc1Targets = createEmptyTargets();
+                        const samplerTargets = createEmptyTargets();
+                        const stk1Targets = createEmptyTargets();
+                        const audioinTargets = createEmptyTargets();
+                        
+                        try {
+                            await Promise.all([
+                                processSourceFX('osc1', osc1Effects, chuckRef, fxRadioValue, osc1Targets, universalSources.current),
+                                processSourceFX('sampler', samplerEffects, chuckRef, fxRadioValue, samplerTargets, universalSources.current),
+                                processSourceFX('stk1', stk1Effects, chuckRef, fxRadioValue, stk1Targets, universalSources.current),
+                                processSourceFX('audioin', audioinEffects, chuckRef, fxRadioValue, audioinTargets, universalSources.current),
+                            ]);
+                        } catch (fxError) {
+                            console.error('Error re-applying source FX after code run:', fxError);
+                        }
+                    }
                 } catch (replaceErr: any) {
                 }
                 console.log('✅ ChucK code executed successfully with effects routing');
@@ -3092,6 +3167,7 @@ console.log("### CHUCK TEMPTEST CODE ###", tempTestCode);
                                         pointerEvents: 'auto',
                                         display: 'flex',
                                         alignItems: 'center',
+                                        flexDirection: 'column'
                                     }}
                                     onClick={() => {
                                         // Toggle HID on/off WITHOUT opening Piano keyboard UI
