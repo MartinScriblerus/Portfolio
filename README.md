@@ -11,10 +11,8 @@ Visit https://portfolio-git-main-matthew-reillys-projects.vercel.app, click the 
 The goal of this project is to explore expressive, real-time audiovisual tooling at the intersection of 3D graphics, live coding, and accessible UI design.
 
 **Core ideas:**
-- Real-time video and camera processing
-- No-code interaction with Hydra logic
-- 3D visual composition using Babylon.js
-- MIDI-friendly no-code interaction with ChucK (sample, sequence, modify, record)
-- Open-source tool networking for easy integration and no-code experimentation
+- Real-time audio and video processing
+- No-code interaction with Hydra, Babylon.js, and ChucK
+- Open-source tool networking for no-code experimentation
 
-Planned extensions include a MIDI-friendly ChucK editor, a RAG-based helper for audio-video experimentation, and expanded tooling for building 3D and IoT interfaces with Babylon.js. 
+Planned extensions include a MIDI-friendly ChucK editor, a RAG-based helper, and expanded tooling for building interfaces with Babylon.js. 
